@@ -1,0 +1,144 @@
+diff --git a/package.120/cli.prettier.js b/package.120/cli.prettier.js
+index 1c11459..814f8fd 100755
+--- a/package.120/cli.prettier.js
++++ b/package.120/cli.prettier.js
+@@ -364091,13 +364091,14 @@ async function _A0(A, B, Q, Z = UL) {
+   });
+   return await Promise.all(J);
+ }
+-async function* JMA(A, B, Q, Z, G, Y = UL) {
++async function* JMA(A, B, Q, Z, G, validationContext, Y = UL) {
+   F1(`executePreToolHooks called for tool: ${A}`);
+   let I = {
+     ...$L(Z),
+     hook_event_name: "PreToolUse",
+     tool_name: A,
+     tool_input: Q,
++    ...(validationContext && { tool_validation: validationContext })
+   };
+   yield* c61(I, B, A, G, Y);
+ }
+@@ -422122,51 +422123,7 @@ async function* WNB(A, B, Q, Z) {
+ }
+ async function* VJ5(A, B, Q, Z, G, Y) {
+   let I = A.inputSchema.safeParse(Q);
+-  if (!I.success) {
+-    let O = zJ5(A.name, I.error);
+-    (Y1("tengu_tool_use_error", {
+-      error: "InputValidationError",
+-      errorDetails: O.slice(0, 2000),
+-      messageID: Y.message.id,
+-      toolName: A.name,
+-    }),
+-      yield {
+-        message: fA({
+-          content: [
+-            {
+-              type: "tool_result",
+-              content: `<tool_use_error>InputValidationError: ${O}</tool_use_error>`,
+-              is_error: !0,
+-              tool_use_id: B,
+-            },
+-          ],
+-          toolUseResult: `InputValidationError: ${I.error.message}`,
+-        }),
+-      });
+-    return;
+-  }
+   let W = await A.validateInput?.(I.data, Z);
+-  if (W?.result === !1) {
+-    (Y1("tengu_tool_use_error", {
+-      messageID: Y.message.id,
+-      toolName: A.name,
+-      errorCode: W.errorCode,
+-    }),
+-      yield {
+-        message: fA({
+-          content: [
+-            {
+-              type: "tool_result",
+-              content: `<tool_use_error>${W.message}</tool_use_error>`,
+-              is_error: !0,
+-              tool_use_id: B,
+-            },
+-          ],
+-          toolUseResult: `Error: ${W.message}`,
+-        }),
+-      });
+-    return;
+-  }
+   let J = I.data,
+     X = !1,
+     F,
+@@ -422174,7 +422131,19 @@ async function* VJ5(A, B, Q, Z, G, Y) {
+     K = Date.now();
+   try {
+     let R = (await Z.getAppState()).toolPermissionContext.mode,
+-      P = JMA(A.name, B, J, R, Z.abortController.signal),
++      validationContext = {
++        schema_validation: I.success
++          ? { passed: true }
++          : { passed: false, error_message: zJ5(A.name, I.error) },
++        input_validation: W?.result !== false
++          ? { passed: true }
++          : {
++              passed: false,
++              error_message: W.message,
++              error_code: W.errorCode
++            }
++      },
++      P = JMA(A.name, B, J, R, Z.abortController.signal, validationContext),
+       k = [];
+     for await (let b of P) {
+       if (b.message) yield { message: b.message };
+@@ -422256,6 +422225,50 @@ async function* VJ5(A, B, Q, Z, G, Y) {
+     };
+     return;
+   }
++  if (!I.success) {
++    let O = zJ5(A.name, I.error);
++    (Y1("tengu_tool_use_error", {
++      error: "InputValidationError",
++      errorDetails: O.slice(0, 2000),
++      messageID: Y.message.id,
++      toolName: A.name,
++    }),
++      yield {
++        message: fA({
++          content: [
++            {
++              type: "tool_result",
++              content: `<tool_use_error>InputValidationError: ${O}</tool_use_error>`,
++              is_error: !0,
++              tool_use_id: B,
++            },
++          ],
++          toolUseResult: `InputValidationError: ${I.error.message}`,
++        }),
++      });
++    return;
++  }
++  if (W?.result === !1) {
++    (Y1("tengu_tool_use_error", {
++      messageID: Y.message.id,
++      toolName: A.name,
++      errorCode: W.errorCode,
++    }),
++      yield {
++        message: fA({
++          content: [
++            {
++              type: "tool_result",
++              content: `<tool_use_error>${W.message}</tool_use_error>`,
++              is_error: !0,
++              tool_use_id: B,
++            },
++          ],
++          toolUseResult: `Error: ${W.message}`,
++        }),
++      });
++    return;
++  }
+   if (
+     (Y1("tengu_tool_use_can_use_tool_allowed", {
+       messageID: Y.message.id,

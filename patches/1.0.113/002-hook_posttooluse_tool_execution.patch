@@ -1,0 +1,100 @@
+diff --git a/1.0.113/package/cli.prettier.js b/1.0.113/package/cli.prettier.js
+index 9f85f88..3ff852e 100755
+--- a/1.0.113/package/cli.prettier.js
++++ b/1.0.113/package/cli.prettier.js
+@@ -363572,13 +363572,14 @@ async function* lNA(A, B, Q, Z, G, validationContext, Y = JL) {
+   };
+   yield* V61(I, B, A, G, Y);
+ }
+-async function* pNA(A, B, Q, Z, G, Y, I = JL) {
++async function* pNA(A, B, Q, Z, executionContext, G, Y, I = JL) {
+   let W = {
+       ...XL(G),
+       hook_event_name: "PostToolUse",
+       tool_name: A,
+       tool_input: Q,
+       tool_response: Z,
++      ...(executionContext && { tool_execution: executionContext })
+     },
+     J = V61(W, B, A, Y, I, !1),
+     X = !1;
+@@ -419642,6 +419643,11 @@ async function* XZ5(A, B, Q, Z, G, Y) {
+     F,
+     V,
+     K = Date.now();
++  let executionContext = {
++    success: false,
++    duration_ms: 0,
++    start_time: K
++  };
+   try {
+     let O = Z.getToolPermissionContext()?.mode,
+       validationContext = {
+@@ -419806,6 +419812,10 @@ async function* XZ5(A, B, Q, Z, G, Y) {
+       switch (R.type) {
+         case "result": {
+           let P = Date.now() - D;
++          executionContext = {
++            success: true,
++            duration_ms: P
++          };
+           if (
+             (mr1(P),
+             (C = R.data),
+@@ -419862,6 +419872,29 @@ async function* XZ5(A, B, Q, Z, G, Y) {
+       }
+   } catch (O) {
+     let R = Date.now() - D;
++    executionContext = {
++      success: false,
++      duration_ms: R,
++      error_message: SM0(O),
++      error_type: O.name || "Error"
++    };
++    if (O instanceof cN) {
++      executionContext.details = {
++        stdout: O.stdout,
++        stderr: O.stderr,
++        exitCode: O.code,
++        interrupted: O.interrupted
++      };
++    } else if (O instanceof XV) {
++      executionContext.details = {
++        aborted: true
++      };
++    } else if (O instanceof Error && O.stack) {
++      executionContext.details = {
++        stack: O.stack.substring(0, 1000)
++      };
++    }
++    C = null;
+     if ((mr1(R), !(O instanceof XV))) {
+       if (!(O instanceof cN))
+         D1(O instanceof Error ? O : new Error(String(O)), PZA);
+@@ -419891,7 +419924,6 @@ async function* XZ5(A, B, Q, Z, G, Y) {
+         toolUseResult: `Error: ${P}`,
+       }),
+     };
+-    return;
+   } finally {
+     if (w) Z.toolDecisions?.delete(B);
+   }
+@@ -419899,7 +419931,7 @@ async function* XZ5(A, B, Q, Z, G, Y) {
+     L = Date.now();
+   try {
+     let O = Z.getToolPermissionContext()?.mode,
+-      R = pNA(A.name, B, z.updatedInput, C, O, Z.abortController.signal),
++      R = pNA(A.name, B, z.updatedInput, C, executionContext, O, Z.abortController.signal),
+       P = [],
+       j = !1,
+       b,
+@@ -419959,6 +419991,9 @@ async function* XZ5(A, B, Q, Z, G, Y) {
+         message: F3(`PostToolUse hook failed: ${SM0(O)}`, "warning", B),
+       });
+   }
++  if (!executionContext.success) {
++    return;
++  }
+ }
+ function SM0(A) {
+   if (A instanceof XV) return A.message || q$;

@@ -1,0 +1,100 @@
+diff --git a/package.120/cli.prettier.js b/package.120/cli.prettier.js
+index 814f8fd..109c802 100755
+--- a/package.120/cli.prettier.js
++++ b/package.120/cli.prettier.js
+@@ -364102,13 +364102,14 @@ async function* JMA(A, B, Q, Z, G, validationContext, Y = UL) {
+   };
+   yield* c61(I, B, A, G, Y);
+ }
+-async function* XMA(A, B, Q, Z, G, Y, I = UL) {
++async function* XMA(A, B, Q, Z, executionContext, G, Y, I = UL) {
+   let W = {
+       ...$L(G),
+       hook_event_name: "PostToolUse",
+       tool_name: A,
+       tool_input: Q,
+       tool_response: Z,
++      ...(executionContext && { tool_execution: executionContext })
+     },
+     J = c61(W, B, A, Y, I, !1),
+     X = !1;
+@@ -422298,6 +422299,11 @@ async function* VJ5(A, B, Q, Z, G, Y) {
+   let D = Date.now(),
+     C = null,
+     w = Z.toolDecisions?.get(B);
++  let executionContext = {
++    success: false,
++    duration_ms: 0,
++    start_time: D
++  };
+   aW1.reportToolStart(A.name, B);
+   try {
+     let O = A.call(J, { ...Z, userModified: z.userModified ?? !1 }, G, Y);
+@@ -422305,6 +422311,10 @@ async function* VJ5(A, B, Q, Z, G, Y) {
+       switch (R.type) {
+         case "result": {
+           let P = Date.now() - D;
++          executionContext = {
++            success: true,
++            duration_ms: P
++          };
+           if (
+             (so1(P),
+             (C = R.data),
+@@ -422362,6 +422372,29 @@ async function* VJ5(A, B, Q, Z, G, Y) {
+       }
+   } catch (O) {
+     let R = Date.now() - D;
++    executionContext = {
++      success: false,
++      duration_ms: R,
++      error_message: rO0(O),
++      error_type: O.name || "Error"
++    };
++    if (O instanceof oN) {
++      executionContext.details = {
++        stdout: O.stdout,
++        stderr: O.stderr,
++        exitCode: O.code,
++        interrupted: O.interrupted
++      };
++    } else if (O instanceof Az) {
++      executionContext.details = {
++        aborted: true
++      };
++    } else if (O instanceof Error && O.stack) {
++      executionContext.details = {
++        stack: O.stack.substring(0, 1000)
++      };
++    }
++    C = null;
+     if (
+       (so1(R),
+       aW1.reportToolError(
+@@ -422399,7 +422432,6 @@ async function* VJ5(A, B, Q, Z, G, Y) {
+         toolUseResult: `Error: ${P}`,
+       }),
+     };
+-    return;
+   } finally {
+     if (w) Z.toolDecisions?.delete(B);
+   }
+@@ -422407,7 +422439,7 @@ async function* VJ5(A, B, Q, Z, G, Y) {
+     L = Date.now();
+   try {
+     let R = (await Z.getAppState()).toolPermissionContext.mode,
+-      P = XMA(A.name, B, z.updatedInput, C, R, Z.abortController.signal),
++      P = XMA(A.name, B, z.updatedInput, C, executionContext, R, Z.abortController.signal),
+       k = [],
+       b = !1,
+       S,
+@@ -422468,6 +422500,9 @@ async function* VJ5(A, B, Q, Z, G, Y) {
+         message: F3(`PostToolUse hook failed: ${rO0(O)}`, "warning", B),
+       });
+   }
++  if (!executionContext.success) {
++    return;
++  }
+ }
+ function rO0(A) {
+   if (A instanceof Az) return A.message || j$;

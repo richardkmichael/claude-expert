@@ -1,0 +1,144 @@
+diff --git a/1.0.113/package/cli.prettier.js b/1.0.113/package/cli.prettier.js
+index 00deb67..9f85f88 100755
+--- a/1.0.113/package/cli.prettier.js
++++ b/1.0.113/package/cli.prettier.js
+@@ -363561,13 +363561,14 @@ async function L00(A, B, Q, Z = JL) {
+   });
+   return await Promise.all(J);
+ }
+-async function* lNA(A, B, Q, Z, G, Y = JL) {
++async function* lNA(A, B, Q, Z, G, validationContext, Y = JL) {
+   C1(`executePreToolHooks called for tool: ${A}`);
+   let I = {
+     ...XL(Z),
+     hook_event_name: "PreToolUse",
+     tool_name: A,
+     tool_input: Q,
++    ...(validationContext && { tool_validation: validationContext })
+   };
+   yield* V61(I, B, A, G, Y);
+ }
+@@ -419635,51 +419636,7 @@ async function* s$B(A, B, Q, Z) {
+ }
+ async function* XZ5(A, B, Q, Z, G, Y) {
+   let I = A.inputSchema.safeParse(Q);
+-  if (!I.success) {
+-    let O = VZ5(A.name, I.error);
+-    (I1("tengu_tool_use_error", {
+-      error: "InputValidationError",
+-      errorDetails: O.slice(0, 2000),
+-      messageID: Y.message.id,
+-      toolName: A.name,
+-    }),
+-      yield {
+-        message: yA({
+-          content: [
+-            {
+-              type: "tool_result",
+-              content: `<tool_use_error>InputValidationError: ${O}</tool_use_error>`,
+-              is_error: !0,
+-              tool_use_id: B,
+-            },
+-          ],
+-          toolUseResult: `InputValidationError: ${I.error.message}`,
+-        }),
+-      });
+-    return;
+-  }
+   let W = await A.validateInput?.(I.data, Z);
+-  if (W?.result === !1) {
+-    (I1("tengu_tool_use_error", {
+-      messageID: Y.message.id,
+-      toolName: A.name,
+-      errorCode: W.errorCode,
+-    }),
+-      yield {
+-        message: yA({
+-          content: [
+-            {
+-              type: "tool_result",
+-              content: `<tool_use_error>${W.message}</tool_use_error>`,
+-              is_error: !0,
+-              tool_use_id: B,
+-            },
+-          ],
+-          toolUseResult: `Error: ${W.message}`,
+-        }),
+-      });
+-    return;
+-  }
+   let J = I.data,
+     X = !1,
+     F,
+@@ -419687,7 +419644,19 @@ async function* XZ5(A, B, Q, Z, G, Y) {
+     K = Date.now();
+   try {
+     let O = Z.getToolPermissionContext()?.mode,
+-      R = lNA(A.name, B, J, O, Z.abortController.signal),
++      validationContext = {
++        schema_validation: I.success
++          ? { passed: true }
++          : { passed: false, error_message: VZ5(A.name, I.error) },
++        input_validation: W?.result !== false
++          ? { passed: true }
++          : {
++              passed: false,
++              error_message: W.message,
++              error_code: W.errorCode
++            }
++      },
++      R = lNA(A.name, B, J, O, Z.abortController.signal, validationContext),
+       P = [];
+     for await (let j of R) {
+       if (j.message) yield { message: j.message };
+@@ -419765,6 +419734,50 @@ async function* XZ5(A, B, Q, Z, G, Y) {
+     };
+     return;
+   }
++  if (!I.success) {
++    let O = VZ5(A.name, I.error);
++    (I1("tengu_tool_use_error", {
++      error: "InputValidationError",
++      errorDetails: O.slice(0, 2000),
++      messageID: Y.message.id,
++      toolName: A.name,
++    }),
++      yield {
++        message: yA({
++          content: [
++            {
++              type: "tool_result",
++              content: `<tool_use_error>InputValidationError: ${O}</tool_use_error>`,
++              is_error: !0,
++              tool_use_id: B,
++            },
++          ],
++          toolUseResult: `InputValidationError: ${I.error.message}`,
++        }),
++      });
++    return;
++  }
++  if (W?.result === !1) {
++    (I1("tengu_tool_use_error", {
++      messageID: Y.message.id,
++      toolName: A.name,
++      errorCode: W.errorCode,
++    }),
++      yield {
++        message: yA({
++          content: [
++            {
++              type: "tool_result",
++              content: `<tool_use_error>${W.message}</tool_use_error>`,
++              is_error: !0,
++              tool_use_id: B,
++            },
++          ],
++          toolUseResult: `Error: ${W.message}`,
++        }),
++      });
++    return;
++  }
+   if (((J = z.updatedInput), A.name === "Bash" && J)) {
+     let O = J;
+     if (O.command) {
