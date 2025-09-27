@@ -2,21 +2,24 @@
 
 ## Overview
 
-This document describes the complete process for porting Claude Code hook enhancements to new
-versions, despite function name changes from re-minification. The process involves detecting
-equivalent functions across versions and creating standalone patches using git staging.
+This methodology creates new patches for Claude Code versions by understanding the semantic intent of existing patches and recreating equivalent changes in the new version's code structure.
+
+## Core Principle
+
+**NEVER apply old patches to new code.** Always generate patches from scratch by:
+1. Understanding the semantic changes from existing patches
+2. Locating equivalent code structures in the new version
+3. Recreating the same semantic changes using new identifiers
 
 ## Problem Statement
 
-When Claude Code releases new versions, the minified code gets re-generated with:
+Between Claude Code versions, minified code changes completely:
 - **Different function names** (e.g., `pNA` → `XMA`, `lNA` → `JMA`, `XZ5` → `VJ5`)
 - **Different variable names** (e.g., `yA` → `fA`, `I1` → `Y1`)
 - **Different line numbers** (shifts of hundreds to thousands of lines)
 - **Same underlying structure** (control flow, string literals, patterns preserved)
 
-When a new Claude Code version such as `1.0.120` is released, new patches against that version need
-to be generated.  This is accomplished by reviewing the patches for previous versions of Claude
-Code, then making the same changes to the new version source code and creating new patches.
+Old patches cannot be applied - they must be recreated from scratch for each version.
 
 ## Requirements
 
@@ -24,170 +27,151 @@ If the MCP code-intel tools are unavailable, STOP IMMEDIATELY and inform the use
 
 ## Complete Workflow
 
-### Phase 1: Function Detection and Mapping
+### Phase 1: Understand Existing Patches
 
-#### Step 1: Identify Target Functions by String Literals
+#### Step 1: Read Existing Patches
 
-Minified code preserves string literals, making them reliable anchors for function identification.
+Examine patches from the most recent previous version to understand the semantic changes made.
 
-**PreToolUse Function Detection:**
+#### Step 2: Extract Key Context (Optional)
+
+If existing patches lack sufficient context to understand the changes, examine them in their original context:
+
+1. Download the previous version that the patches target
+2. Apply the patches to that version to see the complete before/after changes
+3. Use code-intel tools to examine the surrounding context
+
+This provides the semantic understanding needed to recreate equivalent changes in the new version.
+
+### Phase 2: Locate Equivalent Code in New Version
+
+#### Step 1: Search for Persistent String Literals
+
+Find equivalent functions in the new version using string literals that persist across versions:
+
+**PreToolUse Function:**
 ```bash
 grep -n "PreToolUse" {VERSION}/package/cli.prettier.js
 ```
-Look for `hook_event_name: "PreToolUse"` - this identifies the PreToolUse hook function.
+Look for `hook_event_name: "PreToolUse"`
 
-**PostToolUse Function Detection:**
+**PostToolUse Function:**
 ```bash
 grep -n "PostToolUse" {VERSION}/package/cli.prettier.js
 ```
-Look for `hook_event_name: "PostToolUse"` - this identifies the PostToolUse hook function.
+Look for `hook_event_name: "PostToolUse"`
 
-**Tool Execution Function Detection:**
+**Tool Execution Function:**
 ```bash
 grep -n "tengu_tool_use_success" {VERSION}/package/cli.prettier.js
 ```
-This telemetry call is unique to the tool execution function's success path.
+This telemetry call identifies the tool execution function.
 
-#### Step 2: Verify Function Structure
+#### Step 2: Verify Function Structure Using Code Intelligence
 
-Use code intelligence tools to extract complete function definitions and verify structural equivalence.
-
-STRONGLY prefer these tools if available, especially if an extact string or line number is not
-available or incorrect.
+Use code intelligence tools to extract complete function definitions and verify they match the expected patterns:
 
 ```bash
-mcp__code-intel__get_code_context file.js line char context_level
+mcp__code-intel__get_code_context {VERSION}/package/cli.prettier.js line char context_level
 ```
 
-#### Step 3: Confirm Function Signatures and Patterns
+#### Step 3: Confirm Semantic Equivalence
 
-Verify the functions have expected parameter counts and internal patterns:
+Verify the functions match expected patterns from the existing patches:
 
-**PreToolUse Function:**
-- **Parameters**: 6 parameters `(A, B, Q, Z, G, Y)`
-- **Key patterns**:
-  - `hook_event_name: "PreToolUse"`
-  - `executePreToolHooks called for tool:` debug message
-  - Simple hook execution wrapper
+**PreToolUse Function Expected Patterns:**
+- `hook_event_name: "PreToolUse"`
+- `executePreToolHooks called for tool:` debug message
+- Simple hook execution wrapper
 
-**PostToolUse Function:**
-- **Parameters**: 7 parameters `(A, B, Q, Z, G, Y, I)`
-- **Key patterns**:
-  - `hook_event_name: "PostToolUse"`
-  - `tool_response: Z`
-  - Generator function with progress handling
+**PostToolUse Function Expected Patterns:**
+- `hook_event_name: "PostToolUse"`
+- `tool_response: Z` or similar response handling
+- Generator function with progress handling
 
-**Tool Execution Function:**
-- **Parameters**: 6 parameters `(A, B, Q, Z, G, Y)`
-- **Key patterns**:
-  - Schema validation: `A.inputSchema.safeParse(Q)`
-  - Input validation: `A.validateInput?.(I.data, Z)`
-  - Telemetry: `tengu_tool_use_success` and `tengu_tool_use_error`
-  - Error handling: `instanceof cN` (ShellError checks)
+**Tool Execution Function Expected Patterns:**
+- Schema validation patterns
+- Input validation calls
+- Telemetry calls: `tengu_tool_use_success` and `tengu_tool_use_error`
+- Error handling for shell commands
 
 #### Step 4: Map Function Call Sites
 
-Find where the target functions are called:
+Find where the target functions are called to understand where modifications need to be made.
 
-```bash
-# Find PreToolUse function calls
-grep -n "{PRETOOLUSE_FUNC}(" {VERSION}/package/cli.prettier.js
+### Phase 3: Recreate Semantic Changes
 
-# Find PostToolUse function calls
-grep -n "{POSTTOOLUSE_FUNC}(" {VERSION}/package/cli.prettier.js
-```
+Using the understanding from Phase 1 and the function locations from Phase 2, recreate the same semantic changes in the new version using the new identifiers.
 
-#### Step 5: Document Function Mappings
+#### Git Staging Strategy for Standalone Patches
 
-Create a mapping table for reference:
-
-| Enhancement | 1.0.113 Function | 1.0.120 Function | 1.0.113 Line | 1.0.120 Line | Line Drift |
-|-------------|---------------|---------------|-----------|-----------|------------|
-| PreToolUse  | `lNA` | `JMA` | 363570 | 364094 | +524 |
-| PostToolUse | `pNA` | `XMA` | 363575 | 364104 | +529 |
-| Tool Execution | `XZ5` | `VJ5` | 419638 | 422123 | +2,485 |
-
-### Phase 2: Incremental Patch Creation
-
-**CRITICAL**: Use git's staging area to create standalone, non-cumulative patches.
-
-#### The Problem
-
-Each patch is ideally stand-alone.  Each patch file is named with a 3-integer width prefix (e.g.,
-001, 002, etc.) to impose a natural sequence in case the collection of patches requires ordering in
-the future.
-
-Traditional patch creation results in cumulative patches where the second patch includes all changes
-from the first patch, making patches interdependent.
-
-#### The Solution: Git Staging Strategy
-
-Use git's three-tree architecture (working tree, staging area, HEAD) to create truly incremental patches:
+Create independent, non-cumulative patches using git's staging area:
 
 ```bash
 # Step 1: Stage original file
 git add {VERSION}/package/cli.prettier.js
 
-# Step 2: Apply ONLY PreToolUse changes
-# - Modify PreToolUse function signature to accept validationContext
-# - Move validation logic after PreToolUse hook in tool execution function
-# - Create and pass validationContext to PreToolUse hook calls
+# Step 2: Apply ONLY the first semantic change
+# (Based on understanding from existing patches - e.g., PreToolUse modifications)
+# - Modify function signatures as needed
+# - Add new functionality
+# - Update call sites
 
 # Step 3: Create first standalone patch
-git diff {VERSION}/package/cli.prettier.js > patches/{VERSION}/001-hook_pretooluse_tool_validation.patch
+git diff {VERSION}/package/cli.prettier.js > patches/{VERSION}/001-[same-name-as-existing-patch].patch
 
-# Step 4: Stage PreToolUse changes (preparing for next incremental diff)
+# Step 4: Stage the first changes (preparing for next incremental diff)
 git add {VERSION}/package/cli.prettier.js
 
-# Step 5: Apply ONLY PostToolUse changes
-# - Modify PostToolUse function signature to accept executionContext
-# - Initialize and update executionContext during tool execution
-# - Remove early returns from error handling
-# - Pass executionContext to PostToolUse hook calls
-# - Add success check at function end
+# Step 5: Apply ONLY the second semantic change
+# (Based on understanding from existing patches - e.g., PostToolUse modifications)
 
 # Step 6: Create second standalone patch
-git diff {VERSION}/package/cli.prettier.js > patches/{VERSION}/002-hook_posttooluse_tool_execution.patch
+git diff {VERSION}/package/cli.prettier.js > patches/{VERSION}/002-[same-name-as-existing-patch].patch
 ```
 
-#### Why This Works
-- **git diff** compares working tree against staging area
-- After staging PreToolUse changes, the second diff only shows PostToolUse changes
-- Each patch is standalone and can be applied independently
-- No dependency between patches
+#### Key Principles
 
-### Phase 3: Verification
+- **Recreate semantic intent**, not literal text from old patches
+- **Use new version's identifiers** (function names, variables) throughout
+- **Maintain same functionality** as existing patches but adapted to new code structure
+- **Create standalone patches** - each can be applied independently
+
+### Phase 4: Verification
 
 #### Patch Verification
-Confirm patches are standalone by checking:
-- First patch contains only PreToolUse modifications
-- Second patch contains only PostToolUse modifications
-- Neither patch includes changes from the other
+Confirm each patch:
+- Contains only the intended semantic changes
+- Uses correct identifiers for the new version
+- Is standalone and independently applicable
+- Maintains functional equivalence to existing patches
 
 #### Function Verification
-Before applying patches, verify:
-- [ ] Functions have correct parameter counts
+Before finalizing, verify:
+- [ ] Functions have expected structural patterns
 - [ ] String literals match expected patterns
-- [ ] Function call sites identified
-- [ ] No syntax errors in target functions
-- [ ] Functions contain expected internal logic patterns
+- [ ] Function call sites properly updated
+- [ ] No syntax errors introduced
+- [ ] Semantic changes match existing patch intent
 
-#### Post-verification cleanup
+#### Post-verification Cleanup
 
-After all patches have been generated, remove the original from the git staging area because it will
-never be committed to the repository.
+Remove the working file from git staging area:
+```bash
+git restore --staged {VERSION}/package/cli.prettier.js
+```
 
-## Alternative Detection Methods
+## Fallback Detection Methods
 
-If string literal search fails, try these approaches:
+If primary string literal search fails:
 
-### Method 1: Error Handling Pattern Search
+### Method 1: Error Handling Patterns
 ```bash
 grep -n "Shell command failed" {VERSION}/package/cli.prettier.js
 grep -n "instanceof.*cN" {VERSION}/package/cli.prettier.js
 ```
 
-### Method 2: Telemetry Pattern Search
+### Method 2: Telemetry Patterns
 ```bash
 grep -n "tengu_tool_use_error" {VERSION}/package/cli.prettier.js
 grep -n "tengu_pre_tool_hook" {VERSION}/package/cli.prettier.js
@@ -195,42 +179,32 @@ grep -n "tengu_pre_tool_hook" {VERSION}/package/cli.prettier.js
 
 ## Success Criteria
 
-### Function Detection Success
-1. **String literals found** in expected locations
-2. **Function signatures match** parameter patterns
-3. **Internal structure verified** with key patterns present
-4. **Call sites located** for modification planning
-5. **Line number drift calculated** for patch coordinate adjustment
+### Semantic Understanding Success
+1. **Existing patches analyzed** and semantic intent understood
+2. **Key patterns identified** for locating equivalent code
+3. **Context extracted** when needed using previous version analysis
+4. **Function equivalents located** in new version using persistent identifiers
 
 ### Patch Creation Success
-1. **Two standalone patches created** - each patch is independently applicable
-2. **Git staging workflow completed** - incremental diffs generated correctly
-3. **Functional equivalence verified** - changes match 1.0.113 functionality
-4. **No cumulative dependencies** - second patch doesn't include first patch changes
+1. **Standalone patches created** - each independently applicable
+2. **Semantic equivalence maintained** - same functionality as existing patches
+3. **New identifiers used** - no old function names or variables remain
+4. **Git staging workflow completed** - incremental diffs generated correctly
 5. **File naming consistent** - patches follow `{NUMBER}-{DESCRIPTION}.patch` format
 
 ## Common Pitfalls
 
-### Code Detection Pitfalls
-- **Don't rely on line numbers alone** - they shift significantly between versions
-- **Don't search for function names** - minification changes them unpredictably
-- **Don't assume same structure** - verify each function individually
-- **Don't skip verification** - similar patterns can exist in different functions
+### Understanding Pitfalls
+- **Don't copy literal text** from existing patches - understand the semantic intent
+- **Don't skip context analysis** when patches are unclear
+- **Don't assume patterns match exactly** - verify each function individually
+
+### Implementation Pitfalls
+- **Don't use old identifiers** - always use new version's function/variable names
+- **Don't rely on line numbers** - they shift significantly between versions
+- **Don't skip verification** - ensure semantic equivalence is maintained
 
 ### Git Workflow Pitfalls
-- **Never commit large cli.prettier.js files** - use git staging area only for patch creation
-- **Don't create patches directly from modified files** - results in cumulative patches
-- **Don't skip the staging step between patches** - breaks incremental diff creation
-- **Don't work on multiple versions simultaneously** - can lead to patch cross-contamination
-
-## Automation Potential
-
-This process can be automated with a script that:
-1. Searches for string literal anchors
-2. Extracts function boundaries
-3. Verifies structural patterns
-4. Generates function mapping tables
-5. Validates compatibility before patch application
-
-The manual process documented here provides the foundation for such automation while remaining
-reliable for occasional manual application.
+- **Never commit cli.prettier.js files** - use git staging area only for patch creation
+- **Don't create cumulative patches** - use staging area between modifications
+- **Don't skip cleanup** - remove staged files after patch creation
