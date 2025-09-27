@@ -6,12 +6,31 @@ TOOL_MONITOR_DB=$( readlink -f ~/.claude/tool-monitor.sqlite )
 
 CLI_PRETTIER='cli.prettier.js'
 
-VERSION=${1}
+# Parse arguments
+TEST_ONLY=false
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    -t|--test)
+      TEST_ONLY=true
+      shift
+      ;;
+    -*)
+      echo "Unknown option $1"
+      echo "Usage: $0 [-t|--test] <version>"
+      exit 1
+      ;;
+    *)
+      VERSION=$1
+      shift
+      ;;
+  esac
+done
 
 # Validate VERSION parameter
-if [[ -z "${VERSION}" ]]; then
+if [[ -z "${VERSION:-}" ]]; then
   echo "Error: VERSION parameter is required"
-  echo "Usage: $0 <version>"
+  echo "Usage: $0 [-t|--test] <version>"
   exit 1
 fi
 
@@ -46,23 +65,26 @@ function test_claude() {
 
   # Run tests
   #   TODO: Assert expected output
+  #   TODO: Generate a random filename and command name
 
   # `Read` has implicit permission
-  ./claude -p 'Read `does-not-exist.txt`'
+  ./claude -p 'Read `does-not-exist-4.txt`'
 
-  sqlite3 ${TOOL_MONITOR_DB} < verify/verify-pretooluse-hook-modification.sql
+  sqlite3 -header -cmd '.parameter set :filename does-not-exist-4.txt' ${TOOL_MONITOR_DB} < verify/verify-pretooluse-hook-modification.sql
   # Expected:
-  #   hook|has_schema_validation|has_input_validation|created_at
-  #   PreToolUse|1|1|2025-09-25 05:23:07
+  #
+  #   hook|has_schema_validation|has_input_validation|file_path|created_at_l
+  #   PreToolUse|1|1|/path/to/claude-code-analysis/does-not-exist-4.txt|2025-09-25 17:25:59
 
 
   # `Bash` requires permission
   ./claude --allowed-tools Bash -p 'Use the Bash tool to run the command: `does-not-exist.sh`'
 
-  sqlite3 ${TOOL_MONITOR_DB} < verify/verify-posttooluse-hook-modification.sql
+  sqlite3 -header -cmd '.parameter set :command does-not-exist.sh' ${TOOL_MONITOR_DB} < verify/verify-posttooluse-hook-modification.sql
   # Expected:
-  #   hook|has_tool_execution|created_at
-  #   PostToolUse|1|2025-09-25 05:30:35
+  #
+  #   hook|has_tool_execution|error|created_at_l
+  #   PostToolUse|1|/opt/homebrew/opt/bash/bin/bash: line 1: does-not-exist.sh: command not found|2025-09-25 18:21:42
 }
 
 echo "Claude Code: ${VERSION}"
@@ -70,8 +92,12 @@ echo "Claude Code: ${VERSION}"
 # Assert
 [[ -f "${VERSION}/package/${CLI_PRETTIER}" ]] || { echo "Missing ${VERSION} ${CLI_PRETTIER}, exiting" ; exit 1 ; }
 
-symlink_claude
+if [[ "${TEST_ONLY}" == "true" ]]; then
+  test_claude
+else
+  symlink_claude
 
-patch_claude
+  patch_claude
 
-test_claude
+  test_claude
+fi
