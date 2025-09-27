@@ -14,6 +14,14 @@ When Claude Code releases new versions, the minified code gets re-generated with
 - **Different line numbers** (shifts of hundreds to thousands of lines)
 - **Same underlying structure** (control flow, string literals, patterns preserved)
 
+When a new Claude Code version such as `1.0.120` is released, new patches against that version need
+to be generated.  This is accomplished by reviewing the patches for previous versions of Claude
+Code, then making the same changes to the new version source code and creating new patches.
+
+## Requirements
+
+If the MCP code-intel tools are unavailable, STOP IMMEDIATELY and inform the user the tools are missing.
+
 ## Complete Workflow
 
 ### Phase 1: Function Detection and Mapping
@@ -24,28 +32,30 @@ Minified code preserves string literals, making them reliable anchors for functi
 
 **PreToolUse Function Detection:**
 ```bash
-grep -n "PreToolUse" package.{VERSION}/cli.prettier.js
+grep -n "PreToolUse" {VERSION}/package/cli.prettier.js
 ```
 Look for `hook_event_name: "PreToolUse"` - this identifies the PreToolUse hook function.
 
 **PostToolUse Function Detection:**
 ```bash
-grep -n "PostToolUse" package.{VERSION}/cli.prettier.js
+grep -n "PostToolUse" {VERSION}/package/cli.prettier.js
 ```
 Look for `hook_event_name: "PostToolUse"` - this identifies the PostToolUse hook function.
 
 **Tool Execution Function Detection:**
 ```bash
-grep -n "tengu_tool_use_success" package.{VERSION}/cli.prettier.js
+grep -n "tengu_tool_use_success" {VERSION}/package/cli.prettier.js
 ```
 This telemetry call is unique to the tool execution function's success path.
 
 #### Step 2: Verify Function Structure
 
-Use code intelligence tools to extract complete function definitions and verify structural equivalence:
+Use code intelligence tools to extract complete function definitions and verify structural equivalence.
+
+STRONGLY prefer these tools if available, especially if an extact string or line number is not
+available or incorrect.
 
 ```bash
-# Using code-intel tools (if available)
 mcp__code-intel__get_code_context file.js line char context_level
 ```
 
@@ -81,17 +91,17 @@ Find where the target functions are called:
 
 ```bash
 # Find PreToolUse function calls
-grep -n "{PRETOOLUSE_FUNC}(" package.{VERSION}/cli.prettier.js
+grep -n "{PRETOOLUSE_FUNC}(" {VERSION}/package/cli.prettier.js
 
 # Find PostToolUse function calls
-grep -n "{POSTTOOLUSE_FUNC}(" package.{VERSION}/cli.prettier.js
+grep -n "{POSTTOOLUSE_FUNC}(" {VERSION}/package/cli.prettier.js
 ```
 
 #### Step 5: Document Function Mappings
 
 Create a mapping table for reference:
 
-| Enhancement | v113 Function | v120 Function | v113 Line | v120 Line | Line Drift |
+| Enhancement | 1.0.113 Function | 1.0.120 Function | 1.0.113 Line | 1.0.120 Line | Line Drift |
 |-------------|---------------|---------------|-----------|-----------|------------|
 | PreToolUse  | `lNA` | `JMA` | 363570 | 364094 | +524 |
 | PostToolUse | `pNA` | `XMA` | 363575 | 364104 | +529 |
@@ -102,6 +112,11 @@ Create a mapping table for reference:
 **CRITICAL**: Use git's staging area to create standalone, non-cumulative patches.
 
 #### The Problem
+
+Each patch is ideally stand-alone.  Each patch file is named with a 3-integer width prefix (e.g.,
+001, 002, etc.) to impose a natural sequence in case the collection of patches requires ordering in
+the future.
+
 Traditional patch creation results in cumulative patches where the second patch includes all changes
 from the first patch, making patches interdependent.
 
@@ -111,7 +126,7 @@ Use git's three-tree architecture (working tree, staging area, HEAD) to create t
 
 ```bash
 # Step 1: Stage original file
-git add package.{VERSION}/cli.prettier.js
+git add {VERSION}/package/cli.prettier.js
 
 # Step 2: Apply ONLY PreToolUse changes
 # - Modify PreToolUse function signature to accept validationContext
@@ -119,10 +134,10 @@ git add package.{VERSION}/cli.prettier.js
 # - Create and pass validationContext to PreToolUse hook calls
 
 # Step 3: Create first standalone patch
-git diff package.{VERSION}/cli.prettier.js > patches/001-hook_pretooluse_tool_validation.{VERSION}.patch
+git diff {VERSION}/package/cli.prettier.js > patches/{VERSION}/001-hook_pretooluse_tool_validation.patch
 
 # Step 4: Stage PreToolUse changes (preparing for next incremental diff)
-git add package.{VERSION}/cli.prettier.js
+git add {VERSION}/package/cli.prettier.js
 
 # Step 5: Apply ONLY PostToolUse changes
 # - Modify PostToolUse function signature to accept executionContext
@@ -132,7 +147,7 @@ git add package.{VERSION}/cli.prettier.js
 # - Add success check at function end
 
 # Step 6: Create second standalone patch
-git diff package.{VERSION}/cli.prettier.js > patches/002-hook_posttooluse_tool_execution.{VERSION}.patch
+git diff {VERSION}/package/cli.prettier.js > patches/{VERSION}/002-hook_posttooluse_tool_execution.patch
 ```
 
 #### Why This Works
@@ -157,20 +172,25 @@ Before applying patches, verify:
 - [ ] No syntax errors in target functions
 - [ ] Functions contain expected internal logic patterns
 
+#### Post-verification cleanup
+
+After all patches have been generated, remove the original from the git staging area because it will
+never be committed to the repository.
+
 ## Alternative Detection Methods
 
 If string literal search fails, try these approaches:
 
 ### Method 1: Error Handling Pattern Search
 ```bash
-grep -n "Shell command failed" package.{VERSION}/cli.prettier.js
-grep -n "instanceof.*cN" package.{VERSION}/cli.prettier.js
+grep -n "Shell command failed" {VERSION}/package/cli.prettier.js
+grep -n "instanceof.*cN" {VERSION}/package/cli.prettier.js
 ```
 
 ### Method 2: Telemetry Pattern Search
 ```bash
-grep -n "tengu_tool_use_error" package.{VERSION}/cli.prettier.js
-grep -n "tengu_pre_tool_hook" package.{VERSION}/cli.prettier.js
+grep -n "tengu_tool_use_error" {VERSION}/package/cli.prettier.js
+grep -n "tengu_pre_tool_hook" {VERSION}/package/cli.prettier.js
 ```
 
 ## Success Criteria
@@ -185,9 +205,9 @@ grep -n "tengu_pre_tool_hook" package.{VERSION}/cli.prettier.js
 ### Patch Creation Success
 1. **Two standalone patches created** - each patch is independently applicable
 2. **Git staging workflow completed** - incremental diffs generated correctly
-3. **Functional equivalence verified** - changes match v113 functionality
+3. **Functional equivalence verified** - changes match 1.0.113 functionality
 4. **No cumulative dependencies** - second patch doesn't include first patch changes
-5. **File naming consistent** - patches follow `{NUMBER}-{DESCRIPTION}.{VERSION}.patch` format
+5. **File naming consistent** - patches follow `{NUMBER}-{DESCRIPTION}.patch` format
 
 ## Common Pitfalls
 

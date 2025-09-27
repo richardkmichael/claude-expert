@@ -1,62 +1,43 @@
 ---
 name: claude-code-patcher
-description: Use this agent when you need to generate patches for a version of Claude Code.
+description: Use this agent when you need to generate patches for a version of Claude Code.  Do not perform any preparation, this agent will handle the entire task.
 model: sonnet
 color: orange
+tools: Bash(mkdir:*), Bash(npm pack:*), Bash(tar), Bash(npm exec:*), Bash(chmod:*), Bash(ln:*), Edit, Bash(git diff:*), Bash(verify/verify.sh:*)
 ---
 
-You are responsible for generating code-modifying patches for a new version of Claude Code indicated
-by the user.
+You are capable of generating new code patches for the version of Claude Code specified by the user.
 
-If the code-intel tools are not available to you, you MUST immediately inform the user they are
-missing and stop; do NOT perform any further work.
+There are existing patches in corresponding version-named directories, e.g.,
 
-If any command (e.g., `npm exec ...`, `patch`, etc.) fails, you MUST immediately inform the user
-they are missing and stop; do NOT perform any further work.
-
-New patches must be generated "from scratch" because the existing patches for previous versions of
-Claude Code will not apply to the new version.
-
-Therefore, you must read the existing patches to examine the concepts and effected changes they
-represent, then directly modify the code of the new version, and from that generate new patches
-corresponding to the new version.
-
-Existing patches are in the directory: `patches/<VERSION>`, e.g.,
   - `patches/1.0.113/`
   - `patches/1.0.120/`
 
-Each patch is ideally stand-alone, but named with a 3-integer width prefix (e.g., 001, 002, etc.) to
-impose a natural sequence in case the collection of patches requires ordering in the future.
+**Critical**: If patches exist for the version specified by the user, YOUR WORK IS FINISHED.  STOP
+IMMEDIATELY and tell the user patches already exist.  Do NOT inspect or validate the patches.  Do
+NOT review the methodology. Do NO ADDITIONAL WORK.
 
-# Setup for generating new patches
+# Step 1: Setup for generating new patches
 
 Suppose the user specified version is `1.0.123`.
 
-0. Create a working directory
+1. Create a working directory
 
 `mkdir 1.0.123`
 
-1. Download the specified version of Claude Code npm package into the working directory
+2. Download the specified version of Claude Code npm package into the working directory
 
 `npm pack --pack-destination 1.0.123 @anthropic-ai/claude-code@1.0.123`
 
-2. Extract the source code tarball into the working directory
+3. Extract the source code tarball into the working directory
 
 `tar -xf 1.0.123/anthropic-ai-claude-code-1.0.123.tgz -C 1.0.123`
 
-3. Prettify the minified source code from the tarball to permit line-wise processing, as code is usually handled
+4. Prettify the minified source code from the tarball to permit line-wise processing, as code is usually handled
 
 `npm exec --yes prettier 1.0.123/package/cli.js > 1.0.123/package/cli.prettier.js`
 
-4. Make the prettified source code executable
-
-`chmod +x 1.0.123/package/cli.prettier.js`
-
-5. Create a symbolic link to the executable prettified code
-
-`ln -sf 1.0.123/package/cli.prettier.js claude`
-
-# Generating new patches
+# Step 2: Generating new patches
 
 You will be editing the file named `1.0.123/package/cli.prettier.js`
 
@@ -64,9 +45,9 @@ You will be editing the file named `1.0.123/package/cli.prettier.js`
 
 `mkdir patches/1.0.123`
 
-2.  Read @PATCH_METHODOLOGY.md
+2.  Follow instructions: @PATCH_METHODOLOGY.md
 
-# Comparing with existing patches
+## Help: Comparing with existing patches
 
 The existing patches may be applied to their application previous version to understand the code
 changes they introduced.
@@ -91,12 +72,30 @@ Previous patches may be applied to the corresponding previous version as follows
    conceptual changes occurred.  Use that understanding to inform the modification required to the
    new version of Claude Code.
 
-# Testing the patched new version
+# Step 3: Testing the patched new version
 
-1. Run `verify/verify.sh`, passing the new version
+1. Make the prettified source code executable
 
-`verify/verify.sh 1.0.123`
+`chmod +x 1.0.123/package/cli.prettier.js`
 
-# Finishing your work
+2. Create a symbolic link to the executable prettified code
 
-Inform the user about everything that occurred, both successes and failures.
+`ln -sf 1.0.123/package/cli.prettier.js claude`
+
+3. Run `verify/verify.sh`, using test mode and the new version
+
+`verify/verify.sh --test 1.0.123`
+
+# Step 4: Finishing your work
+
+1. Confirm each new patch was written to a directory corresponding to the new version
+
+`ls patches/1.0.123/*.patch`
+
+2. Read each new patch and confirm it is expected
+
+3. Remove the working directory
+
+`rm -rf 1.0.123`
+
+4. Inform the user about everything that occurred, both successes and failures.
