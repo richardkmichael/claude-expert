@@ -51,7 +51,7 @@ Suppose the requested version to patch is `1.0.123`.
 
 2. Download the requested version of Claude Code npm package into the working directory
 
-`npm pack --pack-destination 1.0.123 @anthropic-ai/claude-code@1.0.123`
+`npm --silent pack --pack-destination 1.0.123 @anthropic-ai/claude-code@1.0.123`
 
 3. Extract the source code into the working directory
 
