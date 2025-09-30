@@ -70,29 +70,80 @@ Follow @PATCH_METHODOLOGY.md to create patches in `patches/{REQUESTED_VERSION}/`
 
 **CRITICAL**: PATCH_METHODOLOGY.md is documentation to follow, NOT code to analyze with code-intel tools. Use Read tool for .md files, code-intel tools only for .js files.
 
-# Step 3: Testing the patched new version
+# Step 3: Clean transition from patch creation
 
-1. Make the prettified source code executable
+1. Clean up git staging from patch creation:
+`git restore --staged {REQUESTED_VERSION}/package/cli.prettier.js`
 
-`chmod +x 1.0.123/package/cli.prettier.js`
+2. Remove the modified cli.prettier.js file:
+`rm {REQUESTED_VERSION}/package/cli.prettier.js`
 
-2. Create a symbolic link to the executable prettified code
+# Step 4: Test patches in clean environment
 
-`ln -sf 1.0.123/package/cli.prettier.js claude`
+1. Regenerate clean cli.prettier.js from original cli.js:
+`npm exec --yes prettier {REQUESTED_VERSION}/package/cli.js > {REQUESTED_VERSION}/package/cli.prettier.js`
 
-3. Run `verify/verify.sh`, using test mode and the new version
+2. Stage the clean file for testing:
+`git add {REQUESTED_VERSION}/package/cli.prettier.js`
 
-`verify/verify.sh --test 1.0.123`
+3. Apply patches and verify they apply cleanly:
+```bash
+for p in patches/{REQUESTED_VERSION}/*.patch ; do
+  if ! patch -p 1 < ${p} ; then
+    echo "PATCH APPLICATION FAILED: ${p}"
+    # Proceed to debugging
+  fi
+done
+```
 
-# Step 4: Cleanup and verification
+4. Make the patched file executable:
+`chmod +x {REQUESTED_VERSION}/package/cli.prettier.js`
 
-1. Confirm each new patch was written to the correct directory:
+5. Create symbolic link:
+`ln -sf {REQUESTED_VERSION}/package/cli.prettier.js claude`
+
+6. Run verification test and capture output:
+`verify/verify.sh --test {REQUESTED_VERSION}`
+
+   - **Exit code 0**: Verification succeeded, proceed to Step 6
+   - **Exit code 1**: Verification failed, proceed to Step 5
+
+# Step 5: Debug if testing fails
+
+**CRITICAL**: Only execute this step if Step 4 verification failed.
+
+1. Use git diff to see what the patches actually changed:
+`git diff {REQUESTED_VERSION}/package/cli.prettier.js`
+
+2. Read the existing patches to compare semantic intent
+
+3. Analyze the differences and identify the root cause of the failure
+
+4. If you can identify and fix the issue:
+   - Clean up current test state: `git restore --staged {REQUESTED_VERSION}/package/cli.prettier.js`
+   - Remove test files: `rm {REQUESTED_VERSION}/package/cli.prettier.js claude claude-*.json`
+   - **Go back to Step 2** and recreate patches using lessons learned
+   - Continue this debugging loop until patches work correctly
+
+5. If debugging fails after multiple attempts (3+ loops), proceed to Step 7 with failure report
+
+# Step 6: Final cleanup (only after successful testing)
+
+**CRITICAL**: Only execute this step if Step 4 verification succeeded.
+
+1. Confirm patches were created:
 `ls patches/{REQUESTED_VERSION}/*.patch`
 
-2. Remove the working directory:
+2. Clean up git staging:
+`git restore --staged {REQUESTED_VERSION}/package/cli.prettier.js`
+
+3. Remove working directory:
 `rm -rf {REQUESTED_VERSION}`
 
-# Step 5: Final Response (MANDATORY)
+4. Remove test files:
+`rm claude claude-*.json`
+
+# Step 7: Final Response (MANDATORY)
 
 Your final message must be one of these exact formats:
 
@@ -100,14 +151,16 @@ Your final message must be one of these exact formats:
 ```
 SUCCEEDED: Generated patches for version {REQUESTED_VERSION}
 - Created patches: [list each .patch file name]
-- Verification: [PASSED/FAILED with details]
+- Verification: PASSED - [include verify.sh success message]
+- Debugging attempts: [number of loops if any, or "none"]
 ```
 
 **Failure:**
 ```
 FAILED: Unable to generate patches for version {REQUESTED_VERSION}
-- Error: [specific error description]
+- Error: [specific error description from verify.sh if available]
 - Step failed: [which step number and what went wrong]
+- Debugging attempts: [number of loops attempted, or "none"]
 - Files created: [list any partial files created, or "none"]
 ```
 
