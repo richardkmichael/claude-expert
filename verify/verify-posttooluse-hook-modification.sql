@@ -10,6 +10,7 @@
 
 SELECT
   hook_event_name AS hook,
+  payload,
   -- SQLite casts JSON `true` and `false` to integers.
   payload ->> '$.tool_execution.success' = 0 AS has_tool_execution,
   payload ->> '$.tool_execution.error_message' AS error,
@@ -23,16 +24,16 @@ SELECT
     tool_name = 'Bash'
     AND
     hook_event_name = 'PostToolUse'
-    AND
+--  AND
 
     -- Expected extended hook schema
-    payload ->> '$.tool_execution.success' = 0
-    AND
-    payload ->> '$.tool_execution.error_message' LIKE '%' || :command || '%command not found%'
+--  payload ->> '$.tool_execution.success' = 0
+--  AND
+--  payload ->> '$.tool_execution.error_message' LIKE '%' || :command || '%'
 
-    AND
-    created_at >= datetime('now', '-1 minutes')
+--  AND
+--  created_at >= datetime('now', '-1 minutes')
   ORDER BY
     created_at DESC
-  LIMIT 1
+  LIMIT 5
 ;
