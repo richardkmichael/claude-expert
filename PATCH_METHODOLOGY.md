@@ -33,6 +33,15 @@ If the MCP code-intel tools are unavailable, STOP IMMEDIATELY and inform the use
 
 Examine patches from the most recent previous version to understand the semantic changes made.
 
+**Essential**: Read the comprehensive semantic documentation in `patches/README.md` which contains:
+- Detailed purpose and intent of each patch
+- Original code behavior vs. patched behavior
+- Critical design decisions and trade-offs
+- Validation context structure and execution flow
+- Backward compatibility considerations
+
+This documentation provides the semantic understanding needed to recreate equivalent functionality in new versions, beyond what the patches themselves show.
+
 #### Step 2: Extract Key Context (Optional)
 
 If existing patches lack sufficient context to understand the changes, examine them in their original context:
