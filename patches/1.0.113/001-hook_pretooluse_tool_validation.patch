@@ -1,8 +1,8 @@
 diff --git a/1.0.113/package/cli.prettier.js b/1.0.113/package/cli.prettier.js
-index 00deb67..9f85f88 100755
+index dee585e..de0ddee 100755
 --- a/1.0.113/package/cli.prettier.js
 +++ b/1.0.113/package/cli.prettier.js
-@@ -363561,13 +363561,14 @@ async function L00(A, B, Q, Z = JL) {
+@@ -363560,13 +363560,14 @@ async function L00(A, B, Q, Z = JL) {
    });
    return await Promise.all(J);
  }
@@ -18,59 +18,37 @@ index 00deb67..9f85f88 100755
    };
    yield* V61(I, B, A, G, Y);
  }
-@@ -419635,51 +419636,7 @@ async function* s$B(A, B, Q, Z) {
+@@ -419634,6 +419635,7 @@ async function* s$B(A, B, Q, Z) {
  }
  async function* XZ5(A, B, Q, Z, G, Y) {
    let I = A.inputSchema.safeParse(Q);
--  if (!I.success) {
--    let O = VZ5(A.name, I.error);
--    (I1("tengu_tool_use_error", {
--      error: "InputValidationError",
--      errorDetails: O.slice(0, 2000),
--      messageID: Y.message.id,
--      toolName: A.name,
--    }),
--      yield {
--        message: yA({
--          content: [
--            {
--              type: "tool_result",
--              content: `<tool_use_error>InputValidationError: ${O}</tool_use_error>`,
--              is_error: !0,
--              tool_use_id: B,
--            },
--          ],
--          toolUseResult: `InputValidationError: ${I.error.message}`,
--        }),
--      });
++  let schemaFailed = !I.success;
+   if (!I.success) {
+     let O = VZ5(A.name, I.error);
+     (I1("tengu_tool_use_error", {
+@@ -419655,10 +419657,10 @@ async function* XZ5(A, B, Q, Z, G, Y) {
+           toolUseResult: `InputValidationError: ${I.error.message}`,
+         }),
+       });
 -    return;
--  }
-   let W = await A.validateInput?.(I.data, Z);
+   }
+-  let W = await A.validateInput?.(I.data, Z);
 -  if (W?.result === !1) {
--    (I1("tengu_tool_use_error", {
--      messageID: Y.message.id,
--      toolName: A.name,
--      errorCode: W.errorCode,
--    }),
--      yield {
--        message: yA({
--          content: [
--            {
--              type: "tool_result",
--              content: `<tool_use_error>${W.message}</tool_use_error>`,
--              is_error: !0,
--              tool_use_id: B,
--            },
--          ],
--          toolUseResult: `Error: ${W.message}`,
--        }),
--      });
++  let W = schemaFailed ? null : await A.validateInput?.(I.data, Z);
++  let inputFailed = !schemaFailed && W?.result === !1;
++  if (!schemaFailed && W?.result === !1) {
+     (I1("tengu_tool_use_error", {
+       messageID: Y.message.id,
+       toolName: A.name,
+@@ -419677,7 +419679,6 @@ async function* XZ5(A, B, Q, Z, G, Y) {
+           toolUseResult: `Error: ${W.message}`,
+         }),
+       });
 -    return;
--  }
+   }
    let J = I.data,
      X = !1,
-     F,
-@@ -419687,7 +419644,19 @@ async function* XZ5(A, B, Q, Z, G, Y) {
+@@ -419686,8 +419687,25 @@ async function* XZ5(A, B, Q, Z, G, Y) {
      K = Date.now();
    try {
      let O = Z.getToolPermissionContext()?.mode,
@@ -79,66 +57,21 @@ index 00deb67..9f85f88 100755
 +        schema_validation: I.success
 +          ? { passed: true }
 +          : { passed: false, error_message: VZ5(A.name, I.error) },
-+        input_validation: W?.result !== false
-+          ? { passed: true }
-+          : {
-+              passed: false,
-+              error_message: W.message,
-+              error_code: W.errorCode
-+            }
++        input_validation: schemaFailed
++          ? { skipped: true, reason: "schema_validation_failed" }
++          : (inputFailed
++              ? {
++                  passed: false,
++                  error_message: W.message,
++                  error_code: W.errorCode
++                }
++              : { passed: true })
 +      },
 +      R = lNA(A.name, B, J, O, Z.abortController.signal, validationContext),
        P = [];
++    if (schemaFailed || inputFailed) {
++      return;
++    }
      for await (let j of R) {
        if (j.message) yield { message: j.message };
-@@ -419765,6 +419734,50 @@ async function* XZ5(A, B, Q, Z, G, Y) {
-     };
-     return;
-   }
-+  if (!I.success) {
-+    let O = VZ5(A.name, I.error);
-+    (I1("tengu_tool_use_error", {
-+      error: "InputValidationError",
-+      errorDetails: O.slice(0, 2000),
-+      messageID: Y.message.id,
-+      toolName: A.name,
-+    }),
-+      yield {
-+        message: yA({
-+          content: [
-+            {
-+              type: "tool_result",
-+              content: `<tool_use_error>InputValidationError: ${O}</tool_use_error>`,
-+              is_error: !0,
-+              tool_use_id: B,
-+            },
-+          ],
-+          toolUseResult: `InputValidationError: ${I.error.message}`,
-+        }),
-+      });
-+    return;
-+  }
-+  if (W?.result === !1) {
-+    (I1("tengu_tool_use_error", {
-+      messageID: Y.message.id,
-+      toolName: A.name,
-+      errorCode: W.errorCode,
-+    }),
-+      yield {
-+        message: yA({
-+          content: [
-+            {
-+              type: "tool_result",
-+              content: `<tool_use_error>${W.message}</tool_use_error>`,
-+              is_error: !0,
-+              tool_use_id: B,
-+            },
-+          ],
-+          toolUseResult: `Error: ${W.message}`,
-+        }),
-+      });
-+    return;
-+  }
-   if (((J = z.updatedInput), A.name === "Bash" && J)) {
-     let O = J;
-     if (O.command) {
+       if (j.blockingErrors) P = j.blockingErrors;

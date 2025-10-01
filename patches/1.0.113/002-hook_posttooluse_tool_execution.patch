@@ -88,13 +88,3 @@ index 9f85f88..3ff852e 100755
        P = [],
        j = !1,
        b,
-@@ -419959,6 +419991,9 @@ async function* XZ5(A, B, Q, Z, G, Y) {
-         message: F3(`PostToolUse hook failed: ${SM0(O)}`, "warning", B),
-       });
-   }
-+  if (!executionContext.success) {
-+    return;
-+  }
- }
- function SM0(A) {
-   if (A instanceof XV) return A.message || q$;
