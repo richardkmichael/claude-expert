@@ -1,0 +1,99 @@
+diff --git a/2.0.27/package/cli.prettier.js b/2.0.27/package/cli.prettier.js
+index ea24ce1..cafbddb 100644
+--- a/2.0.27/package/cli.prettier.js
++++ b/2.0.27/package/cli.prettier.js
+@@ -429073,7 +429073,12 @@ async function* vj6(A, B, Q, I, G, Z) {
+   let E = I.toolDecisions?.get(B);
+   (Zd1(E?.decision || "unknown", E?.source || "unknown"), f62());
+   let H = Date.now(),
+-    w = null;
++    w = null,
++    executionContext = {
++      success: false,
++      duration_ms: 0,
++      start_time: H,
++    };
+   QUA.reportToolStart(A.name, B);
+   try {
+     for await (let N of A.call(
+@@ -429085,6 +429090,10 @@ async function* vj6(A, B, Q, I, G, Z) {
+       switch (N.type) {
+         case "result": {
+           let L = Date.now() - H;
++          executionContext = {
++            success: true,
++            duration_ms: L,
++          };
+           if (
+             (n01(L),
+             (w = N.data),
+@@ -429174,6 +429183,29 @@ async function* vj6(A, B, Q, I, G, Z) {
+       }
+   } catch (N) {
+     let L = Date.now() - H;
++    executionContext = {
++      success: false,
++      duration_ms: L,
++      error_message: Xa1(N),
++      error_type: N.name || "Error",
++    };
++    if (N instanceof _R) {
++      executionContext.details = {
++        stdout: N.stdout,
++        stderr: N.stderr,
++        exitCode: N.code,
++        interrupted: N.interrupted,
++      };
++    } else if (N instanceof RJ) {
++      executionContext.details = {
++        aborted: true,
++      };
++    } else if (N instanceof Error && N.stack) {
++      executionContext.details = {
++        stack: N.stack.substring(0, 1000),
++      };
++    }
++    w = null;
+     if (
+       (n01(L),
+       Yd1({ success: !1, error: N instanceof Error ? N.message : String(N) }),
+@@ -429213,13 +429245,12 @@ async function* vj6(A, B, Q, I, G, Z) {
+         toolUseResult: `Error: ${O}`,
+       }),
+     };
+-    return;
+   } finally {
+     if (E) I.toolDecisions?.delete(B);
+   }
+-  yield* bj6(I, A, B, Z, K, w);
++  yield* bj6(I, A, B, Z, K, w, executionContext);
+ }
+-async function* bj6(A, B, Q, I, G, Z) {
++async function* bj6(A, B, Q, I, G, Z, executionContext) {
+   let Y = Date.now();
+   try {
+     let W = (await A.getAppState()).toolPermissionContext.mode;
+@@ -429228,6 +429259,7 @@ async function* bj6(A, B, Q, I, G, Z) {
+       Q,
+       G.updatedInput,
+       Z,
++      executionContext,
+       W,
+       A.abortController.signal,
+     ))
+@@ -462501,13 +462533,14 @@ async function* Ka1(A, B, Q, I, G, validationContext, Z = wS) {
+     timeoutMs: Z,
+   });
+ }
+-async function* Da1(A, B, Q, I, G, Z, Y = wS) {
++async function* Da1(A, B, Q, I, executionContext, G, Z, Y = wS) {
+   let J = {
+     ...PO(G),
+     hook_event_name: "PostToolUse",
+     tool_name: A,
+     tool_input: Q,
+     tool_response: I,
++    ...(executionContext && { tool_execution: executionContext }),
+   };
+   yield* KzA({
+     hookInput: J,

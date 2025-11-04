@@ -1,0 +1,99 @@
+diff --git a/2.0.27/package/cli.prettier.js b/2.0.27/package/cli.prettier.js
+index 705ac59..ea24ce1 100644
+--- a/2.0.27/package/cli.prettier.js
++++ b/2.0.27/package/cli.prettier.js
+@@ -428925,6 +428925,7 @@ async function* Eq2(A, B, Q, I) {
+ }
+ async function* vj6(A, B, Q, I, G, Z) {
+   let Y = A.inputSchema.safeParse(Q);
++  let schemaFailed = !Y.success;
+   if (!Y.success) {
+     let N = hj6(A.name, Y.error);
+     (YA("tengu_tool_use_error", {
+@@ -428946,10 +428947,10 @@ async function* vj6(A, B, Q, I, G, Z) {
+           toolUseResult: `InputValidationError: ${Y.error.message}`,
+         }),
+       });
+-    return;
+   }
+-  let J = await A.validateInput?.(Y.data, I);
+-  if (J?.result === !1) {
++  let J = schemaFailed ? null : await A.validateInput?.(Y.data, I);
++  let inputFailed = !schemaFailed && J?.result === !1;
++  if (!schemaFailed && J?.result === !1) {
+     (YA("tengu_tool_use_error", {
+       messageID: Z.message.id,
+       toolName: A.name,
+@@ -428968,13 +428969,26 @@ async function* vj6(A, B, Q, I, G, Z) {
+           toolUseResult: `Error: ${J.message}`,
+         }),
+       });
+-    return;
+   }
+   let W = Y.data,
+     X = !1,
+     C,
+-    F;
+-  for await (let N of fj6(I, A, W, B, Z))
++    F,
++    validationContext = {
++      schema_validation: Y.success
++        ? { passed: true }
++        : { passed: false, error_message: hj6(A.name, Y.error) },
++      input_validation: schemaFailed
++        ? { skipped: true, reason: "schema_validation_failed" }
++        : inputFailed
++          ? {
++              passed: false,
++              error_message: J.message,
++              error_code: J.errorCode,
++            }
++          : { passed: true },
++    };
++  for await (let N of fj6(I, A, W, B, Z, validationContext))
+     switch (N.type) {
+       case "message":
+         yield N.message;
+@@ -428994,6 +429008,9 @@ async function* vj6(A, B, Q, I, G, Z) {
+         };
+         return;
+     }
++  if (schemaFailed || inputFailed) {
++    return;
++  }
+   let V = {};
+   if (W && typeof W === "object") {
+     if (A.name === H5 && "file_path" in W) V.file_path = String(W.file_path);
+@@ -429285,7 +429302,7 @@ async function* bj6(A, B, Q, I, G, Z) {
+     JA(J instanceof Error ? J : Error(String(J)), t3A);
+   }
+ }
+-async function* fj6(A, B, Q, I, G) {
++async function* fj6(A, B, Q, I, G, validationContext) {
+   let Z = Date.now();
+   try {
+     let Y = await A.getAppState();
+@@ -429295,6 +429312,7 @@ async function* fj6(A, B, Q, I, G) {
+       Q,
+       Y.toolPermissionContext.mode,
+       A.abortController.signal,
++      validationContext,
+     ))
+       try {
+         if (J.message)
+@@ -462466,13 +462484,14 @@ async function Ko1({
+   });
+   return await Promise.all(W);
+ }
+-async function* Ka1(A, B, Q, I, G, Z = wS) {
++async function* Ka1(A, B, Q, I, G, validationContext, Z = wS) {
+   l(`executePreToolHooks called for tool: ${A}`);
+   let Y = {
+     ...PO(I),
+     hook_event_name: "PreToolUse",
+     tool_name: A,
+     tool_input: Q,
++    ...(validationContext && { tool_validation: validationContext }),
+   };
+   yield* KzA({
+     hookInput: Y,
