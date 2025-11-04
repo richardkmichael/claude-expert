@@ -1,0 +1,41 @@
+diff --git a/2.0.31/package/cli.prettier.js b/2.0.31/package/cli.prettier.js
+index 5b91ecf..0aabfbf 100755
+--- a/2.0.31/package/cli.prettier.js
++++ b/2.0.31/package/cli.prettier.js
+@@ -248825,9 +248825,9 @@ function W6Q(A) {
+ var X6Q = R(() => {
+   tK();
+ });
+-function F6Q(A) {
++function F6Q(A, hookEnv) {
+   if (A.includes("`")) return u8([A, "<", "/dev/null"]);
+-  let B = SY(A);
++  let B = SY(A, hookEnv);
+   if (!B.success) return u8([A, "<", "/dev/null"]);
+   let Q = B.tokens,
+     I = mm8(Q);
+@@ -248878,7 +248878,14 @@ function C6Q(A, B, Q) {
+           C = Y.slice(W + 1),
+           F = u8([C]);
+         I.push(`${X}=${F}`);
+-      } else ((G = !0), I.push(u8([Y])));
++      } else {
++        G = !0;
++        if (Y.startsWith("$")) {
++          I.push(Y);
++        } else {
++          I.push(u8([Y]));
++        }
++      }
+     else if (DT1(Y))
+       if (Y.op === "glob" && "pattern" in Y) I.push(Y.pattern);
+       else I.push(Y.op);
+@@ -249243,7 +249250,7 @@ async function cuA(A, B, Q, I, G, Z, Y, J) {
+   let K = `${V}/claude-${F}-cwd`,
+     D = W6Q(A),
+     E = J6Q(A, D);
+-  if (!Y && A.includes("|") && D) E = F6Q(A);
++  if (!Y && A.includes("|") && D) E = F6Q(A, (varName) => `$${varName}`);
+   let H = [];
+   if (C) {
+     if (!Bd8(C))
