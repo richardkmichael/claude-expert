@@ -9,12 +9,15 @@ if [ $# -eq 0 ]; then
 fi
 
 VERSION="$1"
-WORK_DIR="work/${VERSION}"
 
+PATCHES_DIR="patches/${VERSION}"
+mkdir -p "${PATCHES_DIR}"
+
+WORK_DIR="work/${VERSION}"
 mkdir -p "${WORK_DIR}"
 
-# Download and prettify source code
+# Download, extract, prettify and make source code executable
 npm --silent pack --pack-destination "${WORK_DIR}" "@anthropic-ai/claude-code@${VERSION}"
 tar xf "${WORK_DIR}/anthropic-ai-claude-code-${VERSION}.tgz" -C "${WORK_DIR}"
-npx prettier "${WORK_DIR}/package/cli.js" > "${WORK_DIR}/package/cli.prettier.js"
+npx --yes --ignore-path /dev/null  prettier "${WORK_DIR}/package/cli.js" > "${WORK_DIR}/package/cli.prettier.js"
 chmod +x "${WORK_DIR}/package/cli.prettier.js"
