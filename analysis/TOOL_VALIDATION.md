@@ -1,8 +1,8 @@
-# Claude Code Tools Validation Analysis
+# Tool Validation
 
 This document analyzes the validation system used by Claude Code tools, focusing on whether validations are per-tool or generic across all tools, with source line references from `package/cli.prettier.js`.
 
-## Executive Summary
+## Summary
 
 **Validation is TOOL-SPECIFIC, not generic.** Each tool implements its own `validateInput` function with custom validation logic and error codes. There is no shared validation system.
 
