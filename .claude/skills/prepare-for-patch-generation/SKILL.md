@@ -1,6 +1,7 @@
 ---
 name: prepare-for-new-patch-generation
 description: Prepare the original source code for new patch generation by creating working directories, and downloading, extracting and prettifying the requested version source code.
+allowed-tools: Bash(bin/prepare-for-patch-generation.sh:*)
 ---
 
 # Source code preparation
