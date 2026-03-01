@@ -116,6 +116,49 @@ Terminal-specific handlers write escape sequences to stdout via `sW()`:
 
 All sequences are written via `stdout.write()`.
 
+### Ghostty OSC 777: Observed Behaviour on macOS
+
+Claude Code's responsibility ends at the `stdout.write()` call. What follows is
+handled by Ghostty and macOS.
+
+Ghostty intentionally suppresses visual notification delivery (banner + sound)
+when its window is focused, via:
+
+```
+!window.isKeyWindow || !surface.focused
+```
+
+When focused: the notification is silently stored in Notification Centre only —
+no banner, no sound. When unfocused: the full banner and sound appear as
+configured in System Settings. This is the standard macOS convention for
+well-behaved notification senders.
+
+Consequence for Claude Code idle notifications: if the user is actively looking
+at the Ghostty window, the `idle_prompt` notification fires and OSC 777 is
+written, but nothing visible occurs. The notification only appears (with sound)
+when Ghostty loses focus — which is also when it is actually useful.
+
+The apparent 3–5 second delay is because the notification was already delivered
+to Notification Centre; the banner appears when the user switches away from
+Ghostty, not at the moment of delivery.
+
+Setting System Settings → Notifications → Ghostty to "Alerts" (sticky) rather
+than "Banners" (auto-dismiss) ensures the banner persists until dismissed.
+
+See https://github.com/ghostty-org/ghostty/discussions/10151 for details.
+
+The `preferredNotifChannel` setting takes effect immediately without restarting
+Claude Code — changing it via `/config` is picked up on the next notification
+because `k1()` (the config reader) re-reads `~/.claude.json` from disk on each
+call.
+
+Sound intermittently stops playing even though the banner still appears. This
+appears to be a Ghostty or macOS bug, not a Claude Code issue.
+
+TODO: Investigate Ghostty's `UNNotificationContent` construction — specifically
+whether sound, badge, and interruptionLevel are set correctly, and whether the
+focus-suppression logic could be made configurable.
+
 ## Notification Hook Path
 
 `Mg()` fires the user-configured `Notification` hook event (if one is set up in
