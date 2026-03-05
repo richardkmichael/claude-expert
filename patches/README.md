@@ -656,3 +656,42 @@ are the tips removed.
 ## Version History
 First introduced for version 2.1.69. The Bash tool description builder is `GNq()`, the gate
 function is `vfz()` (line 526454), and the tips variable is `K` (line 526638).
+
+# Patch 4 (updated for 2.1.69): Agent and Skill File Content Interpolation
+
+The original Patch 4 documentation above covers the full design. This section documents
+changes specific to the 2.1.69 port.
+
+## Changes from 2.1.47
+
+### Three loader sites instead of two
+In 2.1.47 there were two agent loader functions (plugin and user/project file-based). In
+2.1.69 there are three:
+
+1. Plugin agent loader (`sJ4`, line 283697) — content variable `f`
+2. Settings-based agent loader (`JM4`, line 284639) — content variable `_`, from `Y.prompt`
+3. File-based agent loader (`P9Y`, line 284777) — content variable `c`, from frontmatter-stripped `.md`
+
+The settings-based loader is new in 2.1.69 — it handles agents defined in JSON config rather
+than `.md` files. The patch wraps all three with `interpolateAgentContent()`.
+
+### Updated GIT_COMMAND_PARALLEL_NOTE text
+The parallel command note text changed slightly between versions. The 2.1.69 version matches
+the current Bash tool description at line 526633, minus the chaining example which was
+shortened.
+
+### Symbol mapping
+
+| Token                               | 2.1.47 | 2.1.69 |
+|--------------------------------------|--------|--------|
+| Attribution function                 | `$T1`  | `oV6`  |
+| `BASH_TOOL_NAME`                     | `K4`   | `a4`   |
+| `GLOB_TOOL_NAME`                     | `ZY`   | `gz`   |
+| `GREP_TOOL_NAME`                     | `z5`   | `N5`   |
+| `READ_TOOL_NAME`                     | `Aq`   | `wq`   |
+| `WEBFETCH_TOOL_NAME`                 | `dH`   | `kD`   |
+| `WRITE_TOOL_NAME`                    | `l3`   | `R3`   |
+| `EDIT_TOOL_NAME`                     | `xq`   | `kq`   |
+| `TASK_TOOL_NAME`                     | `CK`   | `JJ6`  |
+| `WEBSEARCH_TOOL_NAME`                | `xL`   | `Gk`   |
+| Memory append function               | `A36`  | `qY6`  |

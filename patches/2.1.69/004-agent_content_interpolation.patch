@@ -1,0 +1,84 @@
+diff --git a/work/2.1.69/package/cli.prettier.js b/work/2.1.69/package/cli.prettier.js
+index 9a282da..1e4702a 100755
+--- a/work/2.1.69/package/cli.prettier.js
++++ b/work/2.1.69/package/cli.prettier.js
+@@ -283129,6 +283129,29 @@ var oZ6 = E(() => {
+   DA();
+ });
+ import { join as aZ6, basename as sZ6, dirname as cl } from "path";
++function interpolateAgentContent(A) {
++  let { commit: q, pr: K } = oV6(),
++    Y = `  - When issuing multiple commands:
++    - If the commands are independent and can run in parallel, make multiple ${a4} tool calls in a single message. Example: if you need to run "git status" and "git diff", send a single message with two ${a4} tool calls in parallel.
++    - If the commands depend on each other and must run sequentially, use a single ${a4} call with '&&' to chain them together.
++    - Use ';' only when you need to run commands sequentially but don't care if earlier commands fail.
++    - DO NOT use newlines to separate commands (newlines are ok in quoted strings).`,
++    z = {
++      BASH_TOOL_NAME: a4,
++      GLOB_TOOL_NAME: gz,
++      GREP_TOOL_NAME: N5,
++      READ_TOOL_NAME: wq,
++      WEBFETCH_TOOL_NAME: kD,
++      WRITE_TOOL_NAME: R3,
++      EDIT_TOOL_NAME: kq,
++      TASK_TOOL_NAME: JJ6,
++      WEBSEARCH_TOOL_NAME: Gk,
++      GIT_COMMAND_PARALLEL_NOTE: Y,
++      COMMIT_CO_AUTHORED_BY_CLAUDE_CODE: q,
++      PR_GENERATED_WITH_CLAUDE_CODE: K,
++    };
++  return A.replace(/\$\{([A-Z_]+)\}/g, (w, $) => z[$] ?? w);
++}
+ function BW1(A) {
+   return /^skill\.md$/i.test(sZ6(A));
+ }
+@@ -283697,14 +283720,14 @@ async function sJ4(A, q, K, Y, z) {
+         if (d9() && V) {
+           let S = qY6(J, V);
+           return (
+-            f +
++            interpolateAgentContent(f) +
+             `
+ 
+ ` +
+             S
+           );
+         }
+-        return f;
++        return interpolateAgentContent(f);
+       },
+       source: "plugin",
+       color: P,
+@@ -284639,13 +284662,13 @@ function JM4(A, q, K = "flagSettings") {
+       getSystemPrompt: () => {
+         if (d9() && Y.memory)
+           return (
+-            _ +
++            interpolateAgentContent(_) +
+             `
+ 
+ ` +
+             qY6(A, Y.memory)
+           );
+-        return _;
++        return interpolateAgentContent(_);
+       },
+       source: K,
+       ...(Y.model ? { model: Y.model } : {}),
+@@ -284777,14 +284800,14 @@ function P9Y(A, q, K, Y, z) {
+         if (d9() && D) {
+           let A6 = qY6(w, D);
+           return (
+-            c +
++            interpolateAgentContent(c) +
+             `
+ 
+ ` +
+             A6
+           );
+         }
+-        return c;
++        return interpolateAgentContent(c);
+       },
+       source: z,
+       filename: S,
