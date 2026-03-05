@@ -1,6 +1,6 @@
 # Skills and Subagent Integration
 
-Version: 2.1.63
+Version: 2.1.69
 
 See also: [Task Tool and Subagents](TASK_TOOL_AND_SUBAGENTS.md),
 [Markdown Frontmatter](MARKDOWN_FRONTMATTER.md)
@@ -24,13 +24,13 @@ makes the system difficult to intuit.
 ### Axis 1: Tool Availability (Agent Frontmatter)
 
 Agent YAML (`.claude/agents/*.md`) uses `tools:` and `disallowedTools:` to control which tools
-the subagent can see and call at all.  These are enforced by `_l()` (line 299240) which filters
+the subagent can see and call at all.  These are enforced by `Ki()` (line 291138) which filters
 the tool list before the subagent starts.
 
-| Field             | Effect                                       | Example                      |
-| ----------------- | -------------------------------------------- | ---------------------------- |
-| `tools:`          | Whitelist: only these tools are available     | `tools: [Read, Grep, Glob]` |
-| `disallowedTools:` | Blacklist: these tools are removed           | `disallowedTools: [Edit]`   |
+| Field              | Effect                                       | Example                      |
+| ------------------ | -------------------------------------------- | ---------------------------- |
+| `tools:`           | Whitelist: only these tools are available     | `tools: [Read, Grep, Glob]` |
+| `disallowedTools:` | Blacklist: these tools are removed            | `disallowedTools: [Edit]`   |
 
 If `tools:` is `["*"]` or omitted, all tools are available (minus any `disallowedTools`).
 An unavailable tool cannot be called at all — the subagent doesn't even see it.
@@ -41,21 +41,21 @@ Skill YAML (`.claude/skills/*/SKILL.md`) uses `allowed-tools:` to control which 
 auto-permitted without user approval.  The tool must still be available (axis 1); this only
 affects whether the user is prompted before the tool executes.
 
-| Field             | Effect                                       | Example                                 |
-| ----------------- | -------------------------------------------- | --------------------------------------- |
-| `allowed-tools:`  | Auto-permit: no user approval prompt needed  | `allowed-tools: Bash(git diff:*), Read` |
-| (no counterpart)  | There is no `disallowed-tools:` for skills   |                                         |
+| Field              | Effect                                       | Example                                 |
+| ------------------ | -------------------------------------------- | --------------------------------------- |
+| `allowed-tools:`   | Auto-permit: no user approval prompt needed  | `allowed-tools: Bash(git diff:*), Read` |
+| (no counterpart)   | There is no `disallowed-tools:` for skills   |                                         |
 
 ### Naming Confusion
 
 The naming is inconsistent across the two systems:
 
-| Concept           | Agent keyword      | Skill keyword     | Syntax       |
-| ----------------- | ------------------ | ----------------- | ------------ |
-| Tool whitelist    | `tools:`           | (none)            | camelCase    |
-| Tool blacklist    | `disallowedTools:` | (none)            | camelCase    |
-| Auto-permit       | (none)             | `allowed-tools:`  | kebab-case   |
-| Auto-deny         | (none)             | (none)            |              |
+| Concept            | Agent keyword      | Skill keyword      | Syntax       |
+| ------------------ | ------------------ | ------------------ | ------------ |
+| Tool whitelist     | `tools:`           | (none)             | camelCase    |
+| Tool blacklist     | `disallowedTools:` | (none)             | camelCase    |
+| Auto-permit        | (none)             | `allowed-tools:`   | kebab-case   |
+| Auto-deny          | (none)             | (none)             |              |
 
 - Agent keywords use camelCase: `tools`, `disallowedTools`
 - Skill keywords use kebab-case: `allowed-tools`
@@ -74,21 +74,21 @@ which of those are auto-permitted.  Except that, as documented below, the skill'
 
 ### Parsing `allowed-tools` from Frontmatter
 
-Location: cli.prettier.js:518237
+Location: cli.prettier.js:532591
 
-The `pI()` function parses the `allowed-tools` frontmatter field.  It delegates to `BPq()` which
-splits comma/space-separated tool patterns, returning `null` for missing values (converted to `[]`
-by `pI`).
+The `Tkq()` function parses the `allowed-tools` frontmatter field.  It handles string and array
+input, normalizing via `ti()`.  Returns `null` for missing values.  The wrapper `Zx()` (line
+532608) converts `null` to `[]`:
 
 ```javascript
 [source fragment removed]
 ```
 
-### The Skill Object (`ew4`)
+### The Skill Object (`f54`)
 
-Location: cli.prettier.js:273576
+Location: cli.prettier.js:252173
 
-Skills are loaded from `SKILL.md` files and constructed by `ew4()`.  The `allowed-tools` value
+Skills are loaded from `SKILL.md` files and constructed by `f54()`.  The `allowed-tools` value
 becomes the `allowedTools` property on the returned object:
 
 ```javascript
@@ -99,27 +99,43 @@ becomes the `allowedTools` property on the returned object:
 
 Skills are loaded from two directory patterns and one plugin source:
 
-| Source                            | Loader function | Location    |
-| -------------------------------- | --------------- | ----------- |
-| `.claude/skills/*/SKILL.md`      | `sF6()`         | Line 273661 |
-| `.claude/commands/*.md` (legacy) | (inline)        | Line 273780 |
-| Plugin skills                    | `fJ4()`         | Line 293557 |
+| Source                             | Loader function | Location    |
+| --------------------------------- | --------------- | ----------- |
+| `.claude/skills/*/SKILL.md`       | `_Q6()`         | Line 252259 |
+| `.claude/commands/*.md` (legacy)  | `Ro9()`         | Line 252377 |
+| Plugin skills                     | `eE8()`         | Line 283562 |
 
-All three paths extract `allowed-tools` from frontmatter via `pI()` and pass it to `ew4()`.
+All three paths extract `allowed-tools` from frontmatter via `Zx()` and pass it to `f54()`.
+
+### Template Variables
+
+Location: cli.prettier.js:252222
+
+The skill's `getPromptForCommand` method resolves template variables and performs substitutions
+before returning the rendered content.  Two built-in template variables are available in SKILL.md:
+
+| Variable               | Value                          | Added in |
+| ---------------------- | ------------------------------ | -------- |
+| `${CLAUDE_SKILL_DIR}`  | Absolute path to skill's dir   | 2.1.69   |
+| `${CLAUDE_SESSION_ID}` | Current session UUID           | ≤2.1.63  |
+
+`CLAUDE_SKILL_DIR` resolves to the skill's directory (e.g., `.claude/skills/my-skill`).  On
+Windows, backslashes are normalized to forward slashes.  This lets SKILL.md reference companion
+files (scripts, templates, data) relative to the skill's own location.  The substitution occurs
+in both the standard skill path (`f54`, line 252230) and the plugin skill path (line 283274).
+
+`CLAUDE_SESSION_ID` resolves to the session UUID via `i1()`.
 
 ### Template Resolution and `getPromptForCommand`
 
-Location: cli.prettier.js:273627
-
-The skill's `getPromptForCommand` method resolves template variables in the SKILL.md content.  It
-creates a modified `getAppState` that includes the skill's `allowedTools` in the
-`alwaysAllowRules.command` array, but this modification is scoped to the `nB()` template resolver:
+The method also creates a modified `getAppState` that includes the skill's `allowedTools` in the
+`alwaysAllowRules.command` array, but this modification is scoped to the `gg()` template resolver:
 
 ```javascript
 [source fragment removed]
 ```
 
-The modified `getAppState` is only used by `nB()` for template resolution.  The caller of
+The modified `getAppState` is only used by `gg()` for template resolution.  The caller of
 `getPromptForCommand` receives only the resolved text content — the `allowedTools` injection does
 not propagate to the caller's permission context.
 
@@ -134,23 +150,22 @@ When a user invokes `/my-skill` in the main session, the Skill tool's `call` met
 
 ```
 User types /my-skill
-  → Skill tool call()                    [line 421584]
-    → Cr4()                              [line 407119]
-      → Sr4()                            [line 407128]
-        → skill.getPromptForCommand()    [line 407129]  — get prompt content
-        → Ai(skill.allowedTools ?? [])   [line 407151]  — parse allowed tools
-        → wq({ type: "command_permissions", allowedTools: J })
-                                         [line 407169]  — attach permissions
-        → return { messages, allowedTools: J }
-                                         [line 407189]  — return to caller
+  → Skill tool call()                    [line 420026]
+    → He4()                              [line 404951]
+      → skill.getPromptForCommand()      [line 404952]  — get prompt content
+      → ti(skill.allowedTools ?? [])     [line 404973]  — parse allowed tools
+      → i4({ type: "command_permissions", allowedTools: J })
+                                         [line 404991]  — attach permissions
+      → return { messages, allowedTools: J }
+                                         [line 405011]  — return to caller
     ← Skill tool receives result
-      → j.allowedTools                   [line 421593]  — extract allowed tools
-      → contextModifier()               [line 421654]  — inject into permission context
+      → J.allowedTools                   [line 420038]  — extract allowed tools
+      → contextModifier()               [line 420098]  — inject into permission context
 ```
 
-### Key Code: `Sr4` (Process Prompt Slash Command)
+### Key Code: `He4` (Process Prompt Slash Command)
 
-Location: cli.prettier.js:407128
+Location: cli.prettier.js:404951
 
 ```javascript
 [source fragment removed]
@@ -158,7 +173,7 @@ Location: cli.prettier.js:407128
 
 ### Key Code: Skill Tool `contextModifier`
 
-Location: cli.prettier.js:421654
+Location: cli.prettier.js:420098
 
 The Skill tool's `call` method applies the `allowedTools` via a `contextModifier` that wraps
 `getAppState` to add the tools to `alwaysAllowRules.command`:
@@ -181,27 +196,27 @@ path handles `allowed-tools` correctly.
 ### Flow
 
 ```
-Skill tool call()                        [line 421584]
+Skill tool call()                        [line 420026]
   → skill has context === "fork"
-    → VUY()                              [line 421322]
-      → JN1()                            [line 454804]
-        → skill.getPromptForCommand()    [line 454805]  — get prompt content
-        → Ai(skill.allowedTools ?? [])   [line 454809]  — parse allowed tools
-        → YtY(getAppState, w)            [line 454810]  — wrap getAppState
+    → mrY()                              [line 419765]
+      → mN1()                           [line 453308]
+        → skill.getPromptForCommand()    [line 453309]  — get prompt content
+        → ti(skill.allowedTools ?? [])   [line 453313]  — parse allowed tools
+        → f7z(getAppState, w)            [line 453314]  — wrap getAppState
       ← returns { modifiedGetAppState, baseAgent, promptMessages }
-      → jC({ toolUseContext: { getAppState: modifiedGetAppState } })
-                                         [line 421346]  — launch subagent
+      → gS({ toolUseContext: { getAppState: modifiedGetAppState } })
+                                         [line 419789]  — launch subagent
 ```
 
-### Key Code: `YtY` (Wrap getAppState with Allowed Tools)
+### Key Code: `f7z` (Wrap getAppState with Allowed Tools)
 
-Location: cli.prettier.js:454783
+Location: cli.prettier.js:453287
 
 ```javascript
 [source fragment removed]
 ```
 
-The wrapped `getAppState` is passed to `jC` (the subagent loop), so the forked subagent inherits
+The wrapped `getAppState` is passed to `gS` (the subagent loop), so the forked subagent inherits
 the skill's tool permissions.
 
 
@@ -210,20 +225,20 @@ the skill's tool permissions.
 `allowed-tools`: NOT applied
 
 When a subagent YAML file (`.claude/agents/*.md`) includes `skills: [my-skill]`, the skills are
-preloaded at the start of the `jC` function (the core agent execution loop).
+preloaded at the start of the agent execution function.
 
 ### Flow
 
 ```
-Agent tool call()                        [line 420471]
-  → jC()                                [line 407293]  — core agent loop
-    → A.skills ?? []                     [line 407371]  — read skills list
+Agent tool call()                        [line 420026]
+  → agent execution function             [line 405117]
+    → A.skills ?? []                     [line 405195]  — read skills list
     → for each skill:
-        UgY(name, commands, agent)       [line 407376]  — find skill
-        mx(name, commands)               [line 407384]  — resolve skill object
-        skill.getPromptForCommand("", K) [line 407395]  — get prompt content ONLY
-        nI8(name, progressMessage)       [line 407397]  — wrap with metadata tags
-        N.push(K8({ content: [...] }))   [line 407398]  — add as user message
+        ccY(name, commands, agent)       [line 405200]  — find skill
+        Tb(name, commands)              [line 405208]  — resolve skill object
+        skill.getPromptForCommand("", K) [line 405222]  — get prompt content ONLY
+        y6(name, progressMessage)       [line 405224]  — wrap with metadata tags
+        V.push(Y8({ content: [...] }))  [line 405225]  — add as user message
     ← skills loaded as prompt content only
     ← NO allowedTools extraction
     ← NO permission context modification
@@ -231,7 +246,7 @@ Agent tool call()                        [line 420471]
 
 ### Key Code: Subagent Skill Preloading
 
-Location: cli.prettier.js:407371
+Location: cli.prettier.js:405195
 
 ```javascript
 [source fragment removed]
@@ -244,74 +259,142 @@ The code:
 3. Wraps the content with `<command-name>` / `<command-message>` metadata tags
 4. Pushes it as a user message into the subagent's prompt
 
-But it never reads `v6.allowedTools` and never modifies the permission context.
+But it never reads `z6.allowedTools` and never modifies the permission context.
+
+### Skill Metadata Tags
+
+When skill content is injected into the conversation as a user message, a metadata string is
+prepended as a separate text content block.  The metadata contains XML tags that are not
+consumed by the model — they are parsed back out by Claude Code's own JavaScript for UI
+rendering, prompt extraction, and conversation compaction.
+
+Tag name constants (line 54273):
+
+```javascript
+[source fragment removed]
+```
+
+Two metadata formats exist:
+
+`we4` (line 404928) — direct `/skill` invocation:
+
+```xml
+<command-message>skill-name</command-message>
+<command-name>/skill-name</command-name>
+<command-args>user arguments</command-args>
+```
+
+`Oe4` / `formatSkillLoadingMetadata` (line 404920) — preloaded or non-user-invocable skills:
+
+```xml
+<command-message>skill-name</command-message>
+<command-name>skill-name</command-name>
+<skill-format>true</skill-format>
+```
+
+The dispatch logic in `BcY` (line 404936) chooses the format:
+
+```javascript
+[source fragment removed]
+```
+
+The subagent preload path (line 405224) calls `Oe4` directly, bypassing `BcY`.
+
+| Aspect          | Direct invocation (`we4`)      | Preloaded / non-invocable (`Oe4`) |
+| --------------- | ------------------------------ | --------------------------------- |
+| `command-name`  | `/skill-name` (with `/`)       | `skill-name` (no `/`)             |
+| Extra tag       | `<command-args>` (if present)  | `<skill-format>true`              |
+
+These tags are sent to the Anthropic API as part of user message content — the model sees them.
+There is no system prompt instruction explaining them, but the model processes them as
+structured context about what is happening in the conversation (e.g., "a skill named X was
+invoked").  Claude Code's JavaScript also parses them client-side using `t4()` (line 533178),
+a general-purpose XML tag extractor, for UI rendering and bookkeeping:
+
+| Consumer                       | Location     | Purpose                                         |
+| ------------------------------ | ------------ | ------------------------------------------------ |
+| UI message rendering           | Line 394058  | Display `Skill(name)` vs `/name args` in terminal |
+| UI message rendering (alt)     | Line 567215  | Same distinction in alternate render path         |
+| Prompt summary extraction      | Line 535976  | Label compact summaries (e.g., for ctrl+o view)   |
+| Conversation compaction        | Line 601277  | Label what a user message was during summarization |
+
+The tags serve dual purpose: they provide the model with structured context about skill
+invocations (as part of the user message content sent to the API), and they provide the
+client-side TUI with rendering hints.  The `<skill-format>true` tag switches the UI between
+`Skill(name)` and `/name args` display styles.  The leading `/` in `<command-name>`
+distinguishes user-invoked from preloaded in the summary extractors.
+
+Note: skill content messages are marked `isMeta: true` (line 404989), which sets
+`isSynthetic: true` on the API-facing message (line 409807).  However, `isSynthetic` does not
+filter the message from API calls — it is a round-trip flag preserved through serialization.
+Both the metadata tags and the skill content are sent to the model.
 
 ### Why This Is a Gap, Not Intentional Scoping
 
-The `getAppState` wrapping in `jC` is intentionally restrictive for subagents.  The `I` wrapper
-(line 407325) controls what permission state the subagent inherits:
+The `getAppState` wrapping in the agent execution function is intentionally restrictive for
+subagents.  The `m` wrapper (line 405148) controls what permission state the subagent inherits:
 
 1. It reads the parent's `getAppState()` each call (to pick up CLI-arg or global permissions)
 2. It applies the agent's `permissionMode` (e.g., `dontAsk`, `acceptEdits`)
-3. When `allowedTools` is explicitly provided, it replaces session-level rules — it doesn't
-   merge with the parent's session grants
+3. When `allowedTools` is explicitly provided (the `D` parameter), it replaces session-level
+   rules — it doesn't merge with the parent's session grants
 
 This means subagents don't inherit the main session's "always allow" grants (e.g., a user
 pressing "always allow" for `Bash(git:*)` in the main session doesn't carry into subagents).
 This is intentional.
 
-Separately, the `getPromptForCommand` method's `getAppState` wrapping (line 273640) is also
+Separately, the `getPromptForCommand` method's `getAppState` wrapping (line 252238) is also
 intentionally scoped — it injects `allowedTools` into the template resolver's context so that
 template variables can be resolved based on available permissions.  This does not propagate to
 the caller.
 
 But the absence of `allowedTools` extraction in the preload path is a gap, not a consequence of
 either scoping design.  Both the direct invocation and fork paths explicitly read
-`skill.allowedTools` and apply it — the preload path simply doesn't.  The `I` wrapper already
+`skill.allowedTools` and apply it — the preload path simply doesn't.  The `m` wrapper already
 has a mechanism for accepting `allowedTools`:
 
 ### What Would Need to Change
 
-The subagent's `getAppState` function `I` is defined at line 407325 in `jC`.  This function
-already handles `allowedTools` if passed as the `X` parameter to `jC`:
+The subagent's `getAppState` function `m` is defined at line 405148.  This function
+already handles `allowedTools` if passed as the `D` parameter to the agent execution function:
 
 ```javascript
 [source fragment removed]
 ```
 
-However, the `allowedTools` parameter `X` is only passed by the in-process teammate runner (line
-415265) and is not set by the Agent tool's invocation of `jC` (line 420729).
+However, the `allowedTools` parameter `D` is only passed by the in-process teammate runner and
+is not set by the Agent tool's invocation of the agent execution function.
 
-There is also a code ordering issue.  The `I` wrapper is defined at line 407325, and the skill
-preloading loop runs at line 407371 — after `I` is already created.  The `X` parameter that `I`
-checks is passed in when `jC` is called by its callers, not determined inside `jC`.
+There is also a code ordering issue.  The `m` wrapper is defined at line 405148, and the skill
+preloading loop runs at line 405195 — after `m` is already created.  The `D` parameter that `m`
+checks is passed in when the function is called by its callers, not determined inside it.
 
 To fix this, the skill preloading code could:
 
 1. Collect `allowedTools` from each preloaded skill
-2. Re-wrap `I` after the skill loop using `YtY()` or equivalent:
+2. Re-wrap `m` after the skill loop using `f7z()` or equivalent:
 
 ```javascript
 [source fragment removed]
 ```
 
-This would be analogous to what `JN1` (the fork path) does at line 454810.
+This would be analogous to what `mN1` (the fork path) does at line 453314.
 
 
 ## Comparison Table
 
-| Step                            | Direct (`/skill`)    | Fork (`context: fork`) | Subagent preload     |
-| ------------------------------- | -------------------- | ---------------------- | -------------------- |
-| Get prompt content              | `Sr4` line 407129    | `JN1` line 454805      | `jC` line 407395     |
-| Read `allowedTools` from skill  | `Sr4` line 407151    | `JN1` line 454809      | Not done             |
-| Parse with `Ai()`              | `Sr4` line 407151    | `JN1` line 454809      | Not done             |
-| Inject into permission context  | Skill tool line 421654 (contextModifier) | `YtY` line 454810 | Not done  |
-| Tools auto-permitted            | Yes                  | Yes                    | No                   |
+| Step                            | Direct (`/skill`)      | Fork (`context: fork`)   | Subagent preload       |
+| ------------------------------- | ---------------------- | ------------------------ | ---------------------- |
+| Get prompt content              | `He4` line 404952      | `mN1` line 453309        | loop at line 405222    |
+| Read `allowedTools` from skill  | `He4` line 404973      | `mN1` line 453313        | Not done               |
+| Parse with `ti()`              | `He4` line 404973      | `mN1` line 453313        | Not done               |
+| Inject into permission context  | Skill tool line 420098 (contextModifier) | `f7z` line 453314 | Not done               |
+| Tools auto-permitted            | Yes                    | Yes                      | No                     |
 
 
 ## Bundled Skill: `security-review` (Special Case)
 
-Location: cli.prettier.js:495863
+Location: cli.prettier.js:498973
 
 The bundled `security-review` skill uses a third pattern.  Its `getPromptWhileMarketplaceIsPrivate`
 method manually reads `allowed-tools` from the embedded SKILL.md frontmatter and injects them into
@@ -321,8 +404,8 @@ method manually reads `allowed-tools` from the embedded SKILL.md frontmatter and
 [source fragment removed]
 ```
 
-This is a one-off implementation that bypasses the standard skill loading pipeline.  The `pN6`
-factory creates a bundled skill with its own prompt-fetching logic rather than using `ew4`.
+This is a one-off implementation that bypasses the standard skill loading pipeline.  The `uN6`
+factory creates a bundled skill with its own prompt-fetching logic rather than using `f54`.
 
 
 ## How `alwaysAllowRules.command` Works
@@ -341,7 +424,7 @@ The `command` source is the one set by skill `allowed-tools`.
 The pattern syntax supports:
 - Simple tool names: `Read`, `Edit`, `Bash`
 - Parameterized patterns: `Bash(git diff:*)`, `Bash(npm run:*)`
-- These are parsed by `Ai()` (line 518063) which handles parenthesized arguments and
+- These are parsed by `ti()` (line 532435) which handles parenthesized arguments and
   comma/space separation
 
 
