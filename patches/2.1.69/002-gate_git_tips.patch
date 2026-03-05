@@ -1,0 +1,14 @@
+diff --git a/work/2.1.69/package/cli.prettier.js b/work/2.1.69/package/cli.prettier.js
+index 65f4b9a..5011328 100755
+--- a/work/2.1.69/package/cli.prettier.js
++++ b/work/2.1.69/package/cli.prettier.js
+@@ -526658,8 +526658,7 @@ function GNq() {
+       "Write a clear, concise description of what your command does. For simple commands, keep it brief (5-10 words). For complex commands (piped commands, obscure flags, or anything hard to understand at a glance), include enough context so that the user can understand what your command will do.",
+       "When issuing multiple commands:",
+       q,
+-      "For git commands:",
+-      K,
++      ...(vfz() ? ["For git commands:", K] : []),
+       "Avoid unnecessary `sleep` commands:",
+       Y,
+     ];

@@ -1,0 +1,20 @@
+diff --git a/work/2.1.69/package/cli.prettier.js b/work/2.1.69/package/cli.prettier.js
+index 9a282da..65f4b9a 100755
+--- a/work/2.1.69/package/cli.prettier.js
++++ b/work/2.1.69/package/cli.prettier.js
+@@ -538402,6 +538402,7 @@ async function dh1(A, q, K, Y, z, w, _, $, O, H, j) {
+     D = A_(),
+     X = A.command;
+   if ($) X = X.replace(/\$\{CLAUDE_PLUGIN_ROOT\}/g, M($));
++  if (O) X = X.replace(/\$\{CLAUDE_SKILL_DIR\}/g, M(O));
+   if (J && X.trim().match(/\.sh(\s|$|")/)) {
+     if (!X.trim().startsWith("bash ")) X = `bash ${X}`;
+   }
+@@ -538412,6 +538413,7 @@ async function dh1(A, q, K, Y, z, w, _, $, O, H, j) {
+     G = { ...process.env, CLAUDE_PROJECT_DIR: M(D) };
+   if ($) G.CLAUDE_PLUGIN_ROOT = M($);
+   if (O) G.CLAUDE_PLUGIN_ROOT = M(O);
++  if (O) G.CLAUDE_SKILL_DIR = M(O);
+   if ((q === "SessionStart" || q === "Setup") && _ !== void 0)
+     G.CLAUDE_ENV_FILE = await npA(q, _);
+   let Z = J ? Xr1() : !0,

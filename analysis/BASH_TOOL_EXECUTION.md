@@ -1,5 +1,7 @@
 # Claude Code Bash Tool Execution Analysis
 
+Note: This file covers execution mechanics (how commands are spawned) from version 2.0.29. For the Bash tool's `description` field -- the prompt text the model sees, including the Git Safety Protocol, commit instructions, and PR instructions -- see `PROMPTS.md` (section "Prompt Content in Tool Descriptions") and the full rendered text in `PROMPTS_RENDERED_2.1.39.md` (section "Bash Tool Description").
+
 ## Executive Summary
 
 The Claude Code Bash tool executes commands by:
