@@ -118,7 +118,7 @@ Create independent, non-cumulative patches using git's staging area:
 
 ```bash
 # Step 1: Stage original file
-git add {VERSION}/package/cli.prettier.js
+git add --force {VERSION}/package/cli.prettier.js
 
 # Step 2: Apply ONLY the first semantic change
 # (Based on understanding from existing patches - e.g., PreToolUse modifications)
