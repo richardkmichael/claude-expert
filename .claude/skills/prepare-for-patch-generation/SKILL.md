@@ -1,21 +1,21 @@
 ---
 name: prepare-for-new-patch-generation
-description: Prepare the original source code for new patch generation by creating working directories, and downloading, extracting and prettifying the requested version source code.
-allowed-tools: Bash(bin/prepare-for-patch-generation.sh:*)
+description: Prepare the original source code for new patch generation by creating working directories, and downloading, extracting and prettifying the requested version source code. If the user says "latest" instead of a specific version number, use the latest published version shown below.
+allowed-tools: Bash(bin/prepare-for-patch-generation.sh:*), Bash(npm view:*)
 ---
 
 # Source code preparation
 
 This skill prepares the original source code for modification to generate new patches.
 
+Latest published version: !`npm view @anthropic-ai/claude-code version`
+
 # Instructions
 
-1. Use the `bin/prepare-for-patch-generation.sh` script, providing the user requested version.
+1. Determine the version to prepare:
+   - If the user specified a version number, use that
+   - If the user said "latest" or similar, use the latest published version shown above
 
-## Example
+2. Run the `bin/prepare-for-patch-generation.sh` script with the version:
 
-If the user requested version of Claude Code to patch is `1.0.123`, here is the procedure:
-
-1. Run the script with the version:
-
-  `bin/prepare-for-patch-generation.sh 1.0.123`
+  `bin/prepare-for-patch-generation.sh <version>`
