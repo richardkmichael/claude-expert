@@ -1,759 +1,352 @@
-# Claude Code Analysis - Hook Functionality
+# Claude Code Analysis - Hook Functionality (2.1.74)
 
-This document analyzes the PreToolUse and PostToolUse hook functionality in Claude Code's bundled
-JavaScript file `package/cli.prettier.js`, focusing on areas relevant for modifying hook behavior.
+This document analyzes hook functionality in Claude Code's bundled JavaScript file
+`package/cli.prettier.js`. Updated for version 2.1.74.
 
-## Objective
-Understand and modify the behavior of:
-- **PreToolUse hooks**: Control tool execution permission (allow/deny/ask)
-- **PostToolUse hooks**: Execute actions after tool completion
+## Hook Events
 
-## Analysis Focus
-Based on LIBRARY_BOUNDARIES.md, the relevant code is in:
-- **Lines 357,001-444,530**: Pure Claude Code application implementation
-- **Lines 339,457-357,000**: Mixed Claude Code + libraries (may contain hook-related code)
+All registered hook event names (from settings schema, line 109032):
 
-## Initial Findings from cli_prettier_notes.md
+| Event               | Schema line | Executor           | Executor line |
+| ------------------- | ----------- | ------------------ | ------------- |
+| PreToolUse          | 242611      | `Ug8`              | 530008        |
+| PostToolUse         | 242631      | `dg8`              | 530031        |
+| PostToolUseFailure  | 242642      | `cg8`              | 530049        |
+| PermissionRequest   | 242621      | `z_6`              | 530275        |
+| Notification        | 242654      | `Iu`               | -             |
+| UserPromptSubmit    | 242664      | -                  | -             |
+| SessionStart        | 242672      | -                  | -             |
+| SessionEnd          | 242837      | -                  | -             |
+| Stop                | 242690      | -                  | -             |
+| SubagentStart       | 242703      | -                  | -             |
+| SubagentStop        | 242712      | -                  | -             |
+| PreCompact          | 242728      | -                  | -             |
+| Setup               | 242682      | -                  | -             |
+| TeammateIdle        | 242737      | -                  | -             |
+| TaskCompleted       | 242746      | -                  | -             |
+| Elicitation         | 242758      | -                  | -             |
+| ElicitationResult   | 242771      | -                  | -             |
+| ConfigChange        | 242790      | -                  | -             |
+| InstructionsLoaded  | 242801      | -                  | -             |
+| WorktreeCreate      | 242814      | -                  | -             |
+| WorktreeRemove      | 242822      | -                  | -             |
 
-The following locations were identified (need validation):
+## Hook Configuration Schema (line 109062)
 
-### 1. Hook Configuration (L354256)
-- Location appears to be in mixed Claude Code section
-- Shows PostToolUse hook configuration with matchers
-- Demonstrates tool-specific hooks (e.g., BashTool targeting)
+Four hook types are supported, each defined via `Bz5()`:
 
-### 2. Hook Output Schema (L363013)
-- Location in pure Claude Code section
-- Defines PreToolUse hook response format
-- Critical for understanding hook return values
+### Command Hook (BashCommandHookSchema, line 109063)
 
-### 3. PreToolUse Execution Control (L419756)
-- Location in pure Claude Code section
-- Shows how permission decisions are enforced
-- Key mechanism for tool blocking
-
-### 4. PostToolUse Cancellation (L419906)
-- Location in pure Claude Code section
-- Demonstrates hook abortion mechanism
-- Important for cleanup/error handling
-
-## Verified Hook Implementation Details
-
-### 1. Hook Configuration Format (L354256) ✅ VERIFIED
-```javascript
-[source fragment removed]
+```
+type:          "command" (required)
+command:       string   (required) - Shell command to execute
+timeout:       number   (optional) - Timeout in seconds
+statusMessage: string   (optional) - Custom spinner message
+once:          boolean  (optional) - If true, removed after first execution
+async:         boolean  (optional) - If true, runs in background without blocking
+asyncRewake:   boolean  (optional) - UNDOCUMENTED, see below
 ```
 
-### 2. Hook Output Schema (L363013) ✅ VERIFIED
-**Schema for hook responses:**
-```javascript
-[source fragment removed]
+### Prompt Hook (PromptHookSchema, line 109087)
+
+```
+type:          "prompt" (required)
+prompt:        string   (required) - LLM prompt ($ARGUMENTS for hook input JSON)
+timeout:       number   (optional) - Timeout in seconds
+model:         string   (optional) - Model to use (default: small fast model)
+statusMessage: string   (optional) - Custom spinner message
+once:          boolean  (optional) - If true, removed after first execution
 ```
 
-### 3. Hook Metadata and Behavior (L418318) ✅ VERIFIED
-**PreToolUse Hook Behavior:**
-- **Input**: JSON of tool call arguments
-- **Exit code 0**: stdout/stderr not shown
-- **Exit code 2**: show stderr to model and **block tool call**
-- **Other exit codes**: show stderr to user only but continue with tool call
+### HTTP Hook (HttpHookSchema, line 109110)
 
-**PostToolUse Hook Behavior:**
-- **Input**: JSON with "inputs" (tool call arguments) and "response" (tool call response)
-- **Exit code 0**: stdout shown in transcript mode (Ctrl-O)
-- **Exit code 2**: show stderr to model immediately
-- **Other exit codes**: show stderr to user only
-
-### 4. Permission Decision Processing (L363047-L363096) ✅ VERIFIED
-**PreToolUse permission decisions are processed as:**
-```javascript
-[source fragment removed]
+```
+type:           "http"   (required)
+url:            string   (required) - URL to POST hook input JSON to
+timeout:        number   (optional) - Timeout in seconds
+headers:        object   (optional) - Additional headers (supports $VAR_NAME interpolation)
+allowedEnvVars: string[] (optional) - Env vars allowed for header interpolation
+statusMessage:  string   (optional) - Custom spinner message
+once:           boolean  (optional) - If true, removed after first execution
 ```
 
-### 5. Tool Execution Control (L419754-L419765) ✅ VERIFIED
-**Tool blocking mechanism:**
-```javascript
-[source fragment removed]
+### Agent Hook (AgentHookSchema, line 109136)
+
+```
+type:          "agent"  (required)
+prompt:        string   (required) - What to verify ($ARGUMENTS for hook input JSON)
+timeout:       number   (optional) - Timeout in seconds (default 60)
+model:         string   (optional) - Model to use (default: Haiku)
+statusMessage: string   (optional) - Custom spinner message
+once:          boolean  (optional) - If true, removed after first execution
 ```
 
-### 6. PostToolUse Cancellation (L419902-L419911) ✅ VERIFIED
-**Hook cancellation mechanism:**
-```javascript
-[source fragment removed]
+## Hook Input Schemas
+
+### PreToolUse (line 242611)
+
+```json
+{ "hook_event_name": "PreToolUse", "tool_name": "...", "tool_input": {}, "tool_use_id": "..." }
 ```
 
-## Key Modification Points Identified
+Plus base fields: `session_id`, `transcript_path`, `cwd`.
 
-1. **Permission Control**: Lines 363047-363096 - Where hook permission decisions are translated to behavior
-2. **Tool Blocking**: Lines 419754-419765 - Where tool execution is actually stopped
-3. **Hook Metadata**: Lines 418318+ - Where hook behavior descriptions are defined
-4. **Output Schema**: Lines 363013+ - Where valid hook responses are defined
-5. **Cancellation Logic**: Lines 419902+ - Where hook execution can be aborted
+Tool-lifecycle events (PreToolUse, PostToolUse, PostToolUseFailure) also include
+`agent_id` and `agent_type` fields identifying which agent triggered the tool call.
 
-## Why PreToolUse Hooks Don't Fire for Invalid Inputs ⚠️
+### PostToolUse (line 242631)
 
-**Root Cause Identified**: PreToolUse hooks are bypassed entirely when tool input validation fails **before** hook execution.
-
-### Tool Validation Pipeline (Read Tool Example)
-**Location**: Lines 419660-419680 in the main execution flow
-```javascript
-[source fragment removed]
+```json
+{ "hook_event_name": "PostToolUse", "tool_name": "...", "tool_input": {}, "tool_response": {} }
 ```
 
-### Read Tool's validateInput Function (CLI.js lines ~1776+)
-```javascript
-[source fragment removed]
+### PostToolUseFailure (line 242642)
+
+```json
+{ "hook_event_name": "PostToolUseFailure", "tool_name": "...", "tool_input": {},
+  "tool_use_id": "...", "error": "...", "is_interrupt": false }
 ```
 
-### Impact on Hook Behavior
-- **File doesn't exist**: `errorCode:2` → Tool fails immediately, PreToolUse hook never fires
-- **Binary file**: `errorCode:4` → Tool fails immediately, PreToolUse hook never fires
-- **File too large**: `errorCode:6` → Tool fails immediately, PreToolUse hook never fires
-- **Only valid inputs**: Proceed to PreToolUse hook execution
+Fires when tool execution throws an exception. Called from `X4q` (line 439717) in the
+catch path. Receives the error string and whether it was a user interrupt.
 
-This explains why PreToolUse hooks don't fire for non-existent files - the tool's own validation rejects the input before hooks are even considered.
+### PermissionRequest (line 242621)
 
-## Tool Execution Code Boundaries
-
-**Core Tool Processing Section**: Lines **419556-419948** (~392 lines)
-
-### Key Functions in Tool Execution Pipeline:
-1. **`JZ5` (Line 419556)**: Main tool orchestrator - processes multiple tool uses in parallel
-2. **`Rh1` (Line 419572)**: Cleanup function - removes tool from in-progress tracking
-3. **`s$B` (Line 419575)**: Individual tool handler - validates tool exists and delegates to XZ5
-4. **`XZ5` (Line 419635)**: **Core tool execution wrapper** - handles schema validation, input validation, and hook execution
-
-### Code Context:
-- **Before (Lines ~417000-419555)**: Settings/UI management, policies, configuration
-- **Tool Section (Lines 419556-419948)**: Pure tool execution logic
-- **After (Lines 419949+)**: Error handling utilities, thinking tokens, model processing
-
-## Solution: Force Hooks to Always Fire
-
-**Target Modification**: Line 419660 in `XZ5` function
-
-### Current Code Structure (Lines 419660-419689)
-```javascript
-[source fragment removed]
+```json
+{ "hook_event_name": "PermissionRequest", "tool_name": "...", "tool_input": {},
+  "permission_suggestions": [] }
 ```
 
-### Crude Solution: Comment Out validateInput Call
-To force hooks to always fire, simply comment out or remove the validation check:
+### Notification (line 242654)
 
-**Option 1: Comment out the validation (recommended for testing)**
-```javascript
-[source fragment removed]
+```json
+{ "hook_event_name": "Notification", "message": "...", "title": "...", "notification_type": "..." }
 ```
 
-**Option 2: Force validation to always pass**
-```javascript
-[source fragment removed]
-```
+## Hook Output Schema (PreToolUse)
 
-### Expected Behavior After Modification
-- ✅ PreToolUse hooks will **always fire** regardless of input validity
-- ✅ Hooks can implement their own validation logic in the hook scripts
-- ⚠️ **Warning**: Tools will attempt to execute on invalid inputs (non-existent files, etc.)
-- ⚠️ **Error handling**: Tool execution may fail later, but hooks will have had a chance to run
-
-### Alternative: Move Validation After Hooks
-For a more sophisticated solution, relocate the validation check to occur after hook execution, allowing hooks to run but still preventing tool execution on invalid inputs.
-
-## Hook System Architecture Deep Dive
-
-### Complete Hook Execution Pipeline
-**Location**: Tool processing section (Lines 419556-419948)
+PreToolUse hooks can return JSON on stdout to control permission decisions:
 
 ```javascript
 [source fragment removed]
 ```
 
-### Hook System Components
+### PreToolUse Behavior by Exit Code
 
-#### 1. Tool Orchestrator: `JZ5` (Line 419556)
-- **Purpose**: Main entry point for tool execution
-- **Function**: Processes multiple tool uses in parallel using `I4B()`
-- **Delegates to**: `s$B()` for individual tool handling
+| Exit code | Behavior                                            |
+| --------- | --------------------------------------------------- |
+| 0         | stdout/stderr not shown, JSON output parsed         |
+| 2         | stderr shown to model and tool call blocked         |
+| other     | stderr shown to user only, tool call continues      |
 
-#### 2. Single Tool Handler: `s$B` (Line 419575)
-- **Purpose**: Validates tool exists and manages tool lifecycle
-- **Key responsibilities**:
-  - Finds tool definition by name: `Z.options.tools.find()`
-  - Sets tool as in-progress: `Z.setInProgressToolUseIDs()`
-  - Error handling for missing tools
-  - Delegates to `XZ5()` for actual execution
-  - Cleanup via `Rh1()` when complete
+### PostToolUse Behavior by Exit Code
 
-#### 3. Core Tool Executor: `XZ5` (Line 419635)
-- **Purpose**: Complete tool execution wrapper with validation and hooks
-- **Critical validation points**:
-  - **Schema validation** (Line 419636): `A.inputSchema.safeParse(Q)`
-  - **Semantic validation** (Line 419660): `A.validateInput?.(I.data, Z)` ← **BLOCKS HOOKS**
-  - **Hook execution** (Line 419689): `lNA(A.name, B, J, O, Z.abortController.signal)` ← **Only if validation passes**
+| Exit code | Behavior                                            |
+| --------- | --------------------------------------------------- |
+| 0         | stdout shown in transcript mode (Ctrl-O)            |
+| 2         | stderr shown to model immediately                   |
+| other     | stderr shown to user only                           |
 
-#### 4. PreToolUse Hook Executor: `lNA` (Called at Line 419689)
-- **Purpose**: Executes PreToolUse hook scripts and processes results
-- **Current parameters**:
+
+## Tool Execution Pipeline (2.1.74)
+
+### Overall Flow
+
+```
+  1. Schema validation (Zod)
+  2. Input validation (tool.validateInput)
+  3. PreToolUse hooks (Ug8)
+  4. Permission check (v3z -> checkPermissions)
+  5. PermissionRequest hooks (z_6) -- if behavior="ask"
+  6. Permission UI prompt -- if behavior="ask"
+  7. Tool execution (tool.call)
+  8. PostToolUse hooks (dg8) -- on success only
+  9. PostToolUseFailure hooks (cg8) -- on exception only
+```
+
+### Key Functions
+
+| Function | Line   | Role                                              |
+| -------- | ------ | ------------------------------------------------- |
+| `Ug8`    | 530008 | executePreToolHooks - fires PreToolUse hooks       |
+| `v3z`    | 521380 | Core permission check (rules + checkPermissions)   |
+| `rJ`     | 521534 | Outer permission wrapper (adds auto-mode logic)    |
+| `VfY`    | 379573 | Interactive canUseTool helper                      |
+| `z_6`    | 530275 | executePermissionRequestHooks                      |
+| `dg8`    | 530031 | executePostToolHooks                               |
+| `cg8`    | 530049 | executePostToolUseFailureHooks                     |
+| `X4q`    | 439717 | PostToolUseFailure hook executor wrapper            |
+
+### Input Validation Blocks Hooks
+
+PreToolUse hooks only fire if both schema and input validation pass. If `validateInput`
+rejects the input (e.g., file doesn't exist for Read), hooks are never called.
+
+```
+Schema validation fails  ->  early return, no hooks
+Input validation fails   ->  early return, no hooks
+Both pass                ->  PreToolUse hooks fire
+```
+
+
+## PermissionRequest Hook Timing
+
+When a tool's `checkPermissions` returns `{ behavior: "ask" }`, the system must decide
+between showing the UI prompt and running PermissionRequest hooks.
+
+### Normal (interactive) flow
+
+In the interactive CLI flow (line 588396):
+
+1. The permission prompt entry is pushed to `toolUseConfirmQueue`
+   - The UI renders immediately
+2. In parallel, an async IIFE starts `runHooks` (line 588526):
+   ```javascript
+   [source fragment removed]
+   ```
+3. It's a race: user interaction vs. PermissionRequest hook completion
+
+### awaitAutomatedChecksBeforeDialog
+
+When `toolPermissionContext.awaitAutomatedChecksBeforeDialog` is set (line 588600),
+PermissionRequest hooks run before the UI prompt is shown. If hooks resolve it, the
+UI never appears.
+
+### requiresUserInteraction
+
+Tools with `requiresUserInteraction() === true` (like ExitPlanMode) always produce
+`behavior: "ask"`, bypassing auto-mode classifiers and rule checks (line 521415, 521564).
+
+
+## Plan-Related Hook Points
+
+### ExitPlanMode Permission Flow
+
+When Claude calls `ExitPlanMode`:
+
+1. PreToolUse hooks fire with `tool_name: "ExitPlanMode"` (via `Ug8`)
+2. `checkPermissions` returns `{ behavior: "ask", message: "Exit plan mode?" }` (line 433076)
+3. `requiresUserInteraction()` returns `true` (line 433070), so "ask" is preserved
+4. The "Ready to code?" UI renders (line 572716) with:
+   - Plan content in a dashed-border box
+   - Option buttons (approve with various modes, reject with feedback)
+   - ctrl-g to edit plan in external editor
+5. PermissionRequest hooks run concurrently with the UI (or before, if `awaitAutomatedChecksBeforeDialog`)
+6. PostToolUse/PostToolUseFailure hooks fire after user responds
+
+### Plan File Detection in Tool Display Names
+
+When Write, Edit, Bash, or Read target a file in the plans directory (`d2()`), the
+tool's `userFacingName` changes:
+
+| Tool  | Normal   | Plan file       | Line        |
+| ----- | -------- | --------------- | ----------- |
+| Write | "Write"  | "Updated plan"  | 413422      |
+| Edit  | "Update" | "Updated plan"  | 514713      |
+| Read  | "Read"   | "Reading Plan"  | 238868      |
+
+Detection is a simple path prefix check: `file_path.startsWith(d2())`.
+
+### Plan Directory Resolution (`d2`, line 238715)
+
+1. If `plansDirectory` set in config: use that (relative to project root, must stay within root)
+2. Default: `~/.claude/plans/`
+
+### Plan Mode System Messages
+
+The plan system injects attachment types into the conversation:
+
+| Attachment type       | When                                          | Line   |
+| --------------------- | --------------------------------------------- | ------ |
+| `plan_mode`           | Periodic reminder while plan mode is active   | -      |
+| `plan_mode_reentry`   | Re-entering plan mode after previous exit     | 244688 |
+| `plan_mode_exit`      | Exiting plan mode                             | 244711 |
+| `plan_file_reference` | Plan file exists when entering plan mode      | 278030 |
+
+
+## Undocumented Hook Features
+
+### `asyncRewake` (Command Hook Property)
+
+Schema definition at line 109081:
+```
+asyncRewake: boolean (optional)
+  "If true, hook runs in background and wakes the model on exit code 2
+   (blocking error). Implies async."
+```
+
+Present in schema but not in official documentation. Behavior (line 528424):
+
+- Like `async: true`, the hook runs in the background without blocking
+- On completion, if exit code is 2, pushes a notification to the model:
   ```javascript
   [source fragment removed]
   ```
-- **Hook result processing** (Lines 419691-419713):
-  - Processes `j.permissionBehavior` ("allow", "deny", "ask")
-  - Creates permission decision objects
-  - Handles hook cancellation and blocking errors
+- Unlike regular `async` hooks, `asyncRewake` does NOT produce an async hook response
+  attachment. Regular `async` hooks use a separate path that calls `background()` and
+  registers the process for later polling.
 
-#### 5. Cleanup Function: `Rh1` (Line 419572)
-- **Purpose**: Removes tool from in-progress tracking
-- **Called**: After tool completion in `s$B`
+In summary:
+- `async: true` — background, result appears as attachment when done
+- `asyncRewake: true` — background, only notifies model on exit code 2, no attachment
 
-### Hook Result Processing Flow (Lines 419691-419725)
-```javascript
-[source fragment removed]
-```
+### `PostToolUseFailure` Hook Event
 
-### PostToolUse Hook Execution
-- **Location**: End of `XZ5` function (after tool execution)
-- **Function call**: `pNA()` (similar to PreToolUse `lNA()`)
-- **Processing**: Similar result handling for PostToolUse hooks
+Not mentioned in official hook documentation as of 2.1.74. Fires when tool execution
+throws an exception (line 439721 in `X4q`).
 
-## Proposed Solution: Enhanced Hook Context
-
-### Modified Hook Execution Call
-Instead of bypassing validation, enhance hook context:
-
-```javascript
-[source fragment removed]
-```
-
-### Enhanced PreToolUse Hook Schema
+Input schema:
 ```json
 {
-  "session_id": "abc123",
-  "transcript_path": "/Users/.../.claude/projects/.../session.jsonl",
-  "cwd": "/Users/...",
-  "hook_event_name": "PreToolUse",
-  "tool_name": "Read",
-  "tool_input": {
-    "file_path": "/path/to/nonexistent.txt"
-  },
-  "tool_validation": {
-    "schema_validation": {
-      "passed": true,
-      "error_message": null
-    },
-    "input_validation": {
-      "passed": false,
-      "error_message": "File does not exist.",
-      "error_code": 2
-    }
-  }
-}
-```
-
-### Implementation Impact
-- **✅ Backward Compatible**: `tool_validation` is optional
-- **✅ Always Fires Hooks**: Hooks execute regardless of validation failures
-- **✅ Intelligent Hook Logic**: Hooks can make informed decisions based on validation context
-- **✅ Maintains Safety**: Tool execution can still be blocked, but after hook consultation
-
-This architecture allows hooks to handle validation failures intelligently while preserving the existing safety mechanisms.
-
-## PostToolUse Hook Enhancement Implementation ✅ COMPLETED
-
-### Problem Resolved
-PostToolUse hooks previously only fired on tool success, missing all tool execution failures. This limited hooks from implementing error recovery, cleanup, audit logging, or failure-specific workflows.
-
-### Solution: Enhanced PostToolUse with tool_execution Property
-
-**Architecture Decision**: Add `tool_execution` property containing execution metadata while preserving `tool_response` semantics for clean API separation.
-
-### Complete Tool Execution Flow (Updated)
-
-```javascript
-[source fragment removed]
-```
-
-#### Detailed Flow Stages:
-
-1. **Schema Validation** (Zod structure validation)
-   - ❌ **Fails** → Early return, no hooks fire
-   - ✅ **Passes** → Continue to input validation
-
-2. **Input Validation** (Tool-specific business logic)
-   - ❌ **Fails** (e.g., "file doesn't exist") → Early return, no hooks fire
-   - ✅ **Passes** → Continue to PreToolUse hooks
-
-3. **PreToolUse Hooks** (Always fire when reached)
-   - Receive `tool_validation` context with both schema and input validation results
-   - Can make informed decisions about tool execution
-   - Can block tool execution via `permissionDecision: "deny"`
-
-4. **Permission Checks**
-   - Process hook decisions and user permissions
-   - ❌ **Denied** → Stop, no tool execution, no PostToolUse
-   - ✅ **Allowed** → Continue to tool execution
-
-5. **Tool Execution** (Actual tool.call())
-   - ✅ **Succeeds** → PostToolUse fires with success context
-   - ❌ **Fails** → PostToolUse fires with error context
-   - 🚫 **Never attempted** → No PostToolUse
-
-6. **PostToolUse Hooks** (Only fire if tool execution was attempted)
-   - Receive both `tool_response` (output) and `tool_execution` (metadata)
-   - Handle success and failure cases uniformly
-
-### Enhanced Hook Schemas
-
-#### PostToolUse Success Case
-```json
-{
-  "hook_event_name": "PostToolUse",
-  "tool_name": "Read",
-  "tool_input": {"file_path": "/existing.txt"},
-  "tool_response": {
-    "type": "text",
-    "file": {"content": "file contents...", "filePath": "/existing.txt"}
-  },
-  "tool_execution": {
-    "success": true,
-    "duration_ms": 145
-  }
-}
-```
-
-#### PostToolUse Failure Case
-```json
-{
-  "hook_event_name": "PostToolUse",
+  "hook_event_name": "PostToolUseFailure",
   "tool_name": "Bash",
-  "tool_input": {"command": "nonexistent_command"},
-  "tool_response": null,
-  "tool_execution": {
-    "success": false,
-    "duration_ms": 234,
-    "error_message": "Shell command failed",
-    "error_type": "ShellError",
-    "details": {
-      "stdout": "",
-      "stderr": "bash: nonexistent_command: command not found",
-      "exitCode": 127,
-      "interrupted": false
-    }
-  }
+  "tool_input": { "command": "..." },
+  "tool_use_id": "...",
+  "error": "Shell command failed",
+  "is_interrupt": false
 }
 ```
 
-### Test Cases and Expected Behavior
+The tool lifecycle is:
+- Tool succeeds: PostToolUse fires
+- Tool throws: PostToolUseFailure fires
+- Tool never attempted (validation failure): neither fires
 
-#### ✅ PostToolUse WILL Fire (Tool Execution Attempted)
-- **`Bash "false"`** → Tool executes, exits with code 1 → PostToolUse with ShellError
-- **`Bash "exit 1"`** → Tool executes, exits with code 1 → PostToolUse with ShellError
-- **`Bash "nonexistent_command"`** → Tool executes, command not found → PostToolUse with ShellError
-- **`Grep "[invalid_regex"`** → Tool executes, regex fails → PostToolUse with ripgrep error
-- **`Read "/existing.txt"`** → Tool executes successfully → PostToolUse with success context
 
-#### ❌ PostToolUse will NOT Fire (Tool Never Executed)
-- **`Read "/nonexistent.txt"`** → Input validation failure → No tool execution → No PostToolUse
-- **`Edit "/file.txt" "old" "new"`** (file not read first) → Validation failure → No PostToolUse
-- **`Read {"bad": "schema"}`** → Schema validation failure → No tool execution → No PostToolUse
-- **`UnknownTool`** → Tool doesn't exist → No tool execution → No PostToolUse
+## Legacy Notes (Pre-2.1.72)
 
-### Design Rationale
+The sections below document earlier analysis findings. Line numbers reference older
+versions and are no longer accurate. Key architectural findings remain valid.
 
-**Clean Semantic Separation**:
-- **PreToolUse**: "I'm about to try running this tool" (with validation context)
-- **PostToolUse**: "I tried running this tool" (with execution context)
-- **No PostToolUse**: "Tool was never attempted" (validation blocked it)
+### Why PreToolUse Hooks Don't Fire for Invalid Inputs
 
-**Benefits**:
-- ✅ **Complete Lifecycle Coverage**: Handle both success and failure execution cases
-- ✅ **Rich Error Context**: Full stdout/stderr/exit codes from process-based tools
-- ✅ **Clean API**: `tool_response` for output, `tool_execution` for metadata
-- ✅ **Backward Compatible**: Existing hooks continue working unchanged
-- ✅ **Size Safe**: Leverages existing SM0() 10KB error limiting
-- ✅ **Consistent Flow**: PreToolUse handles validation, PostToolUse handles execution
+Root Cause: PreToolUse hooks are bypassed entirely when tool input validation fails
+before hook execution.
 
-**Hook Development Patterns**:
+Tool validation pipeline (Read tool example):
 ```javascript
 [source fragment removed]
 ```
 
-This implementation provides comprehensive PostToolUse hook coverage for actual tool execution attempts while maintaining logical flow boundaries and clean API semantics.
+Read tool's `validateInput` checks:
+- File in ignored directory -> errorCode 1
+- File does not exist -> errorCode 2
+- Binary file -> errorCode 4
+- File too large -> errorCode 6
 
-## Legacy PostToolUse Hook Analysis (Pre-Enhancement)
+### Custom Error Classes
 
-### Original PostToolUse Hook Behavior
-
-**Previous Limitation**: PostToolUse hooks were **only called when the tool call succeeded**.
-
-### Evidence from Code Analysis
-
-#### 1. PostToolUse Hook Location (Lines 419900-419902)
-The `pNA` (PostToolUse) function call is **outside and after** the try-catch block that handles tool execution:
-
+ShellError:
 ```javascript
 [source fragment removed]
 ```
 
-#### 2. Early Return on Tool Failure
-When a tool fails (exception thrown), the catch block:
-1. Logs the error telemetry
-2. Yields an error message to the user
-3. **Returns early** (preventing PostToolUse execution)
-4. PostToolUse hook code is **never reached**
-
-#### 3. PostToolUse Hook Parameters (Line 419902)
-The PostToolUse hook receives the **successful tool result** (`C`) as the `tool_response` parameter:
-
+AbortError:
 ```javascript
 [source fragment removed]
 ```
 
-### What `tool_response` Contains
+### Error Message Formatting
 
-**`tool_response` = Raw Tool Result Data** (not output schema)
-
-#### For Read Tool:
-```json
-{
-  "type": "text",
-  "file": {
-    "filePath": "/path/to/file.txt",
-    "content": "file content here...",
-    "numLines": 42,
-    "startLine": 1,
-    "totalLines": 42
-  }
-}
-```
-
-#### For Edit Tool:
-```json
-{
-  "filePath": "/path/to/file.txt",
-  "oldString": "original text",
-  "newString": "replacement text",
-  "originalFile": "entire original file content",
-  "structuredPatch": [/* diff hunks */],
-  "userModified": false,
-  "replaceAll": false
-}
-```
-
-### Problem: PostToolUse Hooks Don't Fire on Tool Failures
-
-**Current Limitation**: PostToolUse hooks cannot:
-- ❌ Handle tool failures or errors
-- ❌ Perform cleanup after failed operations
-- ❌ Log or audit failed tool attempts
-- ❌ Implement error recovery workflows
-
-### Proposed Solution: Universal PostToolUse Hook Execution
-
-**Goal**: Modify PostToolUse hooks to fire **regardless** of tool success or failure.
-
-#### Enhanced PostToolUse Hook Schema
-```json
-{
-  "session_id": "abc123",
-  "hook_event_name": "PostToolUse",
-  "tool_name": "Read",
-  "tool_input": {"file_path": "/nonexistent.txt"},
-  "tool_execution": {
-    "success": false,
-    "error_message": "File does not exist.",
-    "error_type": "InputValidationError",
-    "duration_ms": 156
-  },
-  "tool_response": null  // null for failures, result data for success
-}
-```
-
-#### Implementation Strategy
-
-**Option 1: Move PostToolUse Outside Try-Catch**
-```javascript
-[source fragment removed]
-```
-
-**Option 2: Duplicate PostToolUse Calls**
-```javascript
-[source fragment removed]
-```
-
-### Implementation Impact
-
-#### ✅ Benefits:
-- **Complete Tool Lifecycle Coverage**: Hooks handle both success and failure
-- **Error Recovery**: Hooks can implement cleanup and recovery logic
-- **Audit Trail**: All tool attempts are logged regardless of outcome
-- **Backward Compatible**: Existing hooks continue to work (success case unchanged)
-
-#### ⚠️ Considerations:
-- **Hook Script Changes**: Scripts must handle both success and failure cases
-- **Performance**: Additional hook execution on failures
-- **Error Context**: Need to provide meaningful error information to hooks
-
-## Complete Tool Execution Mechanism Analysis
-
-### Tool Execution Flow (Lines 419803-419897)
-
-**Tool execution is a direct function call**, not a spawned process:
-
-```javascript
-[source fragment removed]
-```
-
-### Error Information Flow
-
-#### Tool Failure Scenarios:
-
-1. **Exception During Execution** (Lines 419864-419895):
-   ```javascript
-   [source fragment removed]
-   ```
-
-2. **Input Validation Failures** (Lines 419660-419780):
-   ```javascript
-   [source fragment removed]
-   ```
-
-### Error Information Availability
-
-**On Tool Failure**, the following information is available:
-- **Exception object**: `O` (Error instance or string)
-- **Error message**: `O.message` or `String(O)`
-- **Tool name**: `A.name`
-- **Tool input**: `J` (validated input)
-- **Duration**: `Date.now() - D`
-- **Tool use ID**: `B`
-
-**On Validation Failure**, the following information is available:
-- **Validation result**: `W` object containing:
-  - `W.message`: Human-readable error message
-  - `W.errorCode`: Tool-specific error code (1-9)
-  - `W.meta`: Additional error metadata
-- **Tool name**: `A.name`
-- **Raw input**: `Q` (unvalidated)
-- **Tool use ID**: `B`
-
-### PostToolUse Hook Enhancement Implementation Strategy
-
-Based on the complete execution analysis, here's the optimal approach:
-
-#### Implementation Plan
-
-**Option A: Finally Block Approach (Recommended)**
-```javascript
-[source fragment removed]
-```
-
-**Enhanced pNA Function Signature**:
-```javascript
-[source fragment removed]
-```
-
-#### Enhanced PostToolUse Hook Schema
-```json
-{
-  "session_id": "abc123",
-  "hook_event_name": "PostToolUse",
-  "tool_name": "Read",
-  "tool_input": {"file_path": "/nonexistent.txt"},
-  "tool_response": null,  // null for failures, result data for success
-  "tool_execution": {
-    "success": false,
-    "error": "File does not exist.",
-    "error_type": "InputValidationError",
-    "duration_ms": 156
-  }
-}
-```
-
-### Next Steps for Implementation
-
-1. **Modify XZ5 function** (Lines 419803-419948):
-   - Add execution state tracking
-   - Move PostToolUse to finally block
-   - Capture error information in catch block
-
-2. **Enhance pNA function** (Line 363574):
-   - Accept additional execution context parameter
-   - Include `tool_execution` in hook input schema
-
-3. **Update hook input construction** (Lines 363576-363582):
-   - Add conditional `tool_execution` object
-   - Maintain backward compatibility
-
-4. **Test comprehensive scenarios**:
-   - Tool success (existing behavior)
-   - Tool execution failures (new)
-   - Input validation failures (new)
-   - Hook cancellation scenarios
-
-This implementation provides complete tool lifecycle coverage while maintaining backward compatibility and providing rich error context to PostToolUse hooks.
-
-## Built-In Tool Error Handling Patterns
-
-### Process-Based Tools (Bash, Grep/Search)
-
-**Pattern**: These tools spawn external processes and use structured error capture via `cN` (ShellError) class.
-
-#### Bash Tool Implementation (Lines 384953-384997)
-```javascript
-[source fragment removed]
-```
-
-**Error Information Captured:**
-- `H.stdout`: Command output
-- `H.stderr`: Error messages from external process
-- `H.code`: Process exit code
-- `H.interrupted`: Process termination status
-
-#### Grep/Search Tool Implementation
-**Configuration** (Lines 348249-348269): Uses ripgrep (`rg`) binary
-```javascript
-[source fragment removed]
-```
-
-**Process Execution** (Lines 40911, 40916): Uses same spawn infrastructure as Bash tool
-```javascript
-[source fragment removed]
-```
-
-**Error Handling**: Should follow same `cN` (ShellError) pattern as Bash tool.
-
-### File-Based Tools (Read, Edit, Write)
-
-**Pattern**: These tools perform direct file system operations and only have validation errors, no process execution.
-
-**Key Difference**: These tools **do not throw errors** during execution - they only return validation failure objects during `validateInput()` phase.
-
-From TOOLS_ANALYSIS.md documentation:
-- **Read Tool**: File existence, permissions, binary detection (Lines 382353-382399)
-- **Edit Tool**: File state tracking, string matching (Lines 393309-393416)
-- **Write Tool**: File modification detection (Lines 393972-393998)
-
-### MCP Tools
-
-**Pattern**: Should follow the **process-based tool pattern** when spawning external commands.
-
-**Recommendation for MCP jq tool:**
-```javascript
-[source fragment removed]
-```
-
-## Custom Error Classes in Claude Code
-
-### ShellError (`cN` class) - Lines 341631-341644
-```javascript
-[source fragment removed]
-```
-
-**Purpose**: Captures complete process execution context that Node.js child_process doesn't provide in a single object.
-
-### AbortError (`XV` class) - Lines 341615-341620
-```javascript
-[source fragment removed]
-```
-
-**Purpose**: User cancellation/abortion errors.
-
-## Error Information Flow Analysis
-
-### Current Error Processing (Lines 419864-419895)
-```javascript
-[source fragment removed]
-```
-
-**Problem**: Only captures `O.message`, **loses rich ShellError context** (stdout, stderr, exit codes).
-
-### Error Message Formatting (`SM0` function) - Lines 419963-419983
-```javascript
-[source fragment removed]
-```
-
-**Safety**: Error messages are automatically size-limited to ≤10KB with intelligent truncation.
-
-## Enhanced PostToolUse Implementation Strategy
-
-### Proposed Implementation Enhancement
-
-#### Error Capture with tool_execution Property
-```javascript
-[source fragment removed]
-```
-
-#### Enhanced pNA Function (Line 363574)
-```javascript
-[source fragment removed]
-```
-
-### Enhanced PostToolUse Hook Schema
-
-**Success Case:**
-```json
-{
-  "session_id": "abc123",
-  "hook_event_name": "PostToolUse",
-  "tool_name": "jq_tool",
-  "tool_input": {"filter": ".name", "data": "{\"name\":\"John\"}"},
-  "tool_response": {
-    "type": "json",
-    "result": "John"
-  },
-  "tool_execution": {
-    "success": true,
-    "duration_ms": 145
-  }
-}
-```
-
-**Failure Case:**
-```json
-{
-  "session_id": "abc123",
-  "hook_event_name": "PostToolUse",
-  "tool_name": "jq_tool",
-  "tool_input": {"filter": ".foo", "data": "invalid json"},
-  "tool_response": null,
-  "tool_execution": {
-    "success": false,
-    "duration_ms": 234,
-    "error_message": "Shell command failed: jq parse error...",
-    "error_type": "ShellError",
-    "details": {
-      "stdout": "",
-      "stderr": "jq: parse error: Invalid JSON at line 1, column 5",
-      "exitCode": 5,
-      "interrupted": false
-    }
-  }
-}
-```
-
-### Implementation Benefits
-
-1. **✅ Process Error Context**: Captures stdout, stderr, exit codes from all process-based tools
-2. **✅ Clean API Semantics**: `tool_response` always contains actual tool output (or null), `tool_execution` contains execution metadata
-3. **✅ Consistent Schema**: Same hook structure for success and failure cases
-4. **✅ Simple Hook Logic**: `tool_execution.success` boolean enables clean branching
-5. **✅ Size Safety**: Leverages existing `SM0()` size limiting (10KB max)
-6. **✅ Tool Agnostic**: Works for Bash, Grep, MCP tools, and any future process-based tools
-7. **✅ Backward Compatible**: Existing hooks checking `tool_response` continue working unchanged
-8. **✅ Type Safe**: Clean separation enables proper TypeScript/schema definitions
-9. **✅ Future Extensible**: `tool_execution` can capture additional metadata (profiling, resource usage)
-10. **✅ Minimal Changes**: Reuses existing error classes and formatting infrastructure
-
-### Hook Development Patterns
-
-**Simple Success/Failure Handling:**
-```javascript
-[source fragment removed]
-```
-
-**Process-Based Tool Error Handling:**
-```javascript
-[source fragment removed]
-```
-
-This enhancement enables rich error context for PostToolUse hooks while maintaining clean API semantics and full backward compatibility.
+Error messages are automatically size-limited to 10KB with intelligent truncation
+(first 5KB + last 5KB with truncation notice).

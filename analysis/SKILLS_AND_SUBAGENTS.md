@@ -1,6 +1,6 @@
 # Skills and Subagent Integration
 
-Version: 2.1.69
+Version: 2.1.76
 
 See also: [Task Tool and Subagents](TASK_TOOL_AND_SUBAGENTS.md),
 [Markdown Frontmatter](MARKDOWN_FRONTMATTER.md)
@@ -68,6 +68,86 @@ A subagent that references a skill (`skills: [my-skill]`) must contend with both
 agent's `tools:` determines what tools are available; the skill's `allowed-tools:` determines
 which of those are auto-permitted.  Except that, as documented below, the skill's
 `allowed-tools:` is not actually applied in this context.
+
+
+## Skill Execution Context
+
+### The `context:` and `agent:` Frontmatter Fields
+
+Skill YAML frontmatter supports two fields that control execution:
+
+| Field       | Values           | Effect                                                    |
+| ----------- | ---------------- | --------------------------------------------------------- |
+| `context:`  | `fork` or absent | `fork`: run in an isolated subagent; absent: run inline   |
+| `agent:`    | agent type name  | Which agent definition runs the forked subagent           |
+
+The `agent:` field only has effect when `context: fork` is present.  Without `context: fork`,
+the `agent:` field is parsed and stored on the skill object but never read by any execution path.
+
+Both the direct invocation path (line 392111) and the Skill tool path (line 403423) check only
+`context === "fork"`.  The non-fork path calls `ec4()` (line 392193) which does not reference
+`A.agent`.
+
+### Three Execution Modes
+
+| Frontmatter                        | Execution mode           | Conversation context        | Agent type used           |
+| ---------------------------------- | ------------------------ | --------------------------- | ------------------------- |
+| (neither field)                    | Inline in main session   | Full conversation history   | Main session (none)       |
+| `context: fork` only               | Isolated subagent        | Skill content only          | `general-purpose`         |
+| `context: fork` + `agent: Explore` | Isolated subagent        | Skill content only          | `Explore`                 |
+| `agent: Explore` only (no fork)    | Inline in main session   | Full conversation history   | `agent:` ignored          |
+
+### What "Fork" Means (and Doesn't Mean)
+
+The name `context: fork` is misleading.  It does not fork the conversation — the subagent does
+not receive any of the current conversation history.  "Fork" means "fork execution" — spawn a
+separate subagent process that runs independently.
+
+This is a naming collision with the `/fork` command, which does the opposite: `/fork` duplicates
+the entire conversation transcript into a new JSONL session file and switches to it, preserving
+all history (see [Context Ops](CLEAR_COMPACT_FORK_CONTEXT.md)).  The two uses of "fork" are
+unrelated.
+
+The subagent receives:
+
+- The skill's rendered content as a single user message (the only `promptMessages`)
+- The selected agent definition's system prompt
+- The skill's `allowed-tools` propagated via `ABY()` wrapping of `getAppState`
+- Tool availability determined by the agent definition's `tools:`/`disallowedTools:`
+- All tools from the main session (via `availableTools: K.options.tools`) unless the agent
+  definition restricts them
+
+The subagent does NOT receive:
+
+- The current conversation history
+- The main session's system prompt
+- Any prior tool results or assistant messages
+
+### The `forkContextMessages` Mechanism
+
+The subagent loop `qh()` (line 392339) supports a `forkContextMessages` parameter that, when
+provided, prepends conversation history to the subagent's initial messages:
+
+```javascript
+[source fragment removed]
+```
+
+`Fx8()` (line 392573) filters the conversation to remove orphaned tool_use blocks (assistant
+messages containing tool_use IDs that have no matching tool_result in the user messages).
+
+This mechanism exists and is used by other callers:
+
+| Caller                    | Passes `forkContextMessages`     | Location     |
+| ------------------------- | -------------------------------- | ------------ |
+| Agent tool                | `J.messages` (conditionally)     | Line 402378  |
+| `Fb()` context packager   | `A.messages` (current context)   | Line 443972  |
+| Skill fork (`MvY`)        | Not passed                       | Line 391787  |
+| Skill fork (`zkY`)        | Not passed                       | Line 403183  |
+
+Neither skill fork entry point passes `forkContextMessages`.  The parent's
+`toolUseContext.messages` does flow through the spread (`{ ...K, getAppState: $ }`) but is
+overridden in the child context created by `Bc6()` (line 444072: `messages: q?.messages ??
+A.messages`), where `q.messages` is the computed `R` array (fork context + prompt messages only).
 
 
 ## Skill Object Construction
@@ -190,34 +270,82 @@ session.
 
 `allowed-tools`: applied
 
-When a skill has `context: fork` in its frontmatter, it runs in a separate subagent.  The fork
-path handles `allowed-tools` correctly.
+When a skill has `context: fork` in its frontmatter, it runs in a separate subagent with an
+isolated context (see "Skill Execution Context" above).  The fork path handles `allowed-tools`
+correctly.
+
+There are two entry points for forked skills:
+
+| Entry point          | Function | Trigger                                     | Location     |
+| -------------------- | -------- | ------------------------------------------- | ------------ |
+| Direct `/skill`      | `MvY()`  | User types `/skill` at prompt               | Line 391750  |
+| Skill tool           | `zkY()`  | Model calls Skill tool with a forked skill  | Line 403158  |
+
+Both call `DN1()` to prepare the fork context, then `qh()` (the subagent loop) to execute.
 
 ### Flow
 
 ```
-Skill tool call()                        [line 420026]
-  → skill has context === "fork"
-    → mrY()                              [line 419765]
-      → mN1()                           [line 453308]
-        → skill.getPromptForCommand()    [line 453309]  — get prompt content
-        → ti(skill.allowedTools ?? [])   [line 453313]  — parse allowed tools
-        → f7z(getAppState, w)            [line 453314]  — wrap getAppState
-      ← returns { modifiedGetAppState, baseAgent, promptMessages }
-      → gS({ toolUseContext: { getAppState: modifiedGetAppState } })
-                                         [line 419789]  — launch subagent
+Either entry point (MvY or zkY)
+  → DN1()                                [line 443996]
+    → skill.getPromptForCommand()        [line 443997]  — get prompt content
+    → Kh(skill.allowedTools ?? [])       [line 444001]  — parse allowed tools
+    → ABY(getAppState, allowedTools)     [line 444002]  — wrap getAppState
+    → find agent definition              [line 444003]  — agent: or "general-purpose"
+    → promptMessages = [p1({ content })] [line 444010]  — skill content as single message
+  ← returns { modifiedGetAppState, baseAgent, promptMessages, skillContent }
+  → qh({                                [line 391787 / 403183]
+      promptMessages,                    — skill content only, no conversation history
+      toolUseContext: { ...K, getAppState: modifiedGetAppState },
+      availableTools: K.options.tools,   — inherits main session's tool list
+    })                                   — NOTE: no forkContextMessages passed
 ```
 
-### Key Code: `f7z` (Wrap getAppState with Allowed Tools)
+### Key Code: `DN1` (Prepare Fork Context)
 
-Location: cli.prettier.js:453287
+Location: cli.prettier.js:443996
 
 ```javascript
 [source fragment removed]
 ```
 
-The wrapped `getAppState` is passed to `gS` (the subagent loop), so the forked subagent inherits
+The `promptMessages` array contains only one user message: the rendered skill content.  No
+conversation history is included.  The callers (`MvY` and `zkY`) pass this to `qh()` without
+`forkContextMessages`, so the subagent starts with a clean context.
+
+### Key Code: `ABY` (Wrap getAppState with Allowed Tools)
+
+Location: cli.prettier.js:443975
+
+```javascript
+[source fragment removed]
+```
+
+The wrapped `getAppState` is passed to `qh` (the subagent loop), so the forked subagent inherits
 the skill's tool permissions.
+
+### Agent Type Selection for Forked Skills
+
+Location: cli.prettier.js:444003 (inside `DN1`)
+
+The fork path selects which agent definition to run the skill under.  The skill's `agent:`
+frontmatter field specifies the agent type; if omitted, it defaults to `general-purpose`:
+
+```javascript
+[source fragment removed]
+```
+
+Fallback chain: specified agent type → `general-purpose` → first available agent.
+
+This means a skill can declare `agent: Explore` to run in a read-only Explore subagent, or leave
+the field unset to get the full-tool-access `general-purpose` agent.
+
+### Tool Availability in Forked Skills
+
+Both `MvY` and `zkY` pass `availableTools: K.options.tools` to `qh()`, giving the subagent the
+same tool list as the main session.  However, the agent definition's `tools:`/`disallowedTools:`
+may further restrict which tools are actually available (this filtering happens inside `qh` at
+line 392402 via `_c()`).
 
 
 ## Code Path 3: Subagent Skill Preloading (`skills:` in Agent YAML)
@@ -378,34 +506,98 @@ To fix this, the skill preloading code could:
 [source fragment removed]
 ```
 
-This would be analogous to what `mN1` (the fork path) does at line 453314.
+This would be analogous to what `DN1` (the fork path) does at line 444002.
 
 
 ## Comparison Table
 
-| Step                            | Direct (`/skill`)      | Fork (`context: fork`)   | Subagent preload       |
-| ------------------------------- | ---------------------- | ------------------------ | ---------------------- |
-| Get prompt content              | `He4` line 404952      | `mN1` line 453309        | loop at line 405222    |
-| Read `allowedTools` from skill  | `He4` line 404973      | `mN1` line 453313        | Not done               |
-| Parse with `ti()`              | `He4` line 404973      | `mN1` line 453313        | Not done               |
-| Inject into permission context  | Skill tool line 420098 (contextModifier) | `f7z` line 453314 | Not done               |
-| Tools auto-permitted            | Yes                    | Yes                      | No                     |
+| Step                            | Direct (`/skill`)                        | Fork (`context: fork`)   | Subagent preload       |
+| ------------------------------- | ---------------------------------------- | ------------------------ | ---------------------- |
+| Execution context               | Inline in main session                   | Isolated subagent        | Inside parent subagent |
+| Conversation history included   | Yes (full)                               | No (skill content only)  | No (agent context)     |
+| `agent:` field used             | Ignored                                  | Yes (selects agent)      | N/A                    |
+| Get prompt content              | `ec4` line 392194                        | `DN1` line 443997        | loop at line 392455    |
+| Read `allowedTools` from skill  | `ec4` line 392211                        | `DN1` line 444001        | Not done               |
+| Parse with `Kh()`               | `ec4` line 392211                        | `DN1` line 444001        | Not done               |
+| Inject into permission context  | Skill tool line 403469 (contextModifier) | `ABY` line 444002        | Not done               |
+| `forkContextMessages` passed    | N/A (inline)                             | Not passed               | N/A                    |
+| Tools auto-permitted            | Yes                                      | Yes                      | No                     |
 
 
-## Bundled Skill: `security-review` (Special Case)
+## Bundled Skills
 
-Location: cli.prettier.js:498973
+Bundled skills are hardcoded into cli.prettier.js and registered via the `dw()` factory function
+(line 502180).  Unlike user-defined skills loaded from `.claude/skills/*/SKILL.md` via `f54()`,
+bundled skills have `source: "built-in"` and no disk file.
 
-The bundled `security-review` skill uses a third pattern.  Its `getPromptWhileMarketplaceIsPrivate`
-method manually reads `allowed-tools` from the embedded SKILL.md frontmatter and injects them into
-`getAppState` during template resolution:
+### Registration
 
-```javascript
-[source fragment removed]
-```
+The `dw()` factory creates skill objects and pushes them into the global `sDq` array.
+The collection function `tDq()` (line 502206) returns `[...sDq]`.  All bundled skills are
+initialized by `iEq()` (line 555926), which calls each skill's registration function in sequence.
 
-This is a one-off implementation that bypasses the standard skill loading pipeline.  The `uN6`
-factory creates a bundled skill with its own prompt-fetching logic rather than using `f54`.
+### Bundled Skill Inventory
+
+| Name             | Invocable | allowed-tools              | disableModel | Line   |
+| ---------------- | --------- | -------------------------- | ------------ | ------ |
+| `claude-in-chrome` | yes     | `mcp__claude-in-chrome__*` | no           | 547511 |
+| `keybindings-help` | no      | `Read`                     | no           | 548165 |
+| `debug`          | yes       | `Read`, `Grep`, `Glob`     | yes          | 548643 |
+| `simplify`       | yes       | (none)                     | no           | 549123 |
+| `batch`          | yes       | (none)                     | yes          | 549265 |
+| `loop`           | yes       | (none)                     | no           | 549363 |
+| `claude-api`     | yes       | `Read`, `Grep`, `Glob`, `WebFetch` | no   | 555890 |
+
+Column notes:
+- Invocable: whether the skill can be invoked by the user via `/name`.  Non-invocable skills
+  are only triggered automatically by the model.
+- `disableModel`: when `true`, the model will not auto-trigger the skill — it can only be
+  invoked explicitly by the user via `/name`.
+
+### Skill Descriptions
+
+`claude-in-chrome` — browser automation via Chrome DevTools MCP tools.  Conditionally enabled
+(`Uv6()`) only when the Chrome extension is available.  On invocation, instructs the model to
+call `mcp__claude-in-chrome__tabs_context_mcp` first.
+
+`keybindings-help` — help for customizing keyboard shortcuts and `~/.claude/keybindings.json`.
+Not user-invocable; auto-triggered when the model detects keybinding questions.
+
+`debug` — enables debug logging for the current session and helps diagnose issues.  Reads
+session debug log files.  Argument hint: `[issue description]`.
+
+`simplify` — reviews changed code (via `git diff`) for reuse, quality, and efficiency, then
+fixes issues found.  Launches three parallel review agents internally.
+
+`batch` — parallel work orchestration for large-scale mechanical changes across many files
+(migrations, refactors, bulk renames).  Uses worktrees and PR creation.
+Argument hint: `<instruction>`.
+
+`loop` — schedules a recurring prompt or slash command on an interval.  Parses
+`[interval] <prompt>` and uses `CronCreate` to schedule it.  Conditionally enabled (`VR`)
+based on cron support.  Argument hint: `[interval] <prompt>`.
+
+`claude-api` — helps build apps with the Claude API or Anthropic SDK.  Auto-detects project
+language and provides SDK documentation.  Triggered when code imports `anthropic`,
+`@anthropic-ai/sdk`, or `claude_agent_sdk`.
+
+### Differences from User-Defined Skills
+
+| Aspect              | User-defined (`f54`)                      | Bundled (`dw`)                           |
+| ------------------- | ----------------------------------------- | ---------------------------------------- |
+| Source              | `.claude/skills/*/SKILL.md` on disk       | Embedded in cli.prettier.js              |
+| `source` property   | `"userSettings"` or `"projectSettings"`   | `"built-in"`                             |
+| Factory function    | `f54()` (line 252173)                     | `dw()` (line 502180)                     |
+| `disableModelInvocation` | Not supported in frontmatter         | Supported (`batch`, `debug` use it)      |
+| Conditional enable  | Always enabled if file exists             | Can be gated by runtime checks           |
+| `progressMessage`   | From frontmatter                          | Hardcoded to `"running"`                 |
+
+
+## Plugin Skill: `security-review`
+
+In 2.1.69, `security-review` was a bundled skill created via `uN6()` with its own
+`getPromptWhileMarketplaceIsPrivate` method.  In 2.1.74, it has moved to a plugin (references
+at lines 489839-489869) and is no longer registered via `dw()`.
 
 
 ## How `alwaysAllowRules.command` Works

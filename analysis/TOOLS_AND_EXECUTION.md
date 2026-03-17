@@ -1,19 +1,14 @@
 # TODO:
 
-- Update built-in tool list with those in official documentation but missing from this document
-- What is the difference between the Bash and BashOutput tools?  The BashOutput tool is not in the
-  official documentation, why?
-- Why is there no parenthesized function name with BashOutput, TodoWrite and KillShell -- are they
-  anonymous functions?  Same with List/ReadMcpResourceTool(s).
 - Document ALL tool descriptions (the text Claude sees in the API) for ALL tools, since this
   influences:
   - When Claude decides to use the tool
   - HOW Claude uses it (what parameter values it generates)
-  - Example: Task tool description tells Claude to write "highly detailed task description"
+  - Example: Agent tool description tells Claude to write "highly detailed task description"
 
 # Claude Code Tools and Execution Architecture
 
-Version: 2.0.29
+Version: 2.1.74
 
 ## Overview
 
@@ -28,71 +23,133 @@ https://code.claude.com/docs/en/settings.md#tools-available-to-claude
 
 ## Built-in Tools
 
-TODO: rewrite these as a markdown table:
-| Tool | Purpose | JavaScript reference | Built-in |
+Tool registration function: `xg()` at cli.prettier.js:439329.
+
+Tools are returned as an array.  Some are always present; others are gated by condition functions
+(see [Condition Functions](#condition-functions) below).
 
 ### File Operations
-1. Read (H5) - Line 79935
-2. Write (PJ) - Line 79964
-3. Edit (B3) - Line 79963
-4. NotebookEdit (bAA) - Line 79977
 
-### Search and Discovery
-5. Glob (dK) - Line 79873
-6. Grep (aC) - Line 79894
+| Tool           | Var   | Def line | Condition               |
+| -------------- | ----- | -------- | ----------------------- |
+| `Read`         | `$4`  | 239985   | Always                  |
+| `Write`        | `tK`  | 413889   | Always                  |
+| `Edit`         | `o4`  | 514895   | Always                  |
+| `Glob`         | `rY`  | 414782   | `!l$()` (not embedded search) |
+| `Grep`         | `W9`  | 414416   | `!l$()` (not embedded search) |
+| `NotebookEdit` | `RJ`  | 415134   | Always                  |
 
-### Command Execution
-7. Bash (T4) - Line 78616
-8. BashOutput - Line 449469
-9. KillShell - Line 449268
+### Execution
 
-### Web Operations
-10. WebFetch (rC) - Line 79994
-11. WebSearch (Ql) - Line 80013
+| Tool   | Var  | Def line | Condition |
+| ------ | ---- | -------- | --------- |
+| `Bash` | `U7` | 518603   | Always    |
+
+### Web
+
+| Tool        | Var   | Def line | Condition |
+| ----------- | ----- | -------- | --------- |
+| `WebFetch`  | `aO`  | 431458   | Always    |
+| `WebSearch` | `sT`  | 432598   | Always    |
 
 ### Agent and Task Management
-12. Task (pI) - Line 79880 (launches subagents)
-13. Skill ($N) - Line 433302
+
+| Tool         | Var   | Def line | Condition | Aliases                              |
+| ------------ | ----- | -------- | --------- | ------------------------------------ |
+| `Agent`      | `d4`  | 406209   | Always    | `Task`                               |
+| `Skill`      | `oH`  | 407430   | Always    |                                      |
+| `TaskCreate` | `rL`  | 436359   | `i$()`    |                                      |
+| `TaskGet`    | `Bt`  | 436490   | `i$()`    |                                      |
+| `TaskUpdate` | `Rk`  | 436711   | `i$()`    |                                      |
+| `TaskList`   | `gt`  | 436994   | `i$()`    |                                      |
+| `TaskStop`   | `lS`  | 431765   | Always    | `KillShell`                          |
+| `TaskOutput` | `iS`  | 432266   | Always    | `AgentOutputTool`, `BashOutputTool`  |
+
+`Agent` was renamed from `Task` in 2.1.69; the old name is retained as an alias.
+`TaskStop` and `TaskOutput` replace the former `KillShell` and `BashOutput` tools (aliases kept).
+
+### Planning
+
+| Tool            | Var   | Def line | Condition |
+| --------------- | ----- | -------- | --------- |
+| `EnterPlanMode` | `ut`  | 435181   | Always    |
+| `ExitPlanMode`  | `Lk`  | 433038   | Always    |
+
+### Worktree
+
+| Tool            | Var    | Def line | Condition                   |
+| --------------- | ------ | -------- | --------------------------- |
+| `EnterWorktree` | `F01`  | 435326   | `XT6()` (always true in 2.1.74) |
+| `ExitWorktree`  | `p01`  | 435550   | `XT6()` (always true in 2.1.74) |
+
+### Collaboration
+
+| Tool          | Var    | Def line | Condition        |
+| ------------- | ------ | -------- | ---------------- |
+| `SendMessage` | `_I`   | 439222   | `eA()` (teams)   |
+| `TeamCreate`  | `EI`   | 438375   | `eA()` (teams)   |
+| `TeamDelete`  | `q96`  | 438551   | `eA()` (teams)   |
+
+### Scheduling
+
+| Tool         | Var    | Def line | Condition |
+| ------------ | ------ | -------- | --------- |
+| `CronCreate` | `NR`   | 437508   | Always    |
+| `CronDelete` | `nd`   | 437615   | Always    |
+| `CronList`   | `UW6`  | 437713   | Always    |
 
 ### User Interaction
-14. TodoWrite - Line 205111
-15. AskUserQuestion (t_) - Line 331271
-16. SlashCommand (JS) - Line 433631
+
+| Tool              | Var   | Def line | Condition |
+| ----------------- | ----- | -------- | --------- |
+| `AskUserQuestion` | `bw`  | 433414   | Always    |
 
 ### MCP Integration
-17. ListMcpResourcesTool - Line 284678
-18. ReadMcpResourceTool - Line 284813
 
-### Additional MCP Tools
-- MCP servers can provide additional tools with names like `mcp__servername__toolname`
-- These are dynamically loaded based on connected MCP servers
+| Tool                   | Var    | Def line | Condition |
+| ---------------------- | ------ | -------- | --------- |
+| `ListMcpResourcesTool` | `gl6`  | 434774   | Always    |
+| `ReadMcpResourceTool`  | —      | 434934   | Always    |
+
+MCP servers can also provide additional tools dynamically, with names like
+`mcp__servername__toolname`.
+
+### Special Purpose
+
+| Tool               | Var   | Def line | Condition              |
+| ------------------ | ----- | -------- | ---------------------- |
+| `TodoWrite`        | `Fm`  | 221915   | Always                 |
+| `LSP`              | `Bl6` | 434489   | Always                 |
+| `StructuredOutput` | `oM`  | 280460   | Always                 |
+| `ToolSearch`       | `Ev`  | 240425   | `YI()` (tier/flag)     |
+
+### Condition Functions
+
+| Function | Variable / env var                          | Meaning                               |
+| -------- | ------------------------------------------- | ------------------------------------- |
+| `l$()`   | `EMBEDDED_SEARCH_TOOLS` + non-SDK entrypoint | Embedded search mode (omits Glob/Grep) |
+| `i$()`   | `CLAUDE_CODE_ENABLE_TASKS` or non-simple    | Tasks enabled                         |
+| `eA()`   | `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` + flag | Teams/swarm enabled                  |
+| `XT6()`  | (none — always `true`)                      | Worktree mode enabled                 |
+| `YI()`   | `ENABLE_TOOL_SEARCH` + subscription tier    | ToolSearch available                  |
+
+The `xg()` array also includes several `null`-initialized slots (`z4q`, `_4q`, `w4q`, `Bk1`,
+`gk1`, `Fk1`, `pk1`, etc.) that are never assigned in static code — these are plugin extension
+points for dynamically registered tools.
+
+
+## Example Tool Description: Read
+
+Location: cli.prettier.js (near line 239985)
+
+```javascript
+[source fragment removed]
+```
+
 
 ## Tool Execution
 
-### Tool Definition
-
-Each tool is defined with this structure.
-
-TODO: Above, what "structure"? there is no structure here.
-
-The actual minified code uses single-letter variable names (A, B, Q, I, G, Z, Y, J, etc.) and
-minified function names throughout.
-
-TODO: Fill in all missing tools; or remove -- redundant with tool names and line numbers above.  Ask user.
-
-Tool Name Constants (Lines 79873-79977)
-```javascript
-[source fragment removed]
-```
-
-Example: Read Tool Description (Lines 79942-79961)
-```javascript
-[source fragment removed]
-```
-
 ### How Tools Are Sent to Claude
-
-Location: cli.prettier.js:460173
 
 Tools are sent as part of the Anthropic API request:
 
@@ -102,26 +159,24 @@ Tools are sent as part of the Anthropic API request:
 
 ### Tool Approval System
 
-Location: cli.prettier.js:458727 (Function `Db6`)
-
 Tools can be categorized as:
-- No approval required - Execute automatically
-- Requires permission - User must approve each use
-- Wildcard rules - Pattern-based approval (e.g., `Bash(git:)`)
+- No approval required — execute automatically
+- Requires permission — user must approve each use
+- Wildcard rules — pattern-based approval (e.g., `Bash(git:)`)
 
 Example tools without approval requirement:
 ```
 mcp__code-intel__, Bash(cat:), Bash(git restore:), Read, Edit, Grep, Glob
 ```
 
-## The Task Tool and Subagents
+## The Agent/Task Tool and Subagents
 
 Extracted to [TASK_TOOL_AND_SUBAGENTS.md](TASK_TOOL_AND_SUBAGENTS.md).
 
-Covers: built-in agents (Bash, general-purpose, statusline-setup, Explore, Plan,
-claude-code-guide), the team/swarm system (teammates, SendMessageTool, TeammateTool),
-task management tools (TaskCreate/Update/Get/List), magic-docs agent, agent loading pipeline,
-system prompts, and the Task tool implementation (Gd, CA1, execution flow).
+Covers: built-in agents (general-purpose, statusline-setup, Explore, Plan, claude-code-guide),
+the team/swarm system (teammates, SendMessageTool, TeammateTool), task management tools
+(TaskCreate/Update/Get/List), magic-docs agent, agent loading pipeline, system prompts, and
+the Agent tool implementation.
 
 ## MCP Tools
 
@@ -136,8 +191,6 @@ MCP tools are prefixed with `mcp__servername__`:
 
 ### MCP Tool Loading
 
-Location: cli.prettier.js:284678-284813
-
 MCP tools are:
 1. Discovered from connected MCP servers
 2. Transformed to Claude Code's tool format
@@ -146,8 +199,6 @@ MCP tools are:
 
 ## Tool Permission Context
 
-Location: cli.prettier.js:460891
-
 Every tool execution checks permissions:
 
 ```javascript
@@ -155,26 +206,21 @@ Every tool execution checks permissions:
 ```
 
 Permission modes:
-- `ask` - Ask user for each tool use
-- `auto` - Execute approved tools automatically
-- `plan` - Planning mode (different prompts)
+- `ask` — ask user for each tool use
+- `auto` — execute approved tools automatically
+- `plan` — planning mode (different prompts)
 
 ## Bash Tool
 
-Location: Line 78616
-
-The Bash tool is special:
+The Bash tool has special capabilities:
 - Can run in foreground or background (`run_in_background: true`)
 - Background processes get an ID
-- Use `BashOutput` to read output from background processes
-- Use `KillShell` to terminate background processes
+- Use `TaskOutput` (alias: `BashOutputTool`) to read output from background processes
+- Use `TaskStop` (alias: `KillShell`) to terminate background processes
 
 ### Bash Tool Pattern Matching
 
-Location: cli.prettier.js:466746
-
 Bash commands can be approved with patterns:
-- `Bash(git:)` - All git commands
-- `Bash(cat:)` - All cat commands
-- `Bash(npm --silent pack:)` - Specific npm commands
-
+- `Bash(git:)` — all git commands
+- `Bash(cat:)` — all cat commands
+- `Bash(npm --silent pack:)` — specific npm commands

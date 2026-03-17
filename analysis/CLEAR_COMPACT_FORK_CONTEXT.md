@@ -1,6 +1,6 @@
 # Clear, Compact, Fork, and Rewind: How Context Operations Work
 
-Source: `cli.prettier.js` 2.1.71 (`work/2.1.71/package/cli.prettier.js`)
+Source: `cli.prettier.js` 2.1.72 (`work/2.1.72/package/cli.prettier.js`)
 
 Four mechanisms manipulate conversation context. They differ in what the model
 sees going forward, whether the session continues or a new one is created, and
@@ -28,7 +28,7 @@ Two records are appended:
    }
    ```
 
-   Source: `Al6()` at line 537965.
+   Source: `wp6()` at line 522500.
 
 2. A `user` record with `isCompactSummary: true` containing:
    ```
@@ -61,6 +61,7 @@ selects an approval option that clears context:
 
 | Approval option                 | Clears context? | Permission mode   |
 | ------------------------------- | --------------- | ----------------- |
+| `yes-auto-clear-context`        | yes             | auto              |
 | `yes-bypass-permissions`        | yes             | bypassPermissions |
 | `yes-accept-edits`              | yes             | acceptEdits       |
 | `yes-accept-edits-keep-context` | no              | bypassPermissions |
@@ -68,10 +69,18 @@ selects an approval option that clears context:
 | `yes-resume-auto-mode`          | no              | auto              |
 | `no`                            | no              | (rejected)        |
 
-Source: lines 582860-582965.
+Source: lines 568164-568510.
 
-The `yes-resume-auto-mode` option (new vs 2.1.63) keeps context and re-enters
-auto-accept mode. It is shown when `isAutoModeAvailable` is true (line 583143).
+The first option always clears context. Which value appears depends on
+the user's permission level: `yes-auto-clear-context` when
+`isAutoModeAvailable` (line 568467), `yes-bypass-permissions` when
+`isBypassPermissionsModeAvailable`, or `yes-accept-edits` otherwise. The
+second option always keeps context at the same permission level.
+
+In 2.1.71, auto-mode users were an exception: their first option
+(`yes-resume-auto-mode`) kept context. 2.1.72 added `yes-auto-clear-context`
+to make the first option consistently clear context across all permission
+levels.
 
 ### The ExitPlanMode tool_use is identical either way
 
@@ -87,7 +96,7 @@ decision is made in the UI after the tool call is written to the JSONL.
 
 ### What happens when context is cleared
 
-1. The UI constructs a new initial message (line 582877-582894):
+1. The UI constructs a new initial message (line 568200-568214):
    ```
    Implement the following plan:
 
@@ -99,9 +108,9 @@ decision is made in the UI after the tool call is written to the JSONL.
    ```
 
    If teams are enabled, a hint about `TeamCreate` for parallelization is
-   appended (line 582882).
+   appended (line 568207).
 
-2. `clearConversation()` is called (`Si8` at line 459783):
+2. `clearConversation()` is called (`Fg8` at line 445899):
    - Wipes the message array: `setMessages(() => [])`
    - Generates a new conversation ID: `setConversationId(l2z())`
    - Kills running background tasks
@@ -135,22 +144,22 @@ To detect clear-context relationships:
 ## `/rewind` (ESC ESC) -- The Message Selector
 
 The `/rewind` command and double-tap ESC both open the same "message selector"
-UI. The `/rewind` slash command (line 511601) simply calls
-`openMessageSelector()` (line 511595).
+UI. The `/rewind` slash command (line 498099) simply calls
+`openMessageSelector()` (line 498092).
 
-Source: `C1A` component at line 570447. The selector is rendered when
-`jw === "message-selector"` (line 606476).
+Source: `qr8` component at line 555692. The selector is rendered when
+the state equals `"message-selector"` (line 591838).
 
 ### What the user sees
 
 The message selector displays a scrollable list of user messages (filtered by
-`yu1()` at line 571180), plus a synthetic empty entry at the end representing
+`zS1()` at line 556425), plus a synthetic empty entry at the end representing
 "now". The user navigates with arrow keys and selects with Enter.
 
 Tip hints vary based on whether file checkpointing (`aw()`) is enabled:
-- Without checkpoints: "Double-tap esc to rewind the conversation" (line 556217)
+- Without checkpoints: "Double-tap esc to rewind the conversation" (line 541348)
 - With checkpoints: "Double-tap esc to rewind the code and/or conversation"
-  (line 556224)
+  (line 541355)
 
 ### After selecting a message
 
@@ -166,20 +175,20 @@ is shown a confirmation dialog with these options:
 | Never mind                         | `nevermind`      | Cancel                                |
 
 If checkpointing is disabled, only "Restore conversation", "Summarize from
-here", and "Never mind" are shown (line 570479).
+here", and "Never mind" are shown (line 555720).
 
-Source: `F()` at line 570472.
+Source: line 555720.
 
 ### "Restore conversation" and "Restore code"
 
-Restore conversation (the `onRestoreMessage` callback at line 606546):
+Restore conversation (the `onRestoreMessage` callback at line 591908):
 1. Truncates the in-memory message array to everything before the selected
-   message: `F4.slice(0, S8)` (line 606548)
-2. Emits `tengu_conversation_rewind` telemetry (line 606553)
+   message (line 591910)
+2. Emits `tengu_conversation_rewind` telemetry (line 591915)
 3. Restores the user's original input text from the selected message
 4. If the selected message had images, restores those to the paste buffer
 
-Restore code (the `onRestoreCode` callback at line 606480):
+Restore code (the `onRestoreCode` callback at line 591842):
 - Calls `Ry1()` to rewind file history checkpoints to the selected message's
   UUID
 
@@ -196,19 +205,19 @@ This option is distinct from a full `/compact`. Instead of summarizing the
 entire conversation, it summarizes only the messages after the selected point,
 keeping earlier messages intact.
 
-Source: `onSummarize` callback at line 606485, calling `VZ4()` at line 287028.
+Source: `onSummarize` callback at line 591847, calling `qY4()` at line 276632.
 
 How it works:
 
-1. The user optionally provides context text (the input field, line 570485).
-2. `VZ4()` splits the messages at the selected index:
-   - `_` = messages to keep (before selected point): `A.slice(0, q)` (line 287031)
-   - `w` = messages to summarize (after selected point): `A.slice(q)` (line 287030)
+1. The user optionally provides context text.
+2. `qY4()` splits the messages at the selected index:
+   - `w` = messages to keep (before selected point): `A.slice(0, q)` (line 276635)
+   - `_` = messages to summarize (after selected point): `A.slice(q)` (line 276634)
 3. A compaction agent summarizes only the `w` messages.
 4. The result contains:
    - `boundaryMarker`: a `compact_boundary` system record with
      `trigger: "manual"` and `compactMetadata` including `userContext` and
-     `messagesSummarized` count (line 287122)
+     `messagesSummarized` count (line 276726)
    - `messagesToKeep`: the earlier messages (preserved intact)
    - `summaryMessages`: a `user` record with `isCompactSummary: true` and
      a `summarizeMetadata` field:
@@ -220,14 +229,14 @@ How it works:
        }
      }
      ```
-     Source: line 287130.
+     Source: line 276734.
    - `attachments`: re-read file contents, hook results, etc.
 5. The in-memory messages are replaced with:
    `[boundaryMarker, ...messagesToKeep, ...summaryMessages, ...attachments, ...hookResults]`
-   (line 606520)
-6. A toast is shown: "Conversation summarized (Ctrl+O for history)" (line 606541)
+   (line 591882)
+6. A toast is shown: "Conversation summarized (Ctrl+O for history)" (line 591903)
 
-Telemetry: `tengu_partial_compact` (line 287111) with trigger `"message_selector"`.
+Telemetry: `tengu_partial_compact` (line 276715) with trigger `"message_selector"`.
 
 ### JSONL persistence and recoverability
 
@@ -243,20 +252,25 @@ The resulting JSONL layout:
                                            ^--- resume loads from here
 ```
 
-On resume, `umK()` (line 52787) finds the last `compact_boundary` and loads
+On resume, `GzK()` (line 41815) finds the last `compact_boundary` and loads
 only records after it. The model does not see the kept or summarized messages
 directly -- only the summary. But the full history is still in the file.
 
 Session metadata (title, tag, agent name, etc.) is re-appended after the
-boundary via `OT1()` / `reAppendSessionMetadata()` (line 539420), ensuring
+boundary via `reAppendSessionMetadata()` (line 523248), ensuring
 metadata survives the boundary cut.
 
 ### Finding the summarized records
 
-The `compact_boundary` record contains a `logicalParentUuid` field (line
-537980) pointing to the UUID of the last kept message. This field is written
-but never read by Claude Code -- it is provenance metadata, like `forkedFrom`
-on fork records.
+Every `compact_boundary` record contains a `logicalParentUuid` field (line
+522515) pointing to the UUID of the last message before the boundary. This is
+present on both full and partial compaction -- it is not a discriminator
+between the two. The field is written but never read by Claude Code; it is
+provenance metadata, like `forkedFrom` on fork records.
+
+To distinguish partial from full compaction, check for
+`compactMetadata.messagesSummarized`: present on partial compaction, absent
+on full/auto compaction.
 
 To reconstruct the full history from the JSONL:
 
@@ -286,7 +300,7 @@ to reconstruct what happened:
 | Operation   | Where history lives          | How to find it                                                                       |
 | ----------- | ---------------------------- | ------------------------------------------------------------------------------------ |
 | `/compact`  | Same JSONL file              | `compact_boundary` record; all earlier records are the compacted history              |
-| Summarize   | Same JSONL file              | `compact_boundary` with `logicalParentUuid`; records between that UUID and the boundary are the summarized messages |
+| Summarize   | Same JSONL file              | `compact_boundary` with `compactMetadata.messagesSummarized`; records between `logicalParentUuid` and the boundary are the summarized messages |
 | `/clear`    | Parent session (separate file) | Text pointer `"read the full transcript at: <path>"` in the child session's early entries |
 | `/fork`     | Parent session (separate file) | `forkedFrom.sessionId` on every record in the fork's JSONL                          |
 
@@ -323,12 +337,12 @@ continues independently.
 
 ### How it works
 
-Function `jVz` at line 506821:
+Function `WoY` at line 493325:
 
 1. Generate a new session UUID and JSONL path.
 2. Read the current session's JSONL and parse it.
 3. Filter to main-chain conversation records: `!M.isSidechain && Fn(M)`
-   (line 506835). This keeps `user`, `assistant`, `progress`, `attachment`,
+   (line 493339). This keeps `user`, `assistant`, `progress`, `attachment`,
    and `system` records but excludes metadata-only records and sidechain
    entries.
 4. Copy each record with:
@@ -337,10 +351,10 @@ Function `jVz` at line 506821:
    - `forkedFrom: { sessionId: <original>, messageUuid: <original uuid> }`
 5. Write the copied records to the new JSONL file.
 6. Write a `custom-title` metadata record: `"<title> (Fork)"` or
-   `"<title> (Fork N)"` if forks already exist (function `JVz`, line 506863).
+   `"<title> (Fork N)"` if forks already exist (function `ZoY`, line 493368).
 7. Resume into the forked session via `q.resume(w, X, "fork")`.
 
-Source: lines 506821-506930.
+Source: lines 493325-493400.
 
 ### The `forkedFrom` field
 
@@ -366,10 +380,10 @@ termination record, no reference to the fork. The user is told
 
 ### `--fork-session` CLI flag
 
-The `--fork-session` flag (line 610678) can be combined with `--resume` or
+The `--fork-session` flag (line 596074) can be combined with `--resume` or
 `--continue` to resume a session into a new session ID rather than reusing the
 original. When `forkSession` is set, the session ID is not re-registered as
-active (line 576199). This is distinct from the `/fork` slash command -- it
+active. This is distinct from the `/fork` slash command -- it
 creates a fresh session ID but reuses the loaded messages without copying them
 to a new JSONL file with `forkedFrom` metadata.
 
@@ -382,21 +396,21 @@ to a new JSONL file with `forkedFrom` metadata.
 
 ## `--rewind-files` -- Standalone File Rewind (CLI only)
 
-The `--rewind-files <user-message-id>` flag (line 610707) performs a file-only
+The `--rewind-files <user-message-id>` flag (line 596103) performs a file-only
 rewind without entering an interactive session.
 
-Source: lines 574311-574328.
+Source: lines 559460-559570.
 
-1. Requires `--resume` (validated at line 574211).
-2. Looks up the user message UUID in the session (line 574312).
-3. Calls `bQq()` to rewind files to the checkpoint state at that message
-   (line 574321).
-4. Checks `canRewind` -- if false, exits with an error (line 574322).
-5. Prints confirmation and exits (line 574328).
+1. Requires `--resume` (validated at line 559460).
+2. Looks up the user message UUID in the session (line 559466).
+3. Calls the rewind function to restore files to the checkpoint state at that
+   message (line 559564).
+4. Checks `canRewind` -- if false, exits with an error.
+5. Prints confirmation and exits.
 
 This is a non-interactive operation -- it modifies files on disk and exits.
 File rewinding must be enabled (`aw()` returns true), otherwise it returns
-`{ canRewind: false, error: "File rewinding is not enabled." }` (line 576017).
+`{ canRewind: false, error: "File rewinding is not enabled." }` (line 561304).
 
 ## Telemetry
 
@@ -417,7 +431,7 @@ All telemetry is sent externally, not written to the JSONL.
 | --------------------- | -------------------------------- | --------------------------------- | ---------------------------------- | ---------------------------------- | ---------------------------------- |
 | JSONL file            | Same file                        | New file                          | New file (copy)                    | Same file                          | Same file                          |
 | Marker in JSONL       | `compact_boundary` system record | None                              | None                               | None                               | `compact_boundary` system record   |
-| Link to history       | All records before boundary      | Text pointer in child entry       | `forkedFrom` on every record       | Records remain in JSONL            | `logicalParentUuid` on boundary    |
+| Link to history       | All records before boundary      | Text pointer in child entry       | `forkedFrom` on every record       | Records remain in JSONL            | `messagesSummarized` + `logicalParentUuid` on boundary |
 | History preserved?    | Yes (same file, before boundary) | Yes (parent JSONL unmodified)     | Yes (parent JSONL unmodified)      | Yes (records still in JSONL)       | Yes (same file, before boundary)   |
 | Model sees            | Compaction summary               | Plan text + transcript path       | Full conversation (copy)           | Only messages before selected      | Partial summary only (on resume)   |
 | Original continues?   | Yes (same session)               | No (parent stops)                 | Yes (independent)                  | Yes (same session)                 | Yes (same session)                 |
