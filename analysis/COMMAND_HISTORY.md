@@ -35,7 +35,7 @@ Record structure:
 
 ## How history is read (up-arrow)
 
-The history reader (`ej1()`, line ~222929 in cli.prettier.js 2.1.72) uses a
+The history reader (`ej1()`, line ~222929 in cli.prettier.js 2.1.76) uses a
 two-phase filter:
 
 1. Read history backwards (most recent first)

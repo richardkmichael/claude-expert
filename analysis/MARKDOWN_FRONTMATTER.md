@@ -1,6 +1,6 @@
 # Markdown Front-matter: Parsing, Schema, and Validation
 
-Version: 2.1.62
+Source: `cli.prettier.js` 2.1.76 (`work/2.1.76/package/cli.prettier.js`)
 
 This document is intended to serve as a specification for formatter and linter tooling targeting
 Claude Code's Markdown configuration files.

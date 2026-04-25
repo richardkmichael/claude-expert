@@ -1,6 +1,6 @@
 # Claude Code Bash Tool Execution Analysis
 
-Note: This file covers execution mechanics (how commands are spawned) from version 2.0.29. For the Bash tool's `description` field -- the prompt text the model sees, including the Git Safety Protocol, commit instructions, and PR instructions -- see `PROMPTS.md` (section "Prompt Content in Tool Descriptions") and the full rendered text in `PROMPTS_RENDERED_2.1.39.md` (section "Bash Tool Description").
+For the Bash tool's `description` field -- the prompt text the model sees, including the Git Safety Protocol, commit instructions, and PR instructions -- see `PROMPTS.md` (section "Prompt Content in Tool Descriptions") and the full rendered text in `PROMPTS_RENDERED.md` (section "Bash Tool Description").
 
 ## Executive Summary
 
@@ -13,7 +13,7 @@ The Claude Code Bash tool executes commands by:
 
 ### 1. Command Execution Method
 
-**Location:** `/path/to/claude-code-analysis/2.0.29/package/cli.prettier.js`
+**Location:** `work/2.1.76/package/cli.prettier.js`
 
 **Main execution function:** `TgA()` (line 248885)
 
@@ -141,7 +141,7 @@ Child process executes with INHERITED environment variables
 
 ## Code References
 
-**File:** `/path/to/claude-code-analysis/2.0.29/package/cli.prettier.js`
+**File:** `work/2.1.76/package/cli.prettier.js`
 
 | Function | Line | Purpose |
 |----------|------|---------|

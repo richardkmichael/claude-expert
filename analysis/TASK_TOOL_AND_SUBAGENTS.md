@@ -6,7 +6,7 @@
 
 # The Agent Tool: Subagent Execution
 
-Version: 2.1.69
+Source: `cli.prettier.js` 2.1.76 (`work/2.1.76/package/cli.prettier.js`)
 
 See also: [Tools and Execution Architecture](TOOLS_AND_EXECUTION.md)
 
@@ -26,8 +26,8 @@ decides a task should be delegated, it generates a tool call like this:
 }
 ```
 
-The tool was renamed from `"Task"` to `"Agent"` in 2.1.69 (line 69122: `pq = "Agent"`), with
-`"Task"` retained as an alias (line 69123: `JJ6 = "Task"`).
+The tool's primary name is `"Agent"` (line 69122: `pq = "Agent"`), with `"Task"` retained as an
+alias (line 69123: `JJ6 = "Task"`).
 
 The `prompt` string becomes the sole user message in the subagent's conversation.  The subagent
 receives its own system prompt (from the agent definition) and runs as a completely separate

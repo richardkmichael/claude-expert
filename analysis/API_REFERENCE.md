@@ -1,5 +1,7 @@
 # Claude Code API Reference
 
+Source: `cli.prettier.js` 2.1.76 (`work/2.1.76/package/cli.prettier.js`)
+
 This document provides detailed API documentation extracted from the Claude Code application source
 code with exact line numbers, function signatures, and implementation details.
 

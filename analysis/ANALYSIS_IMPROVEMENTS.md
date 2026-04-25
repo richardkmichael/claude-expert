@@ -1,10 +1,12 @@
 # Claude Code Analysis Improvements with ast-grep
 
+Source: `cli.prettier.js` 2.1.76 (`work/2.1.76/package/cli.prettier.js`)
+
 ## Overview
 
 `ast-grep` is a structural code search tool that works on Abstract Syntax Trees (ASTs) rather than text patterns. This makes it ideal for analyzing minified JavaScript code like Claude Code's `cli.prettier.js`.
 
-**Key advantages for minified code**:
+Key advantages for minified code:
 - Works on syntax structure, not formatting or whitespace
 - Finds patterns regardless of variable names
 - Can match nested structures precisely
@@ -59,7 +61,7 @@ Meta variable naming:
 
 ### 1. Find All Tool Objects
 
-**Goal**: Discover all tool definitions regardless of minified names
+Goal: Discover all tool definitions regardless of minified names
 
 ```bash
 ast-grep --pattern '{
@@ -71,32 +73,31 @@ ast-grep --pattern '{
 }' cli.prettier.js
 ```
 
-**What this finds**:
+What this finds:
 - Objects with `name:` property
 - Has `inputSchema:` property
 - Has `async *call()` method
 - Captures tool name in `$NAME`
 - Captures schema in `$SCHEMA`
 
-**Why it works on minified code**:
+Why it works on minified code:
 - AST-based matching ignores formatting
 - Finds structure regardless of property order ($$$ allows any properties between)
 - Works with minified variable names
 
 ### 2. Find All Async Generator Functions
 
-**Goal**: Locate subagent executors, API wrappers, main loops
+Goal: Locate subagent executors, API wrappers, main loops
 
 ```bash
 ast-grep --pattern 'async function* $FUNC($$$) { $$$ }' cli.prettier.js
 ```
 
-**What this finds**:
+What this finds:
 - All async generator function declarations
 - Captures function name in `$FUNC`
-- In 2.0.29: Would find `CA1`, `p4A`, `GS`, `lb2`, etc.
 
-**Enhanced pattern to find function expressions**:
+Enhanced pattern to find function expressions:
 
 ```bash
 # Find async generator assigned to variables
@@ -105,17 +106,16 @@ ast-grep --pattern '$VAR = async function*($$$) { $$$ }' cli.prettier.js
 
 ### 3. Find Tool Name String Constants
 
-**Goal**: Discover all tool name assignments
+Goal: Discover all tool name assignments
 
 ```bash
 ast-grep --pattern 'var $VAR = "$NAME"' cli.prettier.js
 ```
 
-**What this finds**:
+What this finds:
 - Variable declarations with string values
-- In 2.0.29: Would find `H5 = "Read"`, `pI = "Task"`, etc.
 
-**Filter for TitleCase names** (post-processing):
+Filter for TitleCase names (post-processing):
 
 ```bash
 ast-grep --pattern 'var $VAR = "$NAME"' cli.prettier.js | grep -E '"[A-Z][a-z]+'
@@ -123,7 +123,7 @@ ast-grep --pattern 'var $VAR = "$NAME"' cli.prettier.js | grep -E '"[A-Z][a-z]+'
 
 ### 4. Find API Call Sites
 
-**Goal**: Locate where Anthropic API is called with tools parameter
+Goal: Locate where Anthropic API is called with tools parameter
 
 ```bash
 ast-grep --pattern '$$.messages.create({
@@ -133,12 +133,12 @@ ast-grep --pattern '$$.messages.create({
 })' cli.prettier.js
 ```
 
-**What this finds**:
+What this finds:
 - All `messages.create()` calls
 - That include a `tools:` parameter
 - Captures the tools value in `$TOOLS`
 
-**More specific pattern for system and tools**:
+More specific pattern for system and tools:
 
 ```bash
 ast-grep --pattern '{
@@ -152,7 +152,7 @@ ast-grep --pattern '{
 
 ### 5. Find Subagent Context Creation
 
-**Goal**: Locate where subagent tool use context is created
+Goal: Locate where subagent tool use context is created
 
 ```bash
 ast-grep --pattern '{
@@ -162,11 +162,10 @@ ast-grep --pattern '{
 }' cli.prettier.js
 ```
 
-**What this finds**:
+What this finds:
 - Objects with `isSubAgent` property
-- In 2.0.29: Found at line 448576
 
-**Find complete toolUseContext objects**:
+Find complete toolUseContext objects:
 
 ```bash
 ast-grep --pattern '{
@@ -182,13 +181,13 @@ ast-grep --pattern '{
 
 ### 6. Find System Prompt Construction
 
-**Goal**: Locate where system prompts are built for API calls
+Goal: Locate where system prompts are built for API calls
 
 ```bash
 ast-grep --pattern 'systemPrompt: $PROMPT' cli.prettier.js
 ```
 
-**More specific - find prompt array construction**:
+More specific - find prompt array construction:
 
 ```bash
 ast-grep --pattern '$VAR = [$PROMPT1, ...$REST]' cli.prettier.js
@@ -196,17 +195,17 @@ ast-grep --pattern '$VAR = [$PROMPT1, ...$REST]' cli.prettier.js
 
 ### 7. Find Tool Arrays
 
-**Goal**: Discover where tool arrays are constructed
+Goal: Discover where tool arrays are constructed
 
 ```bash
 ast-grep --pattern 'tools: [$$$]' cli.prettier.js
 ```
 
-**Find specific tool references**:
+Find specific tool references:
 
 ```bash
-# Find arrays containing H5 (Read tool in 2.0.29)
-ast-grep --pattern '[$$$, H5, $$$]' cli.prettier.js
+# Find arrays containing a specific tool variable
+ast-grep --pattern '[$$$, $TOOL, $$$]' cli.prettier.js
 ```
 
 ## Version Comparison Workflows
@@ -219,28 +218,28 @@ ast-grep --pattern '{
   name: $NAME,
   $$$,
   async *call($$$) { $$$ }
-}' 2.0.29/package/cli.prettier.js > v2.0.29_tools.txt
+}' v1/cli.prettier.js > v1_tools.txt
 
 # Extract all tool objects from version 2
 ast-grep --pattern '{
   name: $NAME,
   $$$,
   async *call($$$) { $$$ }
-}' 2.0.35/package/cli.prettier.js > v2.0.35_tools.txt
+}' v2/cli.prettier.js > v2_tools.txt
 
 # Compare
-diff v2.0.29_tools.txt v2.0.35_tools.txt
+diff v1_tools.txt v2_tools.txt
 ```
 
 ### Find New Async Functions Between Versions
 
 ```bash
 # Get function names from v1
-ast-grep --pattern 'async function* $FUNC($$$) { $$$ }' 2.0.29/package/cli.prettier.js \
+ast-grep --pattern 'async function* $FUNC($$$) { $$$ }' v1/cli.prettier.js \
   | grep -oE 'function\* [A-Za-z0-9_]+' | sort > v1_funcs.txt
 
 # Get function names from v2
-ast-grep --pattern 'async function* $FUNC($$$) { $$$ }' 2.0.35/package/cli.prettier.js \
+ast-grep --pattern 'async function* $FUNC($$$) { $$$ }' v2/cli.prettier.js \
   | grep -oE 'function\* [A-Za-z0-9_]+' | sort > v2_funcs.txt
 
 # Find new functions
@@ -276,8 +275,8 @@ ast-grep --pattern '{
 ### Find Nested Function Calls
 
 ```bash
-# Find CA1 function calls (subagent executor)
-ast-grep --pattern 'for await (let $VAR of CA1({ $$$ }))' cli.prettier.js
+# Find subagent executor function calls
+ast-grep --pattern 'for await (let $VAR of $FUNC({ $$$ }))' cli.prettier.js
 ```
 
 ### Find Object Property Assignments
@@ -322,10 +321,10 @@ done
 ### Step 3: Extract Function Call Chains
 
 ```bash
-# Find what functions p4A calls
-ast-grep --pattern 'async function* p4A($$$) {
+# Find what a subagent executor calls
+ast-grep --pattern 'async function* $FUNC($$$) {
   $$$
-  yield* $FUNC($$$)
+  yield* $CALLEE($$$)
   $$$
 }' cli.prettier.js
 ```
@@ -341,7 +340,7 @@ ast-grep --pattern '{
 }' cli.prettier.js --json | jq
 ```
 
-**Process with jq**:
+Process with jq:
 
 ```bash
 # Extract just tool names
@@ -360,7 +359,7 @@ ast-grep --pattern '{
 
 For reusable, complex patterns, create a rule file:
 
-**tool-finder.yml**:
+tool-finder.yml:
 ```yaml
 id: find-tools
 language: javascript
@@ -372,7 +371,7 @@ rule:
       regex: '^[A-Z]'
 ```
 
-**Usage**:
+Usage:
 ```bash
 ast-grep --config tool-finder.yml cli.prettier.js
 ```
@@ -381,12 +380,12 @@ ast-grep --config tool-finder.yml cli.prettier.js
 
 ### Pattern Not Matching
 
-1. **Use interactive mode** to test patterns:
+1. Use interactive mode to test patterns:
    ```bash
    ast-grep --pattern 'YOUR_PATTERN' --interactive cli.prettier.js
    ```
 
-2. **Simplify the pattern** - start broad, then narrow:
+2. Simplify the pattern - start broad, then narrow:
    ```bash
    # Start with
    ast-grep --pattern '{ name: $NAME }' cli.prettier.js
@@ -395,29 +394,29 @@ ast-grep --config tool-finder.yml cli.prettier.js
    ast-grep --pattern '{ name: $NAME, inputSchema: $$$ }' cli.prettier.js
    ```
 
-3. **Check AST structure** with `--debug-query`:
+3. Check AST structure with `--debug-query`:
    ```bash
    ast-grep --pattern 'YOUR_PATTERN' --debug-query cli.prettier.js
    ```
 
 ### Performance with Large Files
 
-1. **Use specific patterns** instead of wildcards when possible
-2. **Limit search scope** with `--heading` or pipe to `head`
-3. **Use JSON output** and process with jq for complex filtering
+1. Use specific patterns instead of wildcards when possible
+2. Limit search scope with `--heading` or pipe to `head`
+3. Use JSON output and process with jq for complex filtering
 
 ## Recommended Workflow for Claude Code Analysis
 
-1. **Install ast-grep**: `brew install ast-grep` or `npm install -g @ast-grep/cli`
+1. Install ast-grep: `brew install ast-grep` or `npm install -g @ast-grep/cli`
 
-2. **Find all tool names**:
+2. Find all tool names:
    ```bash
    ast-grep --pattern 'var $VAR = "$NAME"' cli.prettier.js | \
      grep -E '"[A-Z][a-z]+' | \
      sort -u > tool_names.txt
    ```
 
-3. **Find all tool objects**:
+3. Find all tool objects:
    ```bash
    ast-grep --pattern '{
      name: $NAME,
@@ -426,7 +425,7 @@ ast-grep --config tool-finder.yml cli.prettier.js
    }' cli.prettier.js --json > tool_objects.json
    ```
 
-4. **Find Task tool and subagent functions**:
+4. Find Task tool and subagent functions:
    ```bash
    # Find Task tool
    ast-grep --pattern '{ name: pI, $$$ }' cli.prettier.js
@@ -435,12 +434,12 @@ ast-grep --config tool-finder.yml cli.prettier.js
    ast-grep --pattern 'async function* $FUNC($$$) { $$$ }' cli.prettier.js
    ```
 
-5. **Find API call sites**:
+5. Find API call sites:
    ```bash
    ast-grep --pattern '$$.messages.create({ $$$, tools: $TOOLS, $$$ })' cli.prettier.js
    ```
 
-6. **Compare versions**:
+6. Compare versions:
    ```bash
    # Run steps 2-5 on both versions, then diff the results
    diff <(ast-grep --pattern '{ name: $NAME, $$$ }' v1/cli.prettier.js) \
@@ -456,10 +455,10 @@ ast-grep --config tool-finder.yml cli.prettier.js
 
 ## Benefits for Claude Code Analysis
 
-1. **Faster tool discovery** - Single command finds all tools
-2. **Reliable version comparison** - Structural diff, not text diff
-3. **Find renamed functions** - Search by structure, not name
-4. **Discover new patterns** - Identify new tool types automatically
-5. **Reduce manual grepping** - Complex patterns in single command
-6. **JSON output** - Easy integration with analysis scripts
-7. **Works on minified code** - AST-based, not text-based
+1. Faster tool discovery - Single command finds all tools
+2. Reliable version comparison - Structural diff, not text diff
+3. Find renamed functions - Search by structure, not name
+4. Discover new patterns - Identify new tool types automatically
+5. Reduce manual grepping - Complex patterns in single command
+6. JSON output - Easy integration with analysis scripts
+7. Works on minified code - AST-based, not text-based

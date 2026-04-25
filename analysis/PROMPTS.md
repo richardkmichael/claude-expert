@@ -1,10 +1,10 @@
 # Claude Code System Prompts Analysis
 
-Version: 2.1.39, updated for 2.1.69
+Source: `cli.prettier.js` 2.1.76 (`work/2.1.76/package/cli.prettier.js`)
 
 ## Overview
 
-Claude Code 2.1.39 introduces a dual-path system prompt architecture. The system prompt is dynamically assembled at runtime based on feature flags, available tools, configuration, and environment.
+Claude Code has a dual-path system prompt architecture. The system prompt is dynamically assembled at runtime based on feature flags, available tools, configuration, and environment.
 
 The model sees prompt content from multiple sources, not just the system prompt text:
 
@@ -121,8 +121,6 @@ Decision tree:
 - Non-interactive without append -> `N67` ("You are a Claude agent...")
 - Interactive (default) -> `q4A` ("You are Claude Code...")
 
-Note: In 2.0.29 the VSCode check (`ro() === "claude-vscode"`) was present; it has been removed in 2.1.39.
-
 ## Entry Point Routing
 
 ### Function `dZ()` at line 511363
@@ -201,8 +199,6 @@ Prioritize technical accuracy and truthfulness over validating the user's belief
 Never give time estimates or predictions for how long tasks will take, whether for your own work or for users planning their projects. Avoid phrases like "this will take me a few minutes," "should be done in about 5 minutes," "this is a quick fix," "this will take 2-3 weeks," or "we can do this later." Focus on what needs to be done, not how long it might take. Break work into actionable steps and let users judge timing for themselves.
 ```
 
-New in 2.1.39: "No time estimates" section and the "Do not use a colon before tool calls" bullet.
-
 ### Component 3: Task Management -- `jYz(J)` at line 511065
 
 Condition: Only included if `TodoWrite` is in the tool set (`J.has(BO.name)`).
@@ -218,13 +214,9 @@ Examples:
 [... two detailed examples with TodoWrite usage ...]
 ```
 
-Unchanged from 2.0.29 in substance.
-
 ### Component 4: Asking Questions -- `MYz(J)` at line 511113
 
 Condition: Only included if `AskUserQuestion` is in the tool set.
-
-New in 2.1.39.
 
 ```
 # Asking questions as you work
@@ -239,8 +231,6 @@ Condition: Always included.
 ```
 Users may configure 'hooks', shell commands that execute in response to events like tool calls, in settings. Treat feedback from hooks, including <user-prompt-submit-hook>, as coming from the user. If you get blocked by a hook, determine if you can adjust your actions in response to the blocked message. If not, ask the user to check their hooks configuration.
 ```
-
-Unchanged from 2.0.29.
 
 ### Component 6: Doing Tasks -- `PYz($, J)` at line 511122
 
@@ -272,8 +262,6 @@ Condition: Always included.
 - Tool results and user messages may include <system-reminder> tags. <system-reminder> tags contain useful information and reminders. They are automatically added by the system, and bear no direct relation to the specific tool results or user messages in which they appear.
 - The conversation has unlimited context through automatic summarization.
 ```
-
-New in 2.1.39: The "unlimited context through automatic summarization" bullet.
 
 ### Component 8: Tool Usage Policy -- `GYz(J, D)` at line 511154
 
@@ -434,14 +422,12 @@ Key differences from legacy:
 - More empowering tone ("You are highly capable", "defer to user judgement")
 - Explicit "brute force" anti-pattern guidance
 - Help/feedback info moved here from intro
-- "If you are certain that something is unused" hedging (vs. legacy's absolute "If something is unused")
+- "If you are certain that something is unused" hedging
 - No conditional TodoWrite/AskUserQuestion bullets (those capabilities are covered in other sections)
 
 ### Component 4: Executing Actions with Care -- `vYz()` at line 511265
 
 Condition: Always included.
-
-New in 2.1.39 (simple path only).
 
 This is a substantial new section about action safety and reversibility. Full text:
 
@@ -650,8 +636,6 @@ Fast mode for Claude Code uses the same Claude Opus 4.6 model with faster output
 </fast_mode_info>
 ```
 
-New in 2.1.39: `<claude_background_info>`, `<fast_mode_info>`, and knowledge cutoff date.
-
 The display name is resolved by `c1A(A)` from the model ID. Knowledge cutoff resolved by `j_q()`:
 - `claude-opus-4-6` -> "May 2025"
 - `claude-opus-4-5` -> "May 2025"
@@ -729,8 +713,6 @@ The following MCP servers have provided instructions for how to use their tools 
 
 Condition: Only included if the `tengu_scratch` feature is enabled (`Jf1()` returns true).
 
-New in 2.1.39.
-
 ```
 # Scratchpad Directory
 
@@ -759,8 +741,6 @@ The scratchpad path is constructed as: `[TMPDIR]/claude-[UID]/[SESSION_HASH]/[PR
 [source fragment removed]
 ```
 
-New in 2.1.39: The "Do not use a colon before tool calls" note is added to subagent prompts.
-
 ### Default Base Prompt -- `Fb4` at line 511677
 
 ```
@@ -776,7 +756,7 @@ You are an agent for Claude Code, Anthropic's official CLI for Claude. Given the
 
 The system prompt sent to the API consists of two parts: the system prompt text (from `dZ()`) and the tool definitions (each with a `description` field). Several tools carry substantial instructional content in their descriptions that functions as system prompt material. The most significant is the Bash tool.
 
-### Bash Tool Description -- `GNq()` at line 526623 (2.1.69)
+### Bash Tool Description -- `GNq()` at line 526623
 
 The Bash tool description is built by `GNq()` and includes:
 
@@ -789,7 +769,7 @@ The Bash tool description is built by `GNq()` and includes:
 7. Short git safety tips (variable `K`, always included, not gated)
 8. Git workflow instructions (via `WNq()`, gated -- see below)
 
-### Git Instruction Gating -- `CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS` (2.1.69)
+### Git Instruction Gating -- `CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS`
 
 The Bash tool description has two layers of git content with different gating:
 
@@ -830,7 +810,7 @@ Git references that are NOT gated by this flag:
 - System prompt: "Executing actions with care" (`yGz()` at line 519407) mentions git push,
   git reset --hard, branches, PRs, --no-verify as examples of risky actions -- this is a
   general safety section, not git-specific instructions
-- Subagent prompts: the Bash subagent (which referenced git safety protocols) was removed in 2.1.69;
+- Subagent prompts: the Bash subagent (which referenced git safety protocols) is absent;
   no remaining subagent prompts contain git-specific instructions
 
 ### Git Workflow Instructions -- `WNq()` at line 526460
@@ -950,7 +930,7 @@ This section appears to be injected separately from the main system prompt compo
 | Flag                                 | Default | Effect                                                                        |
 | ------------------------------------ | ------- | ----------------------------------------------------------------------------- |
 | `tengu_bergotte_lantern`             | false   | If true: "concise and polished" tone; if false: "short and concise"           |
-| `tengu_sotto_voce`                   | false   | If true: adds "Output efficiency" section (new in 2.1.69, `SGz()`)           |
+| `tengu_sotto_voce`                   | false   | If true: adds "Output efficiency" section (`SGz()`)           |
 | `tengu_system_prompt_global_cache`   | false   | If true: appends `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` marker                 |
 | `tengu_scratch`                      | false   | If true: includes scratchpad directory section                                |
 | `tengu_coral_fern`                   | false   | If true: adds "Searching past context" to auto memory section                |
@@ -964,7 +944,7 @@ This section appears to be injected separately from the main system prompt compo
 | `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS`    | Removes `run_in_background` parameter from Bash tool description          |
 | `CLAUDE_CODE_DISABLE_CLAUDE_MDS`          | Disables CLAUDE.md context injection                                      |
 | `CLAUDE_CODE_FORCE_GLOBAL_CACHE`          | Forces `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` marker without feature flag   |
-| `CLAUDE_CODE_SIMPLE`                      | Minimal system prompt: identity + CWD + date only (new in 2.1.69)         |
+| `CLAUDE_CODE_SIMPLE`                      | Minimal system prompt: identity + CWD + date only         |
 
 ## Variable Resolution Table
 
@@ -995,63 +975,3 @@ This section appears to be injected separately from the main system prompt compo
 | `q4A` | "You are Claude Code, Anthropic's official CLI for Claude." | 134303 |
 | `V67` | "You are Claude Code, ...running within the Claude Agent SDK." | 134304 |
 | `N67` | "You are a Claude agent, built on Anthropic's Claude Agent SDK." | 134306 |
-
-## Changes from 2.0.29 (as of 2.1.39)
-
-### New Sections
-- "No time estimates" (in `DYz`, legacy tone section)
-- "Executing actions with care" (`vYz`, simple path only)
-- "Asking questions" (`MYz`, legacy path)
-- "Scratchpad Directory" (`P_q`, both paths via dynamic sections)
-- "System" consolidated section (`NYz`, simple path -- replaces multiple legacy sections)
-- Fast mode info and Claude background info (in env info builders)
-- Knowledge cutoff dates per model family
-- Prompt injection awareness ("flag it directly to the user", simple path)
-
-### Structural Changes
-- Feature-flagged dual-path prompt system (`tengu_vinteuil_phrase`)
-- Dynamic section infrastructure with caching (`Hc`/`T91`/`UIA`)
-- Global cache boundary marker (`__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__`)
-- Restructured tool guidance: "Using your tools" (simple) vs "Tool usage policy" (legacy)
-- "Doing tasks" restructured with nested bullet lists in simple path
-- Code references folded into Tone and style in simple path
-- TodoWrite guidance folded into Using your tools in simple path
-- VSCode-specific check removed from base prompt selection
-- `keepCodingInstructions` property on output styles to retain coding sections
-- Client data server-side override for prompt path routing
-
-### Removed (Legacy -> Simple)
-- Separate "Professional objectivity" section (removed entirely in simple path)
-- Separate "Code References" section (folded into Tone and style)
-- Separate "Task Management" section with examples (folded into Using your tools as single bullet)
-- Separate "TodoWrite emphasis" reminder (removed)
-- Second security notice repetition (only appears once in intro)
-- WebFetch redirect instruction (removed from simple path)
-- `<env>` XML format for environment info (replaced with bulleted list)
-
-## Changes from 2.1.39 (as of 2.1.69)
-
-### Structural Changes
-- Legacy prompt path removed: `tengu_vinteuil_phrase` flag no longer exists; only the simple
-  path remains (entry point `fT()` at line 519479, was `w_q()`)
-- `CLAUDE_CODE_SIMPLE` env var: when truthy, returns a minimal system prompt containing only
-  identity, CWD, and date (line 519480)
-- Git workflow instructions in Bash tool description now gated by
-  `CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS` env var or `includeGitInstructions` config setting
-  (function `vfz()` at line 526454; see "Git Instruction Gating" section)
-- Git instructions split into two layers: always-on short safety tips (variable `K`) and
-  gated workflow instructions (`WNq()`)
-
-### New Sections
-- "Output efficiency" (`SGz()` at line 519451): behind `tengu_sotto_voce` flag, adds concise
-  output instructions ("Go straight to the point. Try the simplest approach first...")
-
-### New Dynamic Sections
-- `frc` (via `bGz()`): purpose not yet traced
-- `summarize_tool_results` (via `uGz()`): purpose not yet traced
-
-### New Environment Variables
-- `CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS`: removes commit/PR workflow instructions from Bash
-  tool description (does not affect short git tips, system prompt safety examples, or subagent
-  prompts)
-- `CLAUDE_CODE_SIMPLE`: minimal system prompt mode

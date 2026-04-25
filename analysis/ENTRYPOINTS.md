@@ -1,6 +1,6 @@
 # Claude Code Entrypoints and Execution Surfaces
 
-Version: 2.1.39
+Source: `cli.prettier.js` 2.1.76 (`work/2.1.76/package/cli.prettier.js`)
 
 ## Overview
 
@@ -100,20 +100,20 @@ The code detects auth from multiple sources:
 
 Sent with API requests to Anthropic:
 ```
-claude-cli/2.1.39 (external, ${CLAUDE_CODE_ENTRYPOINT}[, agent-sdk/${SDK_VERSION}][, client-app/${CLIENT_APP}])
+claude-cli/2.1.76 (external, ${CLAUDE_CODE_ENTRYPOINT}[, agent-sdk/${SDK_VERSION}][, client-app/${CLIENT_APP}])
 ```
 
 Examples:
-- CLI: `claude-cli/2.1.39 (external, cli)`
-- VSCode: `claude-cli/2.1.39 (external, claude-vscode)`
-- Remote: `claude-cli/2.1.39 (external, remote)`
-- Agent SDK: `claude-cli/2.1.39 (external, sdk-ts, agent-sdk/1.0.0)`
+- CLI: `claude-cli/2.1.76 (external, cli)`
+- VSCode: `claude-cli/2.1.76 (external, claude-vscode)`
+- Remote: `claude-cli/2.1.76 (external, remote)`
+- Agent SDK: `claude-cli/2.1.76 (external, sdk-ts, agent-sdk/1.0.0)`
 
 ### Attribution Header (line 134296-134301)
 
 Sent as `x-anthropic-billing-header` when `tengu_attribution_header` feature flag is enabled:
 ```
-x-anthropic-billing-header: cc_version=2.1.39.${MODEL_HASH}; cc_entrypoint=${ENTRYPOINT}; cch=00000;
+x-anthropic-billing-header: cc_version=2.1.76.${MODEL_HASH}; cc_entrypoint=${ENTRYPOINT}; cch=00000;
 ```
 
 ## GrowthBook Feature Flag Targeting
@@ -142,7 +142,7 @@ GrowthBook uses `["id", "organizationUUID"]` as cache key attributes (line 52551
 
 The request includes:
 - Auth headers (OAuth token)
-- User-Agent: `claude-cli/2.1.39 (external, ${ENTRYPOINT}...)`
+- User-Agent: `claude-cli/2.1.76 (external, ${ENTRYPOINT}...)`
 
 The server response can include `system_prompt_variant` (line 511012), which is checked at line 511374:
 ```javascript

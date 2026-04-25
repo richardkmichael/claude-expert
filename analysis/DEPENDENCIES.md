@@ -1,16 +1,14 @@
 # Inlined Third-Party Dependencies
 
+Source: `cli.prettier.js` 2.1.76 (`work/2.1.76/package/cli.prettier.js`)
+
 Libraries bundled (inlined) into `cli.prettier.js` by the build toolchain.
 Line numbers are approximate first-occurrence anchors for discovery, not precise boundary ranges.
-The bundler structure changed between versions — the old `var X = U(...)` CommonJS wrapper
-pattern is gone in 2.1.62; the file is an ES module (`import { createRequire }` at line 1).
-
-Cross-reference: `structure/LIBRARY_BOUNDARIES.md` was prepared from a much older version
-and its line number ranges are entirely obsolete. The library presence data below supersedes it.
+The file is an ES module (`import { createRequire }` at line 1).
 
 ---
 
-## Version 2.1.62  (595,112 lines)
+## Libraries
 
 ### Zod
 Schema validation library (TypeScript-first).
@@ -81,8 +79,8 @@ React-based UI framework for terminal/CLI interfaces. Renders React component tr
 terminal using its own layout engine.
 - Anchor: named export block `{ useInput, render, useApp, useStdin, Text, ... }` near line 152068
 - Used: all interactive terminal UI (prompt, suggestions, output rendering)
-- Note: in 2.1.62 `yoga-layout` (Ink's flexbox engine) does not appear as a separate string
-  — it is either fully inlined or replaced by a wasm module
+- Note: `yoga-layout` (Ink's flexbox engine) does not appear as a separate string —
+  it is either fully inlined or replaced by a wasm module
 - https://github.com/vadimdemedes/ink
 
 ### Sharp
@@ -148,13 +146,12 @@ Feature flag and A/B testing SDK. Replaces Statsig (see below).
 
 ---
 
-## Libraries Present in Old Version, Removed in 2.1.62
+## Absent Libraries
 
-These were identified in `structure/LIBRARY_BOUNDARIES.md` (very old version) but are
-absent from 2.1.62:
+The following libraries are absent:
 
-| Library            | Old role                     | Status in 2.1.62 |
-|--------------------|------------------------------|------------------|
+| Library            | Old role                     | Status         |
+|--------------------|------------------------------|----------------|
 | Sentry SDK         | Remote error tracking        | Removed, but replaced by two mechanisms: (1) Local file logging — `DXz()` appends error stack/message to `~/.claude/logs/{ts}.jsonl`; the `jXz()` call inside `DXz()` is a no-op. (2) Remote error telemetry via the `n()` telemetry pipeline — `uncaughtException` and `unhandledRejection` process handlers emit `tengu_uncaught_exception` / `tengu_unhandled_rejection` events (with error name and up to 2000 chars of message) plus 50+ other categorized `tengu_*_error` events at specific failure sites. Stack traces are NOT sent remotely. Telemetry likely goes to `https://api.anthropic.com/api/claude_code/metrics`. |
 | Statsig SDK        | Feature flags / A/B testing  | Replaced by GrowthBook (see above). `cachedStatsigGates` property still exists in app state (line 535744) as a legacy fallback in `Ow()`, but the Statsig SDK itself is absent. `statsig.com`, `StatsigUser`, `featureGates` strings — not found. |
 | MIME Database      | MIME type lookup             | Removed. `mime-db`, IANA source entries — not found. |

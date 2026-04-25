@@ -1,7 +1,9 @@
 # @ File Inclusion and Completion
 
-Analyzed in version 2.1.63. All function and variable names are minified and will differ
-in other versions. The guidance below identifies features by stable string literals, log
+Source: `cli.prettier.js` 2.1.104 (`work/2.1.104/package/cli.prettier.js`)
+
+All function and variable names are minified and will differ
+between versions. The guidance below identifies features by stable string literals, log
 messages, API patterns, and structural characteristics rather than by name.
 
 ---
@@ -10,8 +12,8 @@ messages, API patterns, and structural characteristics rather than by name.
 
 Typing `@` in the prompt triggers a file/resource completion mode. Two sub-mechanisms:
 
-1. File suggestions — fuzzy search of the workspace file tree, powered by ripgrep (or git
-   ls-files) and either a native Rust index or an inlined Fuse.js fallback.
+1. File suggestions — fuzzy search of the workspace file tree, powered by git ls-files
+   (with a ripgrep fallback) and a custom in-process JavaScript index (`x38`).
 2. MCP resource suggestions — drawn from connected MCP servers via `resources/list`.
 
 This document covers the file suggestion mechanism (1) and the TAB completion behavior.
@@ -20,8 +22,8 @@ This document covers the file suggestion mechanism (1) and the TAB completion be
 
 ## How to Find the Entry Point
 
-Search for the regex literal used to extract the `@...` token from user input. In 2.1.63
-it matches Unicode word chars, digits, separators, and path characters after `@`:
+Search for the regex literal used to extract the `@...` token from user input. It matches
+Unicode word chars, digits, separators, and path characters after `@`:
 
   Pattern: `@[\p{L}\p{N}\p{M}_\-./\\()[\]~:]*`  (Unicode property escapes)
 
@@ -32,7 +34,8 @@ input changes while `@` mode is active.
 A second useful anchor: the completion entry function is the one that checks for
 `fileSuggestion?.type === "command"` in the project settings object. This is the first
 branch of the file-suggestion dispatcher; the branch that follows handles the empty-query
-case, and then the main fuzzy-search path. In 2.1.63 this function is `w5q(query, force)`.
+case, and then the main fuzzy-search path. This function is `rz7(state, query, force)`
+in 2.1.104 (was `w5q` in 2.1.76).
 
 ---
 
@@ -42,28 +45,35 @@ The pipeline has three layers. Find them by their log messages (stable across mi
 
 - Layer 1 — git ls-files:
   Look for the log string `"[FileIndex] getFilesUsingGit called"` and nearby
-  `"git ls-files --recurse-submodules"` in a spawned git command. This function
-  attempts git ls-files first; it returns `null` if the directory is not a git repo or
-  if git ls-files exits non-zero. In 2.1.63 this function is `qeY()`.
+  the spawned git command `["-c", "core.quotepath=false", "ls-files",
+  "--recurse-submodules"]`. This function attempts git ls-files first; it returns
+  `null` if the directory is not a git repo. If `git ls-files` exits non-zero it logs
+  `"[FileIndex] git ls-files failed (code=..., stderr=...), falling back to ripgrep"`
+  and also returns `null`. This function is `SkY()` in 2.1.104 (was `qeY()` in 2.1.76).
 
 - Layer 2 — ripgrep fallback:
   The log `"[FileIndex] git ls-files returned null, falling back to ripgrep"` leads to
-  the ripgrep invocation. Key signature: an array literal `["--files", "--follow",
-  "--hidden", "--glob", "!.git/"]` assembled just before the call. The single directory
-  argument passed to ripgrep is `"."` (cwd). The results are made relative to cwd via
-  `path.relative(cwd, absolutePath)`.
+  the ripgrep invocation. Key signature: an array literal beginning `["--files",
+  "--follow", "--hidden", "--glob", "!.git/", ...]` assembled just before the call.
+  In 2.1.104 the array also excludes `.svn/`, `.hg/`, `.bzr/`, `.jj/`, and `.sl/`. The
+  single directory argument passed to ripgrep is `"."` (cwd). The results are made
+  relative to cwd via `path.relative(cwd, absolutePath)`.
   Telemetry event name (also stable): `"tengu_file_suggestions_ripgrep"`.
+  This function is `bkY()` in 2.1.104.
 
 - Layer 3 — index assembly:
-  The function that awaits both the file-listing function and the `.claude/` dir scanner
-  in a `Promise.all`, then merges the lists into either a Rust FileIndex or a Fuse.js
-  instance. Log: `"[FileIndex] cache refresh completed"`.
+  The function that awaits both the project-files function (`bkY`) and the `.claude/`
+  dir scanner (`CkY`) in a `Promise.all`, then loads the merged paths into the
+  in-process `x38` index via `loadFromFileListAsync`. Log:
+  `"[FileIndex] cache refresh completed"`.
   Telemetry event: `"tengu_file_suggestions_git_ls_files"`.
-  In 2.1.63 this function is `zeY()`.
+  This function is `IkY()` in 2.1.104 (was `zeY()` in 2.1.76).
 
-The `.claude/` scanner (separate from the file tree scanner) searches for `commands`,
-`agents`, `output-styles`, and `skills` subdirectories. Find it by the array literal
-`["commands", "agents", "output-styles", "skills"]`. In 2.1.63 this function is `KeY()`.
+The `.claude/` scanner (separate from the file tree scanner) is `CkY()`, which iterates
+the module-level array `PA4` of subdirectory names and calls `Ta(name, cwd)` for each.
+In 2.1.104 the array is `["commands", "agents", "output-styles", "skills", "workflows",
+"routines"]` — `workflows` and `routines` were added since 2.1.76. The results are
+stored in `state.cachedConfigFiles`.
 
 ### git ls-files Always Runs First in a Git Repo
 
@@ -101,14 +111,14 @@ The `--no-ignore-vcs` flag only disables VCS-managed ignore files (`.gitignore`)
 
 ## Result Limit
 
-All search paths cap results at 15. In 2.1.63 this constant is `rT6 = 15`. It is applied
-consistently across every branch of the search dispatcher:
+All search paths cap results at 15. This constant is `iz7 = 15` in 2.1.104 (was
+`rT6 = 15` in 2.1.76). It is applied consistently across every branch of the search
+dispatcher:
 
-- `fileSuggestion` hook results:  `.slice(0, rT6)`
-- Empty query (`"."` or `""`) readdir results: `.slice(0, rT6)`
-- Rust FileIndex search: `fileIndex.search(query, rT6)` — limit passed to native code
-- Fuse.js empty-query path: loop breaks at `size >= rT6`
-- Fuse.js search: `.search(query, { limit: rT6 })` then `.slice(0, rT6)`
+- `fileSuggestion` hook results:  `.slice(0, iz7)`
+- Empty query (`"."` or `""`) readdir results: `.slice(0, iz7)`
+- `x38` index search: `fileIndex.search(query, iz7)` — limit passed into the search loop
+- `x38` empty-query path: served from `topLevelCache.slice(0, iz7)`
 
 The 15-result limit documented for `fileSuggestion` is therefore not a constraint specific
 to that hook — it matches the cap applied to all internal search results.
@@ -128,7 +138,7 @@ and runs through the same hook runner.
 ```
 
 The hook is short-circuit: when `fileSuggestion.type === "command"` is present, the
-entire internal index system (git ls-files, ripgrep, Rust/Fuse.js index) is bypassed.
+entire internal index system (git ls-files, ripgrep, the `x38` index) is bypassed.
 
 ### Stdin Payload
 
@@ -139,19 +149,23 @@ The command receives a JSON object on stdin:
   "session_id":      "...",
   "transcript_path": "...",
   "cwd":             "/current/working/dir",
+  "agent_id":        "...",
+  "agent_type":      "...",
   "query":           "the typed text after @"
 }
 ```
 
-The base hook payload (`session_id`, `transcript_path`, `cwd`) is spread in, then `query`
-is appended. The `permission_mode` field from the base payload is dropped by
-`JSON.stringify` because its value is `undefined`.
+The base hook payload comes from `_O()` (which returns `session_id`, `transcript_path`,
+`cwd`, `permission_mode`, `agent_id`, `agent_type`) and `query` is then appended. The
+`fileSuggestion` dispatcher calls `_O()` with no arguments, so `permission_mode` is
+`undefined` and is dropped by `JSON.stringify`. `agent_id` and `agent_type` were added
+since 2.1.76 — they reflect the active subagent context, if any.
 
 ### Stdout
 
 Return up to 15 newline-separated file paths. Results are displayed directly as completion
 suggestions without passing through the internal index. Each line becomes one suggestion
-item via the same formatter (`nl6` in 2.1.63) used by the internal paths.
+item via the same formatter (`nl6`) used by the internal paths.
 
 ### Hook Environment
 
@@ -170,22 +184,23 @@ regardless of gitignore status.
 ## Ripgrep Binary Selection
 
 Claude Code bundles its own ripgrep binary. The selection logic runs once at startup
-(lazy-initialised). In 2.1.63 this is the `Z81` lazy initialiser. Priority order:
+(lazy-initialised). This is the `sa6` lazy initialiser in 2.1.104 (was `Z81` in 2.1.76).
+Priority order:
 
 1. `USE_BUILTIN_RIPGREP=0` (or `false`/`no`/`off`) env var set:
    Try to find system `rg` via `findActualExecutable`. If found on PATH, use it
    (`mode: "system"`). If not found, fall through to the next option.
 
-2. Running under Bun with embedded files and `RIPGREP_EMBEDDED` env var set:
-   Use the Bun executable itself as ripgrep with `--no-config` flag
-   (`mode: "embedded"`). This suppresses `~/.ripgreprc`.
+2. Running as a packaged executable (`J$()` true):
+   Re-exec the host process as ripgrep —
+   `{ command: process.execPath, args: ["--no-config"], argv0: "rg", mode: "embedded" }`.
+   The `--no-config` flag suppresses `~/.ripgreprc`. If the current `process.execPath` is
+   not actually a packaged executable (`pN(process.execPath)` false), prefer system `rg`
+   on PATH and only fall back to the embedded form if no system `rg` is found.
 
-3. Running under Bun with embedded files (no `RIPGREP_EMBEDDED`):
-   Use `process.execPath --ripgrep` (`mode: "builtin"`).
-
-4. Default fallback:
+3. Default fallback:
    Use the vendored binary at `vendor/ripgrep/{arch}-{platform}/rg`
-   (`mode: "builtin"`).
+   (`vendor/ripgrep/{arch}-win32/rg.exe` on Windows). `mode: "builtin"`.
 
 Important: `--no-config` is only passed in mode "embedded". In modes "system" and
 "builtin" (vendored), ripgrep will read `~/.ripgreprc` if present. This means setting
@@ -196,6 +211,10 @@ The env var name `USE_BUILTIN_RIPGREP` is counter-intuitive: setting it to `0`/`
 disables use of Claude's bundled binary and enables the system binary. The condition is
 checked via an "is disabled" helper that returns `true` for `"0"`, `"false"`, `"no"`,
 `"off"`.
+
+Removed since 2.1.76: the separate `RIPGREP_EMBEDDED` env var and the Bun-specific
+`process.execPath --ripgrep` invocation are no longer present in 2.1.104. Both have
+been collapsed into the single "embedded" mode above.
 
 ---
 
@@ -212,7 +231,9 @@ CLI flag or `/add-dir` slash command). Both are updated by both mechanisms:
   non-React code that cannot access app state. Find it by searching for the log string
   `"working directory"` in the `/add-dir` command handler, or by looking for the pattern
   `if (!array.includes(newDir)) setArray([...array, newDir])` near the call that updates
-  `toolPermissionContext`. In 2.1.63 the getter for this array is `mT()`.
+  `toolPermissionContext`. The getter is `af()` in 2.1.104 (was `mT()` in 2.1.76):
+  `function af() { return T8.additionalDirectoriesForClaudeMd; }`. The matching setter
+  is `NB6(q)`.
 
 The file index builder uses only the module-level array (not the Map), because it runs
 outside React. Verify by checking which of the two stores the `Promise.all` assembly
@@ -220,30 +241,27 @@ function reads.
 
 ---
 
+## File Index Implementation (`x38`)
+
+Since 2.1.104 the file index is a single pure-JavaScript class `x38` (defined around
+L503985 in 2.1.104). The Rust `.node` native FileIndex and the inlined Fuse.js fallback
+that existed in 2.1.76 have both been removed, along with their identifying log
+strings (`"[FileIndex] Rust module unavailable, falling back to Fuse.js"` and
+`"[FileIndex] Not in bundled mode, using Fuse.js fallback"`).
+
+Identify `x38` by:
+- Instance fields `paths`, `lowerPaths`, `charBits` (`Int32Array`), `pathLens`
+  (`Uint16Array`), `topLevelCache`, `readyCount`
+- Methods `loadFromFileList(paths)` (sync), `loadFromFileListAsync(paths)` (returns
+  `{ queryable, done }`), `buildAsync`, `buildIndex`, `indexPath`, `search(query, limit)`
+- A 26-bit a-z bitmap built per path: `if (A >= 97 && A <= 122) z |= 1 << (A - 97)`
+  in `indexPath`. This bitmap is used as a fast prefilter before character-level matching.
+
+`loadFromFileListAsync` yields back to the event loop every 256 entries (`(O & 255) === 255`)
+when a 4 ms budget is exceeded, calling a `Sl8()` cooperative-yield helper. This makes
+large-repo index builds non-blocking for the UI.
+
 ## External Libraries
-
-### Fuse.js (inlined)
-
-The fuzzy-match fallback is an inlined copy of Fuse.js. Identify it by:
-- A class with a constructor that accepts `(collection, options)` where options include
-  `{ includeScore, threshold, keys: [{name, weight}, ...] }`
-- A `.search(query, { limit })` method
-- An internal `FuseIndex` or similar index class (look for `createIndex` or
-  `fieldNormWeight` in the options shape)
-
-Search for `threshold: 0.5` and `includeScore: !0` near a `keys:` array with `weight:`
-values — this combination is characteristic of the file-search Fuse instance specifically.
-
-### Rust FileIndex (native module)
-
-A native Rust `.node` addon loaded conditionally (only in bundled/production mode).
-Identify by:
-- An async factory function that does `new FileIndex()` inside a dynamic `import()` or
-  `require()` of an internal module
-- A log message `"[FileIndex] Rust module unavailable, falling back to Fuse.js"` in the
-  catch block
-- A log `"[FileIndex] Not in bundled mode, using Fuse.js fallback"` for the non-bundled path
-- The index object has `.loadFromFileList(paths)` and `.search(query, limit)` methods
 
 ### Ink `useInput`
 
@@ -279,9 +297,11 @@ dispatcher's perspective they are identical: a list of `{ id, displayText, metad
 objects. The handler does not know which source produced the results.
 
 Consequence: implementing TAB directory drill-down requires different handling for each
-source. The internal index produces directory entries with a trailing path separator
-(inserted by the parent-directory adder, `Sg8` in 2.1.63). The `fileSuggestion` hook
-has no typed results — a trailing `/` in the returned string is the only signal available.
+source. The internal index produces directory entries with a trailing path separator —
+inserted by the parent-directory adder, which in 2.1.104 is the async function `UhK(q)`
+(was `Sg8` in 2.1.76). It walks each path's `dirname` chain via the helper `hkY` into a
+`Set`, then returns `[...set].map(z => z + path.sep)`. The `fileSuggestion` hook has no
+typed results — a trailing `/` in the returned string is the only signal available.
 See TAB_COMPLETION.md for the fix plan.
 
 ### Finding the Completion Formatter
@@ -296,10 +316,10 @@ cursor-update function in both the TAB and ENTER handlers.
 
 ### Directory vs. File Distinction
 
-In 2.1.63, the "file" mode branch unconditionally sets `isComplete: true` and calls the
+The "file" mode branch unconditionally sets `isComplete: true` and calls the
 close-suggestions function — it does not check whether the selected item is a directory.
 The correct check is whether `displayText.endsWith(path.sep)`. Directory entries (inserted
-by the parent-directory adder) always have a trailing separator.
+by the parent-directory adder `UhK`) always have a trailing separator.
 
 The "directory" mode handler (for slash-command argument completion) already does this
 check correctly — it uses `metadata.type === "directory"`. The "file" mode is missing the
@@ -337,8 +357,11 @@ When analyzing a newer version, recommended search order:
 2. Find `"tengu_file_suggestions_ripgrep"` telemetry event — anchors the cwd ripgrep call
 3. Find `["--files", "--follow", "--hidden"]` array — anchors the ripgrep argument build
 4. Find `"autocomplete:accept"` string — anchors the TAB handler
-5. Find `threshold: 0.5` near `includeScore` — anchors the Fuse.js search instance
+5. Find `loadFromFileListAsync` together with a `charBits` field — anchors the `x38`
+   index class (replaces the older Fuse.js `threshold: 0.5` anchor)
 6. Find `type: "addDirectories"` — anchors the workspace directory update logic
 7. Find `additionalDirectoriesForClaudeMd` — anchors the module-level extra-dirs getter
 8. Find `fileSuggestion?.type === "command"` — anchors the completion entry dispatcher
 9. Find the `@[\p{L}...]*` Unicode regex — anchors the token extractor
+10. Find `["commands", "agents", "output-styles", "skills", "workflows", "routines"]` —
+    anchors the `.claude/` subdirectory scanner (`PA4`)

@@ -8,7 +8,7 @@
 
 # Claude Code Tools and Execution Architecture
 
-Version: 2.1.74
+Source: `cli.prettier.js` 2.1.76 (`work/2.1.76/package/cli.prettier.js`)
 
 ## Overview
 
@@ -65,7 +65,7 @@ Tools are returned as an array.  Some are always present; others are gated by co
 | `TaskStop`   | `lS`  | 431765   | Always    | `KillShell`                          |
 | `TaskOutput` | `iS`  | 432266   | Always    | `AgentOutputTool`, `BashOutputTool`  |
 
-`Agent` was renamed from `Task` in 2.1.69; the old name is retained as an alias.
+`Agent` is the primary name; `Task` is retained as an alias.
 `TaskStop` and `TaskOutput` replace the former `KillShell` and `BashOutput` tools (aliases kept).
 
 ### Planning
@@ -79,8 +79,8 @@ Tools are returned as an array.  Some are always present; others are gated by co
 
 | Tool            | Var    | Def line | Condition                   |
 | --------------- | ------ | -------- | --------------------------- |
-| `EnterWorktree` | `F01`  | 435326   | `XT6()` (always true in 2.1.74) |
-| `ExitWorktree`  | `p01`  | 435550   | `XT6()` (always true in 2.1.74) |
+| `EnterWorktree` | `F01`  | 435326   | `XT6()` (always true) |
+| `ExitWorktree`  | `p01`  | 435550   | `XT6()` (always true) |
 
 ### Collaboration
 

@@ -1,7 +1,6 @@
-# Claude Code Analysis - Hook Functionality (2.1.74)
+# Claude Code Analysis - Hook Functionality
 
-This document analyzes hook functionality in Claude Code's bundled JavaScript file
-`package/cli.prettier.js`. Updated for version 2.1.74.
+Source: `cli.prettier.js` 2.1.76 (`work/2.1.76/package/cli.prettier.js`)
 
 ## Hook Events
 
@@ -148,7 +147,7 @@ PreToolUse hooks can return JSON on stdout to control permission decisions:
 | other     | stderr shown to user only                           |
 
 
-## Tool Execution Pipeline (2.1.74)
+## Tool Execution Pipeline
 
 ### Overall Flow
 
@@ -292,7 +291,7 @@ In summary:
 
 ### `PostToolUseFailure` Hook Event
 
-Not mentioned in official hook documentation as of 2.1.74. Fires when tool execution
+Not mentioned in official hook documentation. Fires when tool execution
 throws an exception (line 439721 in `X4q`).
 
 Input schema:
@@ -313,10 +312,10 @@ The tool lifecycle is:
 - Tool never attempted (validation failure): neither fires
 
 
-## Legacy Notes (Pre-2.1.72)
+## Legacy Notes
 
-The sections below document earlier analysis findings. Line numbers reference older
-versions and are no longer accurate. Key architectural findings remain valid.
+The sections below document earlier analysis findings. Line numbers may not be
+current. Key architectural findings remain valid.
 
 ### Why PreToolUse Hooks Don't Fire for Invalid Inputs
 

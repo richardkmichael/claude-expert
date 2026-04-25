@@ -1,5 +1,7 @@
 # Claude Code Application Functional Breakdown
 
+Source: `cli.prettier.js` 2.1.76 (`work/2.1.76/package/cli.prettier.js`)
+
 This document provides detailed documentation of the Claude Code application functionality by examining the non-library code sections in `package/cli.prettier.js`.
 
 ## Code Sections Analyzed

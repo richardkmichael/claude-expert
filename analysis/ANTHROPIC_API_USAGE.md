@@ -1,10 +1,8 @@
-# Anthropic API Call Sites Analysis - Claude Code v2.0.36
+# Anthropic API Call Sites Analysis
 
-**Purpose**: This document analyzes all locations where Claude Code makes API requests to Anthropic's API, documenting the request construction pipeline and all control mechanisms that affect what context gets included.
+Source: `cli.prettier.js` 2.1.76 (`work/2.1.76/package/cli.prettier.js`)
 
-**Source**: `work/2.0.36/package/cli.prettier.js` (prettified from npm package)
-
-**Related Documentation**: See `BLOG_CONTEXT.md` for conceptual overview of context assembly.
+This document analyzes all locations where Claude Code makes API requests to Anthropic's API, documenting the request construction pipeline and all control mechanisms that affect what context gets included.
 
 ---
 
@@ -728,9 +726,8 @@ This document establishes the foundation for deeper context tracing. The followi
 **SDK Type**: The code uses the beta Anthropic SDK via `client.beta.messages.stream()` and
 `client.beta.messages.create()`.
 
-**Version**: The package.json shows Claude Code version is `2.0.36`, but the SDK version is not
-explicitly declared in package.json (no `@anthropic-ai/sdk` dependency listed). The code bundles the
-SDK or uses dynamic imports.
+**Version**: The SDK version is not explicitly declared in package.json (no `@anthropic-ai/sdk`
+dependency listed). The code bundles the SDK or uses dynamic imports.
 
 **Note**: The use of `client.beta.*` methods indicates the SDK uses the beta namespace, which is the standard way to access beta API features (see Claude docs).
 
@@ -757,7 +754,7 @@ IMPORTANT: this context may or may not be relevant to your tasks. You should not
 
 ### 3. Beta Features Currently Active/Available
 
-Based on code analysis (lines 206360-206406), Claude Code v2.0.36 includes these beta features:
+Based on code analysis (lines 206360-206406), Claude Code includes these beta features:
 
 | Beta Feature | Constant | Code Line | Enabled When |
 |--------------|----------|-----------|--------------|
@@ -919,7 +916,7 @@ The full literal text isn't a single constant - it's built at runtime from multi
 
 ## Summary
 
-Claude Code v2.0.36 provides extensive control over API request context through:
+Claude Code provides extensive control over API request context through:
 
 - **26 CLI arguments** affecting requests
 - **60+ environment variables** controlling behavior

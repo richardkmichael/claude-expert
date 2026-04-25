@@ -1,6 +1,6 @@
 # Claude Code Analysis - Notification System
 
-Analysis of the notification system in `work/2.1.63/package/cli.prettier.js`.
+Source: `cli.prettier.js` 2.1.76 (`work/2.1.76/package/cli.prettier.js`)
 
 ## Overview
 
@@ -196,7 +196,7 @@ Add a single case to `H0Y()` at line 348348, after the `"kitty"` case:
 ```
 
 `notifyGhostty()` already exists and is called correctly via the `"auto"` path.
-The fix is a one-line missing case. Patch: `patches/2.1.63/002-ghostty-notif-channel.patch`.
+The fix is a one-line missing case.
 
 ## preferredNotifChannel Values
 

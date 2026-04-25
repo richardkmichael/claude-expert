@@ -1,4 +1,6 @@
-# JSONL Session Transcript Format (2.1.63)
+# JSONL Session Transcript Format
+
+Source: `cli.prettier.js` 2.1.76 (`work/2.1.76/package/cli.prettier.js`)
 
 Claude Code persists conversation state as JSONL (newline-delimited JSON) files.
 Each line is a self-contained JSON object terminated by `\n`.
@@ -65,7 +67,7 @@ so envelope fields appear at the top level:
 | `userType`         | `"external"` or `"ant"` | User type                                   |
 | `cwd`              | string             | Working directory at time of write                |
 | `sessionId`        | string             | Session UUID                                      |
-| `version`          | string             | Claude Code version (e.g. `"2.1.63"`)            |
+| `version`          | string             | Claude Code version (e.g. `"2.1.76"`)            |
 | `gitBranch`        | string or undefined| Current git branch                                |
 | `agentId`          | string or undefined| Agent ID for subagent transcripts                 |
 | `slug`             | string or undefined| Human-readable session slug                       |

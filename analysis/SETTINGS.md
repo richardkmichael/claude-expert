@@ -1,7 +1,7 @@
 # Claude Code Analysis - Settings & Configuration
 
 Analysis of how Claude Code reads, stores, and persists settings, based on
-`work/2.1.63/package/cli.prettier.js`.
+`cli.prettier.js` 2.1.76 (`work/2.1.76/package/cli.prettier.js`).
 
 ## Configuration File Locations
 
@@ -61,7 +61,7 @@ config.
 ## Global Config Keys (DEFAULT_GLOBAL_CONFIG / ~/.claude.json)
 
 The `BC` object defines defaults, and `$fq` (GLOBAL_CONFIG_KEYS) lists which
-keys are persisted to disk.  Selected keys (2.1.63):
+keys are persisted to disk.  Selected keys:
 
 ```
 numStartups, installMethod, autoUpdates, theme, preferredNotifChannel,

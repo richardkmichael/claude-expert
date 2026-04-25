@@ -1,5 +1,7 @@
 # Claude Code MCP Implementation Analysis
 
+Source: `cli.prettier.js` 2.1.76 (`work/2.1.76/package/cli.prettier.js`)
+
 This document provides a comprehensive analysis of the Model Context Protocol (MCP) implementation in Claude Code, separating the TypeScript MCP SDK from Claude Code's application logic.
 
 ## Executive Summary
@@ -8,10 +10,9 @@ Claude Code uses the **TypeScript MCP SDK** (minified to JavaScript) for protoco
 
 ## File Structure Overview
 
-**File**: `package/cli.prettier.js` (~15MB, 444,530 lines)
-- **Third-party libraries**: Lines 1-339,456 (76% of file)
-- **MCP SDK Implementation**: Lines 388,640-395,600 (~7,000 lines)
-- **Claude Code MCP Application Logic**: Lines 353,000-353,500 & 392,580+ & 410,914+
+**File**: `package/cli.prettier.js`
+- **MCP SDK Implementation**: ~7,000 lines
+- **Claude Code MCP Application Logic**: configuration management, tool integration, and connection management
 
 ---
 

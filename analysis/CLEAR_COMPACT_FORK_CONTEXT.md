@@ -1,6 +1,6 @@
 # Clear, Compact, Fork, and Rewind: How Context Operations Work
 
-Source: `cli.prettier.js` 2.1.72 (`work/2.1.72/package/cli.prettier.js`)
+Source: `cli.prettier.js` 2.1.76 (`work/2.1.76/package/cli.prettier.js`)
 
 Four mechanisms manipulate conversation context. They differ in what the model
 sees going forward, whether the session continues or a new one is created, and
@@ -77,10 +77,8 @@ the user's permission level: `yes-auto-clear-context` when
 `isBypassPermissionsModeAvailable`, or `yes-accept-edits` otherwise. The
 second option always keeps context at the same permission level.
 
-In 2.1.71, auto-mode users were an exception: their first option
-(`yes-resume-auto-mode`) kept context. 2.1.72 added `yes-auto-clear-context`
-to make the first option consistently clear context across all permission
-levels.
+The `yes-auto-clear-context` option makes the first option consistently clear
+context across all permission levels.
 
 ### The ExitPlanMode tool_use is identical either way
 
@@ -281,8 +279,7 @@ To reconstruct the full history from the JSONL:
 4. Everything between that record and the `compact_boundary` is the
    summarized content
 
-Verified empirically against session `53a3602b` (started at v2.1.47,
-summarized at v2.1.71):
+Verified empirically against session `53a3602b`:
 
 ```
 Records 0-408:   kept messages (before logicalParentUuid, inclusive)

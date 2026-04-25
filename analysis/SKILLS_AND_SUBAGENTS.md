@@ -1,6 +1,6 @@
 # Skills and Subagent Integration
 
-Version: 2.1.76
+Source: `cli.prettier.js` 2.1.76 (`work/2.1.76/package/cli.prettier.js`)
 
 See also: [Task Tool and Subagents](TASK_TOOL_AND_SUBAGENTS.md),
 [Markdown Frontmatter](MARKDOWN_FRONTMATTER.md)
@@ -194,10 +194,10 @@ Location: cli.prettier.js:252222
 The skill's `getPromptForCommand` method resolves template variables and performs substitutions
 before returning the rendered content.  Two built-in template variables are available in SKILL.md:
 
-| Variable               | Value                          | Added in |
-| ---------------------- | ------------------------------ | -------- |
-| `${CLAUDE_SKILL_DIR}`  | Absolute path to skill's dir   | 2.1.69   |
-| `${CLAUDE_SESSION_ID}` | Current session UUID           | ≤2.1.63  |
+| Variable               | Value                          |
+| ---------------------- | ------------------------------ |
+| `${CLAUDE_SKILL_DIR}`  | Absolute path to skill's dir   |
+| `${CLAUDE_SESSION_ID}` | Current session UUID           |
 
 `CLAUDE_SKILL_DIR` resolves to the skill's directory (e.g., `.claude/skills/my-skill`).  On
 Windows, backslashes are normalized to forward slashes.  This lets SKILL.md reference companion
@@ -595,9 +595,8 @@ language and provides SDK documentation.  Triggered when code imports `anthropic
 
 ## Plugin Skill: `security-review`
 
-In 2.1.69, `security-review` was a bundled skill created via `uN6()` with its own
-`getPromptWhileMarketplaceIsPrivate` method.  In 2.1.74, it has moved to a plugin (references
-at lines 489839-489869) and is no longer registered via `dw()`.
+`security-review` is a plugin skill (references at lines 489839-489869) and is not registered
+via `dw()`.
 
 
 ## How `alwaysAllowRules.command` Works

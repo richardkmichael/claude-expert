@@ -1,6 +1,6 @@
 # CLI Options
 
-Source: `cli.prettier.js` 2.1.72 (`work/2.1.72/package/cli.prettier.js`)
+Source: `cli.prettier.js` 2.1.76 (`work/2.1.76/package/cli.prettier.js`)
 
 ## Undocumented options
 

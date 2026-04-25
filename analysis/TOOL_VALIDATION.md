@@ -1,52 +1,54 @@
 # Tool Validation
 
+Source: `cli.prettier.js` 2.1.76 (`work/2.1.76/package/cli.prettier.js`)
+
 This document analyzes the validation system used by Claude Code tools, focusing on whether validations are per-tool or generic across all tools, with source line references from `package/cli.prettier.js`.
 
 ## Summary
 
-**Validation is TOOL-SPECIFIC, not generic.** Each tool implements its own `validateInput` function with custom validation logic and error codes. There is no shared validation system.
+Validation is TOOL-SPECIFIC, not generic. Each tool implements its own `validateInput` function with custom validation logic and error codes. There is no shared validation system.
 
 ## Validation Architecture
 
 ### Two-Tier Validation System
 
-1. **Schema Validation** (Generic)
+1. Schema Validation (Generic)
    - Uses Zod schema to validate input structure
    - Handled by tool execution framework in `XZ5` function
    - Validates parameter types, required fields, etc.
    - Fails fast if schema doesn't match
 
-2. **Input Validation** (Per-Tool)
+2. Input Validation (Per-Tool)
    - Custom `async validateInput()` function per tool
    - Tool-specific business logic validation
    - Returns `{result: boolean, message?: string, errorCode?: number}`
-   - **THIS IS WHERE HOOKS GET BLOCKED** in original implementation
+   - THIS IS WHERE HOOKS GET BLOCKED in original implementation
 
 ## Detailed Tool Analysis
 
 ### Read Tool Validation
 
-**Location:** Lines 382353-382399 in `package/cli.prettier.js`
+Location: Lines 382353-382399 in `package/cli.prettier.js`
 
-**Input Validation (Tool-Specific):**
+Input Validation (Tool-Specific):
 ```javascript
 [source fragment removed]
 ```
 
 ### Edit Tool Validation
 
-**Location:** Lines 393309-393416 in `package/cli.prettier.js`
+Location: Lines 393309-393416 in `package/cli.prettier.js`
 
-**Input Validation (Tool-Specific):**
+Input Validation (Tool-Specific):
 ```javascript
 [source fragment removed]
 ```
 
 ### Write Tool Validation
 
-**Location:** Lines 393972-393998 in `package/cli.prettier.js`
+Location: Lines 393972-393998 in `package/cli.prettier.js`
 
-**Input Validation (Tool-Specific):**
+Input Validation (Tool-Specific):
 ```javascript
 [source fragment removed]
 ```
@@ -55,7 +57,7 @@ This document analyzes the validation system used by Claude Code tools, focusing
 
 ### Read Tool Error Codes
 - `1`: File in ignored directory (Line 382361)
-- `2`: **File does not exist** ⭐ **PRIMARY TEST CASE** (Line 382370)
+- `2`: File does not exist -- PRIMARY TEST CASE (Line 382370)
 - `4`: Binary file not supported (Line 382378)
 - `5`: Empty image file (Line 382385)
 - `6`: File too large without pagination (Line 382396)
@@ -78,22 +80,22 @@ This document analyzes the validation system used by Claude Code tools, focusing
 
 ## Key Findings
 
-### 1. **No Shared Validation Framework**
+### 1. No Shared Validation Framework
 - Each tool implements its own `validateInput` function
 - Error codes are tool-specific, not standardized
 - Validation logic is entirely custom per tool
 
-### 2. **Validation Complexity Varies by Tool**
-- **Read Tool**: File system focused (existence, permissions, file type)
-- **Edit Tool**: Most complex (file state, string matching, conflict detection)
-- **Write Tool**: Simplest (mainly file state tracking)
+### 2. Validation Complexity Varies by Tool
+- Read Tool: File system focused (existence, permissions, file type)
+- Edit Tool: Most complex (file state, string matching, conflict detection)
+- Write Tool: Simplest (mainly file state tracking)
 
-### 3. **File State Management**
+### 3. File State Management
 - Edit and Write tools require files to be read first
 - They track file modification times to detect external changes
-- This creates a dependency chain: Read → Edit/Write
+- This creates a dependency chain: Read -> Edit/Write
 
-### 4. **Hook Blocking Points**
+### 4. Hook Blocking Points
 - Validation failures cause immediate returns in `XZ5` function
 - Original implementation: hooks never execute on validation failure
 - Enhanced implementation: hooks receive validation context first
@@ -104,9 +106,9 @@ This document analyzes the validation system used by Claude Code tools, focusing
 ```bash
 Read /tmp/this_file_definitely_does_not_exist.txt
 ```
-**Expected Results:**
-- **Before Enhancement**: Hook never fires, tool fails with "File does not exist." (Line 382370)
-- **After Enhancement**: Hook fires with validation context:
+Expected Results:
+- Before Enhancement: Hook never fires, tool fails with "File does not exist." (Line 382370)
+- After Enhancement: Hook fires with validation context:
   ```json
   {
     "tool_validation": {
@@ -122,32 +124,32 @@ Read /tmp/this_file_definitely_does_not_exist.txt
 
 ### Secondary Test Cases
 
-**Binary File (Read Tool):**
+Binary File (Read Tool):
 ```bash
 Read /usr/bin/ls
 ```
-- **Validation Failure**: Error Code 4, binary file not supported (Line 382378)
+- Validation Failure: Error Code 4, binary file not supported (Line 382378)
 
-**File in Ignored Directory (Read Tool):**
+File in Ignored Directory (Read Tool):
 ```bash
 Read node_modules/some-package/package.json
 ```
-- **Validation Failure**: Error Code 1, ignored directory (Line 382361)
+- Validation Failure: Error Code 1, ignored directory (Line 382361)
 
-**Edit Tool - File Not Read:**
+Edit Tool - File Not Read:
 ```bash
 Edit /some/file.txt old_text new_text
 ```
-- **Validation Failure**: Error Code 6, file not read yet (Line 393375)
+- Validation Failure: Error Code 6, file not read yet (Line 393375)
 
 ## Hook Enhancement Implementation
 
 Our enhanced PreToolUse hook implementation provides hooks with validation context for all these tool-specific validations, enabling sophisticated hook logic that can handle validation failures intelligently.
 
-**Key Changes Made:**
-- **lNA function** (Line 363564): Added `validationContext` parameter
-- **XZ5 function** (Line 419689): Create and pass validation context to hooks
-- **Validation flow**: Hooks execute before validation blocking
+Key Changes Made:
+- lNA function (Line 363564): Added `validationContext` parameter
+- XZ5 function (Line 419689): Create and pass validation context to hooks
+- Validation flow: Hooks execute before validation blocking
 
 This analysis confirms that our hook enhancement correctly addresses the core issue: validation failures were blocking hook execution entirely, preventing hooks from making informed decisions about tool usage based on the specific validation failures.
 
@@ -164,68 +166,68 @@ Based on comprehensive code analysis, Claude Code tools fall into two distinct c
 These tools spawn external processes and use Claude Code's custom `cN` (ShellError) class for structured error capture.
 
 #### 1. Bash Tool (Lines 384953-384997)
-**Process Execution Pattern:**
+Process Execution Pattern:
 ```javascript
 [source fragment removed]
 ```
 
-**Error Information Available:**
+Error Information Available:
 - `H.stdout`: Complete command output
 - `H.stderr`: Error messages from shell command
 - `H.code`: Process exit code (0 = success, non-zero = failure)
 - `H.interrupted`: Boolean indicating if process was killed/interrupted
 
 #### 2. Grep/Search Tool (Ripgrep)
-**Configuration** (Lines 348249-348269):
+Configuration (Lines 348249-348269):
 ```javascript
 [source fragment removed]
 ```
 
-**Process Spawning** (Lines 40911, 40916):
+Process Spawning (Lines 40911, 40916):
 ```javascript
 [source fragment removed]
 ```
 
-**Error Handling**: Uses same infrastructure as Bash tool, should throw `cN` (ShellError) on ripgrep failures.
+Error Handling: Uses same infrastructure as Bash tool, should throw `cN` (ShellError) on ripgrep failures.
 
-**Tool Description** (Lines 372740-372748):
+Tool Description (Lines 372740-372748):
 ```javascript
 [source fragment removed]
 ```
 
 #### 3. MCP Tools Pattern
-**Identification** (Line 419871): MCP tools are flagged in telemetry
+Identification (Line 419871): MCP tools are flagged in telemetry
 ```javascript
 [source fragment removed]
 ```
 
-**Recommended Pattern**: MCP tools should follow the same ShellError pattern when spawning processes:
+Recommended Pattern: MCP tools should follow the same ShellError pattern when spawning processes:
 ```javascript
 [source fragment removed]
 ```
 
 ### File-Based Tools
 
-These tools perform direct file system operations and **do not throw errors** during execution. They only have validation failures during `validateInput()` phase.
+These tools perform direct file system operations and do not throw errors during execution. They only have validation failures during `validateInput()` phase.
 
 #### Error Pattern Differences:
-- **Process Tools**: Throw `cN` (ShellError) with rich context → PostToolUse hooks can receive error details
-- **File Tools**: Return validation objects → No execution errors → PostToolUse hooks never fire on failures
+- Process Tools: Throw `cN` (ShellError) with rich context -> PostToolUse hooks can receive error details
+- File Tools: Return validation objects -> No execution errors -> PostToolUse hooks never fire on failures
 
-**Current Impact**: Only process-based tools can benefit from enhanced PostToolUse error handling.
+Current Impact: Only process-based tools can benefit from enhanced PostToolUse error handling.
 
 ## ShellError (`cN`) Class Implementation
 
-**Location**: Lines 341631-341644
+Location: Lines 341631-341644
 ```javascript
 [source fragment removed]
 ```
 
-**Design Purpose**:
-- **Custom Claude Code implementation** (not Node.js built-in)
-- **Structured error capture** - Node.js child_process only provides separate streams and events
-- **Single object** containing complete process execution context
-- **Hook-friendly** - all error information available in one place
+Design Purpose:
+- Custom Claude Code implementation (not Node.js built-in)
+- Structured error capture - Node.js child_process only provides separate streams and events
+- Single object containing complete process execution context
+- Hook-friendly - all error information available in one place
 
 ## Error Size and Safety Controls
 
@@ -234,11 +236,11 @@ These tools perform direct file system operations and **do not throw errors** du
 [source fragment removed]
 ```
 
-**Safety Features**:
-- **10KB limit** on error messages
-- **Intelligent truncation** preserves beginning and end of large errors
-- **Automatic formatting** handles different error types
-- **No memory issues** even with massive stderr output
+Safety Features:
+- 10KB limit on error messages
+- Intelligent truncation preserves beginning and end of large errors
+- Automatic formatting handles different error types
+- No memory issues even with massive stderr output
 
 ## PostToolUse Hook Enhancement Strategy
 
@@ -254,7 +256,7 @@ These tools perform direct file system operations and **do not throw errors** du
 
 ### Enhanced Hook Schema Examples
 
-**Successful jq tool:**
+Successful jq tool:
 ```json
 {
   "tool_response": {
@@ -268,7 +270,7 @@ These tools perform direct file system operations and **do not throw errors** du
 }
 ```
 
-**Failed jq tool:**
+Failed jq tool:
 ```json
 {
   "tool_response": null,
@@ -287,7 +289,7 @@ These tools perform direct file system operations and **do not throw errors** du
 }
 ```
 
-**Failed grep tool:**
+Failed grep tool:
 ```json
 {
   "tool_response": null,
@@ -306,7 +308,7 @@ These tools perform direct file system operations and **do not throw errors** du
 }
 ```
 
-**Failed Read tool (validation error):**
+Failed Read tool (validation error):
 ```json
 {
   "tool_response": null,
@@ -322,7 +324,7 @@ These tools perform direct file system operations and **do not throw errors** du
 }
 ```
 
-**Generic JavaScript error:**
+Generic JavaScript error:
 ```json
 {
   "tool_response": null,
@@ -340,11 +342,11 @@ These tools perform direct file system operations and **do not throw errors** du
 
 ## Implementation Benefits
 
-1. **✅ Complete Process Context**: Captures all stdout, stderr, exit codes from external commands
-2. **✅ Tool Agnostic**: Works for any tool that uses ShellError pattern (Bash, Grep, MCP tools)
-3. **✅ Size Safe**: Leverages existing 10KB limiting with intelligent truncation
-4. **✅ Backward Compatible**: Existing PostToolUse hooks continue working unchanged
-5. **✅ Structured Data**: Clean separation of core error info and tool-specific details
-6. **✅ Minimal Implementation**: Reuses all existing error handling infrastructure
+1. Complete Process Context: Captures all stdout, stderr, exit codes from external commands
+2. Tool Agnostic: Works for any tool that uses ShellError pattern (Bash, Grep, MCP tools)
+3. Size Safe: Leverages existing 10KB limiting with intelligent truncation
+4. Backward Compatible: Existing PostToolUse hooks continue working unchanged
+5. Structured Data: Clean separation of core error info and tool-specific details
+6. Minimal Implementation: Reuses all existing error handling infrastructure
 
 This enhancement enables PostToolUse hooks to receive rich error context from any process-based tool failure while maintaining all existing safety measures and compatibility.

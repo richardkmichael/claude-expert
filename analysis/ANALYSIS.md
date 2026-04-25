@@ -1,5 +1,7 @@
 # Analysis of package/cli.prettier.js
 
+Source: `cli.prettier.js` 2.1.76 (`work/2.1.76/package/cli.prettier.js`)
+
 ## Objectives
 
 ### Ultimate Goal: Runtime Debugging and Modification

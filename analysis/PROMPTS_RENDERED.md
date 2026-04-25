@@ -1,4 +1,6 @@
-# Claude Code 2.1.39 -- Rendered System Prompts
+# Claude Code -- Rendered System Prompts
+
+Source: `cli.prettier.js` 2.1.76 (`work/2.1.76/package/cli.prettier.js`)
 
 Two complete rendered prompts with all variables resolved to representative values.
 

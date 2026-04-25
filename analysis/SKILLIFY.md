@@ -1,6 +1,6 @@
-# Skillify: Disabled Skill-Creation Feature in Claude Code 2.1.69
+# Skillify: Disabled Skill-Creation Feature in Claude Code
 
-Source: `work/2.1.69/package/cli.prettier.js`
+Source: `cli.prettier.js` 2.1.76 (`work/2.1.76/package/cli.prettier.js`)
 
 
 ## Overview
