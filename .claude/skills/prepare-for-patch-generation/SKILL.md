@@ -16,6 +16,4 @@ Latest published version: !`npm view @anthropic-ai/claude-code version`
    - If the user specified a version number, use that
    - If the user said "latest" or similar, use the latest published version shown above
 
-2. Run the `bin/prepare-for-patch-generation.sh` script with the version:
-
-  `bin/prepare-for-patch-generation.sh <version>`
+2. Run: `${CLAUDE_SKILL_DIR}/bin/prepare-for-patch-generation.sh <version>`
