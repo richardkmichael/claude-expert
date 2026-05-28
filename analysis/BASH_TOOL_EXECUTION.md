@@ -1,6 +1,6 @@
 # Claude Code Bash Tool Execution Analysis
 
-For the Bash tool's `description` field -- the prompt text the model sees, including the Git Safety Protocol, commit instructions, and PR instructions -- see `PROMPTS.md` (section "Prompt Content in Tool Descriptions") and the full rendered text in `PROMPTS_RENDERED.md` (section "Bash Tool Description").
+For the Bash tool's `description` field -- the prompt text the model sees, including the Git Safety Protocol, commit instructions, and PR instructions -- see `PROMPTS.md` (section "Tool-description channel") and `GIT_USAGE.md`. The verbatim rendered text is in `PROMPTS_RENDERED.md` (sections "Bash tool — terse description", "Bash tool — legacy description", "Bash tool — # Git block", and "Git workflow — commit & PR").
 
 ## Executive Summary
 
