@@ -1,52 +1,125 @@
 # Claude Code Git Usage in System Prompts
 
-Source: `cli.prettier.js` 2.1.104 (`work/2.1.104/package/cli.prettier.js`)
+Source: `cli.prettier.js` 2.1.154 (`work/2.1.154/package/cli.prettier.js`)
 
 ## Key Finding
 
-The heavy git behavioral instructions -- the Git Safety Protocol, commit workflow, PR workflow, and attribution -- are carried by the Bash tool's `description` field, not the main system prompt. A shorter "For git commands:" block sits higher up in the same Bash description, and this shorter block is NOT affected by the disable-instructions switch.
+The git behavioral instructions are carried by the Bash tool's `description` field, not the main
+system prompt. The exact content depends on which Bash-description variant the running model
+receives, and that variant determines what survives the disable switch.
 
-This means git instructions are invisible if you only examine the system prompt text; they are embedded in the tool definition passed via the `tools` API parameter.
+This means git instructions are invisible if you only examine the system prompt text; they are
+embedded in the tool definition passed via the `tools` API parameter.
 
-## The Disable Switch -- `oR8()`
+### Change since 2.1.104
 
-Several of the fragments below are conditional on `oR8()` (line 255725). It reads an env var and a config key:
+Two things changed structurally:
+
+- The Bash tool description now has two variants, selected per-model by `Dz()` (the "simple
+  system prompt" decision). The terse variant `gU3()` is used for current models (Opus 4.8); the
+  legacy variant `tWK()` is used for older models (Sonnet, Haiku, Opus ≤ 4.7).
+- The git workflow text split into two functions: `UU3()` (the commit/PR workflow, formerly the
+  bulk of `Wr4()`) and a new `FU3()` "# Git" block. Both are gated by the disable switch.
+
+The behavioral consequence is the headline change: on the terse variant, the short three-rule git
+block no longer survives the disable switch. In 2.1.104 the "For git commands:" block lived in the
+ungated body of the Bash description and always survived. On Opus 4.8 that block is gone entirely;
+the only git content in its Bash description is the gated `FU3()` "# Git" section, so disabling the
+switch removes all git instructions from the Bash description. The legacy variant still carries an
+ungated "For git commands:" block (see section 5).
+
+## The Disable Switch -- `tD_()`
+
+The switch function was renamed from `oR8()` to `tD_()` (line 261058) but the logic is unchanged:
 
 ```js
 [source fragment removed]
 ```
 
-Each section below states explicitly whether its fragment is gated by this switch. When a section says "When `oR8()` returns false", that means one of:
+The truthy/falsy helpers were also renamed (`F6` -> `xH` at line 1901, `q_` -> `VK` at line 1907):
+
+```js
+[source fragment removed]
+```
+
+When a section below says "When `tD_()` returns false", that means one of:
 
 - `CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS` is set to a truthy value in the environment, OR
 - `includeGitInstructions: false` is set in the user config.
 
-## Where Git Appears in Prompt-Relevant Code
+## Bash Description Variant Selection -- `Dz()`
 
-### 1. Bash Tool Description -- `Dr4()` / `Wr4()`
-
-The Bash tool description function `Dr4()` (line 360267) builds the full tool description. It composes a main body and, at the end, optionally appends the output of `Wr4()` (line 360089):
+`Dz()` (defined at line 171072, called at line 520963) decides whether a model gets the terse
+"simple system prompt" Bash description `gU3()` or the legacy `tWK()`:
 
 ```js
 [source fragment removed]
 ```
 
-`Wr4()` contains three sections:
+`_45(H)` (line 171047) returns true for "legacy prompt" models: `claude-3-*`, any `haiku`, any
+`sonnet`, and `claude-opus-4-0/4-1/4-5/4-6/4-7`. It returns false for `claude-opus-4-8`. `H45(H)`
+(line 171028) is a client/feature-flag override (`simple_system_prompt`, `tengu_velvet_cascade`).
 
-- "Committing changes with git" -- step-by-step commit workflow with the Git Safety Protocol
-- "Creating pull requests" -- step-by-step PR workflow using `gh`
-- "Other common operations" -- one-liner for viewing PR comments
+The practical mapping for a default install:
 
-Full rendered text: see `PROMPTS_RENDERED.md`, section "Bash Tool Description".
-Analysis and source references: see `PROMPTS.md`, section "Prompt Content in Tool Descriptions".
+| Model                         | `Dz()` | Bash variant | Ungated git block?        |
+|-------------------------------|--------|--------------|---------------------------|
+| Opus 4.8                      | true   | `gU3()`      | No -- only gated `FU3()`  |
+| Sonnet / Haiku / Opus ≤ 4.7   | false  | `tWK()`      | Yes -- "For git commands" |
 
-When `oR8()` returns false: `Wr4()` returns an empty string at its first line, so nothing is appended. The Git Safety Protocol, commit workflow, PR workflow, and the `gh pr create` template are all removed from the model's view. The `Co-Authored-By:` trailer computation (via `GS6()` -- see "Commit Attribution" below) is unreachable.
+`CLAUDE_CODE_SIMPLE_SYSTEM_PROMPT` forces the choice either way.
 
-### 2. Git Status Context Injection -- `xU1()`
+## Where Git Appears in Prompt-Relevant Code
 
-At conversation start, the current git status is captured and injected into the first user message as a `<system-reminder>` block. This is informational context only -- it tells the model what branch it's on and what files are changed, but contains no behavioral instructions.
+### 1. Terse Bash Description -- `gU3()` and its "# Git" block `FU3()`
 
-`xU1()` is defined at line 255751 (cached via `$1(async () => { ... })`). It produces lines like:
+`gU3()` (line 520934) is the Bash description for current models. Its only git content is the
+output of `FU3()` (line 520909), appended at the end:
+
+```js
+[source fragment removed]
+```
+
+`FU3()` renders the "# Git" block:
+
+```
+# Git
+- Interactive flags (`-i`, e.g. `git rebase -i`, `git add -i`) are not supported in this environment.
+- Use the `gh` CLI for GitHub operations (PRs, issues, API).
+- Commit or push only when the user asks. If on the default branch, branch first.
+- End git commit messages with:
+  [commit attribution from CSH()]
+- End PR bodies with:
+  [PR attribution from CSH()]
+```
+
+When `tD_()` returns false: `FU3()` returns an empty string at its first line, so nothing is
+appended. On the terse variant this removes the entire git footprint from the Bash description --
+there is no other git content in `gU3()`. This is the behavioral change from 2.1.104.
+
+### 2. Legacy Bash Description -- `tWK()`, commit/PR workflow `UU3()`
+
+`tWK()` (line 520962) is the Bash description for older models. It builds a longer instruction list
+and appends the commit/PR workflow `UU3()` (line 520729, the rename of the old `Wr4()`):
+
+```js
+[source fragment removed]
+```
+
+`UU3()` contains the "Committing changes with git" workflow (with the full Git Safety Protocol),
+the "Creating pull requests" workflow, and "Other common operations".
+
+When `tD_()` returns false: `UU3()` returns an empty string at its first line, so the workflow and
+Git Safety Protocol are removed. The short "For git commands:" block (section 5) still survives on
+this variant.
+
+### 3. Git Status Context Injection -- `oZ8()`
+
+At conversation start the current git status is captured and injected into the first user message
+as a `<system-reminder>` block. This is informational context only -- branch, changed files,
+recent commits -- with no behavioral instructions.
+
+`oZ8()` (defined at line 261089) produces:
 
 ```
 gitStatus: This is the git status at the start of the conversation. Note that this status is a snapshot in time, and will not update during the conversation.
@@ -63,143 +136,231 @@ Recent commits:
 [git log --oneline -n 5]
 ```
 
-The invocation that gates the injection is at line 255823:
+The injection gate is at line 261168:
 
 ```js
 [source fragment removed]
 ```
 
-When `oR8()` returns false: `xU1()` is not called and no `gitStatus:` block appears in the first user message. Also skipped for remote sessions when `CLAUDE_CODE_REMOTE` is set. When included, truncated at 40k characters.
+When `tD_()` returns false: `oZ8()` is not called and no `gitStatus:` block appears. Also skipped
+for remote sessions when `CLAUDE_CODE_REMOTE` is set. When included, the git status portion is now
+truncated at 2,000 characters (`rZ8 = 2000`, line 261069) rather than the previous 40k.
 
-See `PROMPTS.md`, section "Context Injection" and `PROMPTS_RENDERED.md`, section "Context Injection".
+### 4. Plan / Explore Subagent Restrictions
 
-### 3. Plan Mode Agent Restrictions
-
-Agents spawned with restricted Bash use (Explore agent `f6z()` at line 248970, Plan agent `v6z()` at line 249061) receive system prompts that enumerate safe vs forbidden Bash commands. Lines 249001-249002 (Explore) and 249088-249089 (Plan) are nearly identical:
+The Explore agent (`pI5()`) and Plan agent (`gI5()`) system prompts enumerate safe vs forbidden
+Bash commands. Lines 278404-278405 (and the Plan equivalent at 278504-278505):
 
 ```
-- Use Bash ONLY for read-only operations (ls, git status, git log, git diff, find, cat, head, tail)
+- Use Bash ONLY for read-only operations (ls, git status, git log, git diff, find, grep, cat, head, tail)
 - NEVER use Bash for: mkdir, touch, rm, cp, mv, git add, git commit, npm install, pip install, or any file creation/modification
 ```
 
-These are in the subagent system prompts, not the main system prompt.
+These are in the subagent system prompts, not the main system prompt, and not the Bash tool
+description. They are guardrails layered on top of a normal Bash tool: both agents keep Bash
+(`disallowedTools` -- line 278438 / 278544 -- strip Agent, ExitPlanMode, Edit, Write, NotebookEdit,
+but not Bash), so each still receives a full Bash description through the `tWK`/`gU3` path keyed on
+its own model. Explore is pinned to `haiku` (line 278441), so it lands on legacy `tWK()` and its
+Bash description carries the ungated "For git commands:" block plus, when the switch is on, the
+full `UU3()` commit/PR workflow -- even though this system prompt simultaneously forbids `git
+commit`. Plan uses `model: "inherit"` (line 278548), so it follows the parent's model.
 
-When `oR8()` returns false: no effect. The subagent prompts are independent of `oR8()` and still mention these git commands as examples.
+When `tD_()` returns false: no effect on these system prompts. They are independent of `tD_()` and
+still mention these git commands as examples.
 
-### 4. Bash Tool Description -- Inline Git Example
+### 5. Legacy Bash Description -- "For git commands:" Short Block
 
-Inside `Dr4()` at line 360285, as part of the multi-command guidance (array `z`, rendered under a "When issuing multiple commands:" header):
-
-```
-If the commands are independent and can run in parallel, make multiple Bash tool calls in a single message. Example: if you need to run "git status" and "git diff", send a single message with two Bash tool calls in parallel.
-```
-
-This is about command chaining patterns, not git-specific behavior.
-
-When `oR8()` returns false: no effect. This line is in the main body of `Dr4()`, which is not gated.
-
-### 5. Bash Tool Description -- "For git commands:" Short Block
-
-Inside `Dr4()` at lines 360290-360293, array `Y`, rendered under the header `"For git commands:"` at line 360327. The bullets are defined as:
+Inside `tWK()` at lines 520991-520995, array `$`, rendered under the header `"For git commands:"`
+at line 521024:
 
 ```js
 [source fragment removed]
 ```
 
-Four lines total once rendered: the header plus three bullets.
+When `tD_()` returns false: no effect on the legacy variant -- this block sits in the ungated body
+of `tWK()`, above the `UU3()` append point. It is the primary piece of git guidance an older-model
+session retains when the switch is set.
 
-When `oR8()` returns false: no effect. This block is in the main body of `Dr4()`, above the `Wr4()` append point, and is not gated. It is the primary piece of git guidance the model retains when the disable switch is set -- three rules (prefer new commits, avoid destructive ops, don't bypass hooks) survive even with the large workflow block removed.
+This block does NOT exist in the terse variant `gU3()`. On Opus 4.8 these three rules are not
+present at all when the switch is set (and the differently-worded `FU3()` block is gone too).
 
-### 6. PowerShell Tool Description -- Git References
+`tWK()` also carries an ungated inline example at line 520985 ("if you need to run `git status` and
+`git diff`, send a single message with two Bash tool calls in parallel") -- a command-chaining
+pattern, not git-specific behavior.
 
-On Windows, the Bash-equivalent tool description is built by `vc4()` at line 346923. It mirrors the short "For git commands:" block at lines 347000-347003 and additionally contains PowerShell-specific git examples:
+### 6. PowerShell Tool Description -- `MDK()`
 
-- Line 346957: prohibition on `git rebase -i`, `git add -i` (interactive editors).
-- Lines 346962-346966: here-string commit-message example (`git commit -m @'...'@`).
-- Line 346968: stop-parsing-token example (`git log --% --format=%H`).
+On Windows the Bash-equivalent tool description is built by `MDK()` (line 498514). It contains git
+references inline:
 
-When `oR8()` returns false: no effect. `vc4()` is not gated, so Windows users retain both the "For git commands:" mirror and the PowerShell-specific examples even with the switch set. (The bigger `Wr4()` commit/PR workflow text does not have a PowerShell counterpart -- Windows users never receive it.)
+- Line 498563: prohibition on `git rebase -i`, `git add -i` (interactive editors).
+- Lines 498565-498574: single-quoted here-string commit-message example and the stop-parsing
+  token (`git log --% --format=%H`).
+- Lines 498606-498609: a "For git commands:" block mirroring the three rules from section 5.
+
+When `tD_()` returns false: no effect. `MDK()`'s git content is hardcoded into the template
+literal; its only conditional inputs (`AI3()`, `wI3()`) are background-task notes gated by
+`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS`, not `tD_()`. Windows users retain the short git block and
+the PowerShell-specific examples even with the switch set. `MDK()` never includes the full
+commit/PR workflow.
 
 ### 7. Sandbox / Deny-Rules Prompt
 
-The sandbox prompt and user-deny rules (around line 363018) classify `git add && git commit` / `git push` as analogous to code execution for risk analysis, and list `git push --force` and remote branch deletion under "Git Destructive".
+The user soft-deny rules (line 325888) list "Git Destructive" (force push, deleting remote
+branches, rewriting remote history) and "Git Push to Default Branch" under destructive/irreversible
+operations.
 
-When `oR8()` returns false: no effect. The sandbox prompt is not gated.
+When `tD_()` returns false: no effect. The deny-rules prompt is not gated.
 
 ### 8. Auto-Memory Prompt
 
-The auto-memory system prompt (lines 478122, 478147) tells the model that `git log` / `git blame` are authoritative for history and recent changes -- part of the "what NOT to save in memory" guidance.
+The auto-memory system prompt (line 171569, under "What NOT to save in memory") tells the model
+that `git log` / `git blame` are authoritative for history and recent changes.
 
-When `oR8()` returns false: no effect. The auto-memory prompt is not gated.
+When `tD_()` returns false: no effect. The auto-memory prompt is not gated.
 
-## Git Safety Protocol (inside `Wr4()`)
+### 9. Slash-Command Prompts (on-demand only)
 
-The full protocol, from `Wr4()` starting at line 360098:
+Built-in commit/PR slash commands embed their own "## Git Safety Protocol" -- e.g. `_n3()` at line
+542380 (with `!`git status``/`!`git diff HEAD`` command substitution) and a second at line 543641.
+These call `CSH()` directly and are not gated by `tD_()`, but they are only injected when the user
+invokes the command, not part of the always-on context.
+
+## Git Safety Protocol (inside `UU3()`)
+
+The full protocol, rendered by `UU3()` starting at line 520740:
 
 - NEVER update the git config
-- NEVER run destructive git commands (push --force, reset --hard, checkout ., restore ., clean -f, branch -D) unless the user explicitly requests
+- NEVER run destructive git commands (push --force, reset --hard, checkout ., restore ., clean -f,
+  branch -D) unless the user explicitly requests
 - NEVER skip hooks (--no-verify, --no-gpg-sign, etc) unless the user explicitly requests
 - NEVER run force push to main/master, warn the user if they request it
-- CRITICAL: Always create NEW commits rather than amending, unless explicitly requested. Pre-commit hook failure means the commit didn't happen, so --amend would modify the wrong commit
+- CRITICAL: Always create NEW commits rather than amending, unless explicitly requested. Pre-commit
+  hook failure means the commit didn't happen, so --amend would modify the wrong commit
 - When staging files, prefer specific files by name rather than "git add -A" or "git add ."
 - NEVER commit changes unless the user explicitly asks
 
-When `oR8()` returns false: the entire protocol disappears along with the rest of `Wr4()` (section 1). The short block in section 5 still survives and covers destructive ops, hook-skipping, and amend-vs-new-commit in condensed form.
+When `tD_()` returns false: the entire protocol disappears along with the rest of `UU3()`. On the
+legacy variant the short block in section 5 still covers destructive ops, hook-skipping, and
+amend-vs-new-commit in condensed form. On the terse variant nothing survives.
 
-## Commit Attribution
+## Commit Attribution -- `CSH()`
 
-The commit and PR attribution text is generated by `GS6()` (line 359283), called from within `Wr4()`. The attribution is surface-dependent and configurable.
+Attribution text is generated by `CSH()` (line 520558, the rename of the old `GS6()`), called from
+both `UU3()` and `FU3()`. It is surface-dependent and configurable.
 
 ### Default (CLI and most surfaces)
 
-Commit: `Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>`
+Commit: `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`
 PR footer: `[robot emoji] Generated with [Claude Code](https://claude.com/claude-code)`
 
-The model name in the commit trailer is resolved dynamically in `GS6()`:
-
-- `uK()` (line 118870) returns the current model ID
-- `N76()` (line 118957) maps model IDs to display names (e.g., "Opus 4.6", "Sonnet 4.5", "Haiku 4.5")
-- `Vf1()` (line 118991) prefixes with "Claude " to produce e.g. "Claude Opus 4.6"
-- If working in an internal Anthropic repo (`BI4()` at line 309705, which checks an `X68` variable populated by the internal-repo detection), `GS6()` uses the actual model name via `Vf1(uK())`
-- Otherwise `GS6()` falls back to the literal `"Claude Opus 4.6"` (line 359297)
+The model name in the commit trailer is resolved dynamically: inside an internal Anthropic repo
+(`GAH()`) the actual model name is used via `n78()`; otherwise `CSH()` falls back to the literal
+`"Claude Opus 4.8"` (line 520571).
 
 ### Remote sessions (claude.ai/code)
 
-If `CLAUDE_CODE_REMOTE_SESSION_ID` and `SESSION_INGRESS_URL` are available (and not localhost), `GS6()` uses a session URL for both commit and PR attribution: `https://[ingress]/code/[session_id]` (lines 359284-359293).
-
-If no session URL is available: empty strings (no attribution).
+If `CLAUDE_CODE_REMOTE_SESSION_ID` and `SESSION_INGRESS_URL` are available (and not localhost),
+`CSH()` uses a session URL for both commit and PR attribution (lines 520559-520568). If no session
+URL is available: empty strings (no attribution).
 
 ### User configuration overrides
 
-Inside `GS6()` at lines 359300-359303:
+Inside `CSH()` at lines 520575-520577:
 
 - `config.attribution.commit` -- custom commit trailer string
 - `config.attribution.pr` -- custom PR footer string
 - `config.includeCoAuthoredBy === false` -- disables all attribution
 
-When `oR8()` returns false: `GS6()` is unreachable from the Bash tool description path because its only caller is `Wr4()`, which returns empty. Attribution trailers are neither computed nor shown in the prompt.
+When `tD_()` returns false: `CSH()` is unreachable from the Bash description path because its only
+callers there (`UU3()`, `FU3()`) return empty. Attribution trailers are neither computed nor shown.
+
+## What Remains When Git Instructions Are Disabled
+
+With `CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=true` (or `includeGitInstructions: false`), the gated
+content -- the commit/PR workflow `UU3()`, the "# Git" block `FU3()`, and the `gitStatus:`
+injection -- is removed. What the model still sees depends on the surface:
+
+| Source                                  | Gated by `tD_()`? | Present when disabled?                |
+|-----------------------------------------|-------------------|---------------------------------------|
+| Terse Bash `gU3()` (Opus 4.8)           | yes (`FU3()`)     | No git content at all                 |
+| Legacy Bash `tWK()` commit/PR workflow  | yes (`UU3()`)     | Removed                               |
+| Legacy Bash "For git commands:" block   | no                | Yes (older models only)               |
+| Legacy Bash inline parallel example     | no                | Yes (older models only)               |
+| `gitStatus:` context injection          | yes               | Removed                               |
+| Plan / Explore subagent restrictions    | no                | Yes (git command names as examples)   |
+| PowerShell tool `MDK()` git block       | no                | Yes (Windows)                         |
+| Sandbox / deny-rules ("Git Destructive")| no                | Yes                                   |
+| Auto-memory ("git log / git blame")     | no                | Yes                                   |
+| Commit/PR slash-command prompts         | no                | Only when the command is invoked      |
+
+The headline: on a current-model session (Opus 4.8, terse `gU3()`), setting the switch removes
+every git instruction from the Bash tool description -- including the three short rules that
+survived in 2.1.104. The git guidance that persists lives elsewhere: subagent prompts, the Windows
+PowerShell tool, the sandbox deny-rules, the auto-memory prompt, and on-demand slash commands. On
+an older-model session (legacy `tWK()`), the three-rule "For git commands:" block additionally
+survives in the Bash description.
+
+## Subagents and the Model Axis
+
+The disable switch and the variant selection are independent axes. `tD_()` is keyed on an env
+var / config; `Dz()` is keyed on the model that renders the request. A subagent runs its own
+request loop on its own model, so a subagent can land on a different Bash variant than the main
+session -- and therefore on different git instructions.
+
+The Bash description is rendered per-request and keyed on the request's model: `PG6(tool, {...,
+model: T.model})` (line 663284) -> `yXO()` -> `tool.prompt({model})` -> `tWK(model)` (line 521673)
+-> `if (Dz(model)) return gU3()` (line 520963). A subagent's effective model is resolved by `io()`
+(line 324566) in precedence order: `CLAUDE_CODE_SUBAGENT_MODEL` env var, then the agent's
+frontmatter `model`, then inherit-from-parent.
+
+The consequence: a subagent whose frontmatter pins a non-Opus-4.8 model (Sonnet, Haiku, Opus ≤ 4.7)
+and which includes the Bash tool receives the legacy `tWK()` variant. That variant carries the
+three-rule "For git commands:" block in its ungated body, so the subagent loads that block even
+when `CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=true` would have stripped git entirely from an Opus 4.8
+subagent.
+
+| Subagent model        | Switch | Git in subagent Bash description                          |
+|-----------------------|--------|-----------------------------------------------------------|
+| Opus 4.8              | on     | None                                                      |
+| Opus 4.8              | off    | Full `UU3()` workflow + Safety Protocol + `FU3()` block   |
+| Sonnet / Haiku / ≤4.7 | on     | "For git commands:" three-rule block only                 |
+| Sonnet / Haiku / ≤4.7 | off    | "For git commands:" block + full `UU3()` workflow         |
+
+Two caveats. This applies only if the subagent actually has the Bash tool. The built-in
+Explore/Plan agents do have it (their `disallowedTools` strip Edit/Write/Task but not Bash), so
+they go through the same `tWK`/`gU3` path -- Explore on its pinned `haiku` model lands on legacy
+`tWK()` and so carries the ungated "For git commands:" block. Their read-only behavior comes from
+the system prompt (section 4), not from a trimmed Bash description. And the `gitStatus:` injection
+(section 3) is part of the main session's first user message -- gated by `tD_()` and
+model-independent -- so it does not factor into the subagent Bash description.
 
 ## Implications
 
 ### For reproducing the system prompt
 
-The git instructions are only available if you include a Bash tool with the `Wr4()` content (and the short "For git commands:" block from `Dr4()`) in its description. If you're reproducing the Claude Code experience outside of it (e.g., using the Anthropic API directly), you need to either:
-
-1. Embed the git instructions in your Bash tool description (matching how Claude Code does it), or
-2. Move them into your system prompt text (which Claude Code does not do)
+The git instructions are only available if you include a Bash tool whose description carries the
+`UU3()`/`FU3()` content (and, on the legacy variant, the short "For git commands:" block) in its
+description. Reproducing the Claude Code experience via the Anthropic API directly requires either
+embedding the git instructions in your Bash tool description, or moving them into your system
+prompt text (which Claude Code does not do).
 
 ### For subagents
 
-Subagents spawned via the Task tool do not receive the Bash tool with the full `Wr4()` content; they get a more restricted system prompt (section 3). The main agent's git instructions explicitly prohibit using TodoWrite or Task tools during commit and PR operations: "NEVER use the TodoWrite or Task tools". This prevents the main agent from delegating git operations to subagents.
+Subagents that include the Bash tool receive a full Bash description on the variant selected by
+their own model -- see "Subagents and the Model Axis". The restriction on the built-in Explore/Plan
+agents is not a trimmed Bash description: they keep Bash and only strip Edit/Write/Task via
+`disallowedTools`, then add read-only language in their system prompt (section 4). The git workflow
+text can therefore appear in their Bash description even though their system prompt forbids
+mutations. The main agent's git instructions separately prohibit delegating commit and PR
+operations to subagents.
 
 ### Entanglement
 
-The Bash tool description is a single dynamically-generated string. The git sections (`Wr4()`) are concatenated to the end of the core Bash usage instructions (`Dr4()`), gated by `oR8()`. The commit attribution (`GS6()`) is computed inside `Wr4()`, making the description vary based on:
+The Bash tool description is a single dynamically-generated string whose git content varies by:
 
-- Current model ID (affects Co-Authored-By name)
+- Model ID (selects `gU3()` vs `tWK()` via `Dz()`; also affects the Co-Authored-By name)
 - Execution surface (`remote` vs others -- affects attribution format)
 - Whether the repo is an internal Anthropic repo (affects model name resolution)
-- User config (`attribution`, `includeCoAuthoredBy`, `includeGitInstructions` settings)
-- `CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS` env var
-
-There is no mechanism to include the full workflow git instructions without the Bash tool, or to include the Bash tool without the short "For git commands:" block.
+- User config (`attribution`, `includeCoAuthoredBy`, `includeGitInstructions`)
+- `CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS` and `CLAUDE_CODE_SIMPLE_SYSTEM_PROMPT` env vars
