@@ -3,9 +3,10 @@
 How to document findings from exploring the Claude Code bundle so the docs survive version bumps
 without constant rewriting.
 
-Status: trial. These guidelines currently govern the prompt-related documents only — `PROMPTS.md`,
-`PROMPTS_RENDERED.md`, and `GIT_USAGE.md`. If the approach holds up across a few releases, adopt it
-for the rest of `analysis/`.
+Status: trial, expanding. These guidelines govern the prompt-related documents — `PROMPTS.md`,
+`PROMPTS_RENDERED.md`, `GIT_USAGE.md` — and now also `BASH_TOOL_EXECUTION.md`, `FILE_INCLUSION.md`,
+and `TOOL_VALIDATION.md`. If the approach keeps holding up across releases, adopt it for the rest of
+`analysis/`.
 
 ## The problem
 
