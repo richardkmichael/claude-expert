@@ -1,9 +1,11 @@
 # Markdown Front-matter: Parsing, Schema, and Validation
 
-Source: `cli.prettier.js` 2.1.76 (`work/2.1.76/package/cli.prettier.js`)
+Source: `cli.prettier.js` 2.1.143 (`work/2.1.143/package/cli.prettier.js`)
 
 This document is intended to serve as a specification for formatter and linter tooling targeting
-Claude Code's Markdown configuration files.
+Claude Code's Markdown configuration files.  A machine-readable JSON Schema derived from this
+specification lives at [`schemas/claude-code-frontmatter.schema.json`](./schemas/claude-code-frontmatter.schema.json);
+see [`schemas/README.md`](./schemas/README.md) for editor and CI wiring.
 
 ---
 
@@ -26,7 +28,7 @@ Each type has a distinct set of valid frontmatter keys, types, and constraints.
 
 ### Detection
 
-Front-matter is detected by the regex at line 169170:
+Front-matter is detected by the regex at line 169192:
 
 ```
 /^---\s*\n([\s\S]*?)---\s*\n?/
@@ -36,28 +38,37 @@ The opening `---` must be on the very first line of the file.  Trailing whitespa
 delimiter is allowed.  The returned `content` is the file body with the delimiter block removed.
 If no front-matter block is found, `frontmatter` is `{}` and `content` is the full file.
 
-### Two-stage YAML parsing (`IJ`, line 169169)
+### Two-stage YAML parsing (`eY`, line 169079)
 
-Stage 1: parse the YAML block directly using the `yaml` npm package (Eemeli Aro).
+Stage 1: parse the YAML block directly with `Bun.YAML.parse()`.
 
-Stage 2 (fallback): if stage 1 throws, run the block through the sanitizer `Ai5` then retry.
+Stage 2 (fallback): if stage 1 throws, run the block through the sanitizer `BC1` then retry.
 If stage 2 also throws, emit a `warn`-level log entry and return `frontmatter: {}`.
 
-The sanitizer `Ai5` (line 169139) processes the block line by line.  For any line matching
-`key: value` where the value is not already quoted and contains any character in
-`/[{}[\]*&#!|>%@`]/`, it wraps the value in double-quotes after escaping `\` and `"`.  All
-other lines pass through unchanged.
+The sanitizer `BC1` (line 169049) processes the block line by line.  For any line matching
+`key: value` where the value is not already quoted and matches the regex
+`pC1 = /[{}[\]*&#!|>%@`]|: /`, it wraps the value in double-quotes after escaping `\` and `"`.
+The trigger covers both a list of YAML-significant characters (`{}[]*&#!|>%@``) and the
+two-character sequence `: ` (a bare value containing a colon-space would otherwise be
+mis-parsed as a nested mapping).  All other lines pass through unchanged.
 
 Linter implication: files that only parse because of the sanitizer should be flagged.  They
 contain bare values with YAML special characters that would fail any standards-compliant YAML
 parser.
 
-### Runtime dispatch (`J28`, line 169132)
+### Runtime dispatch (`KzH`, line 169039)
 
-On Bun: uses `Bun.YAML.parse()`.
-On Node: uses `yaml.parse()` from the bundled `yaml` package.
+Always uses `Bun.YAML.parse()`.  Starting with 2.1.117, `cli.prettier.js` is extracted from a
+bun-compiled native binary, so the Node-side `yaml` package fallback that existed in earlier
+versions is no longer present.
 
-Both implement YAML 1.2.  No practical difference for front-matter content.
+### Strict schema shadow-check (`HGH`, line 236338)
+
+After parsing, agent, skill, and output-style frontmatter is run through a Zod strict-mode
+schema (`Qe1[type]()`).  Unknown keys and type mismatches do not block loading — they only
+emit telemetry events (`tengu_frontmatter_shadow_unknown_key`, `tengu_frontmatter_shadow_mismatch`).
+The runtime parsers above remain authoritative.  Linters should treat any shadow-check failure
+as an error.
 
 ---
 
@@ -69,7 +80,7 @@ front-matter) is the agent's system prompt; there is no `prompt` key in the fron
 The `name` field becomes the agent's identifier (`agentType`); the filename (without `.md`) is
 stored separately as `filename` but not used as the identifier.
 
-Validation function: `j7Y` (line 292449).
+Validation function: `s87` (line 274909).  The strict-mode shadow schema is `Fe1` (line 236477).
 
 ### Required fields
 
@@ -102,8 +113,8 @@ Literal `\n` escape sequences in the value are expanded to real newlines before 
 | Property      | Value                                                                       |
 | ------------- | --------------------------------------------------------------------------- |
 | Type          | string                                                                      |
-| Valid values  | `sonnet`, `opus`, `haiku`, `best`, `sonnet[1m]`, `opus[1m]`, `opusplan`, `inherit` |
-| On invalid    | warn logged, field silently ignored (agent loads without model override)    |
+| Valid values  | `sonnet`, `opus`, `haiku`, `best`, `sonnet[1m]`, `opus[1m]`, `opusplan`, `inherit`, or a full model ID string |
+| On invalid    | passed through to the model resolver; no warn at load time                  |
 
 `inherit` causes the agent to use the same model as the calling session.
 `best` resolves to the most capable available model.
@@ -112,33 +123,22 @@ The `[1m]` suffix requests a 1M-token context window variant.
 
 #### `effort`
 
-| Property     | Value                                            |
-| ------------ | ------------------------------------------------ |
-| Type         | string or integer                                |
-| Valid values | `low`, `medium`, `high`, `max`, or any integer   |
-| On invalid   | warn logged, field ignored                       |
+| Property     | Value                                                    |
+| ------------ | -------------------------------------------------------- |
+| Type         | string or integer                                        |
+| Valid values | `low`, `medium`, `high`, `xhigh`, `max`, or any integer  |
+| On invalid   | warn logged, field ignored                               |
 
 Controls the thinking budget.  Named values map to preset budgets.  An integer is used directly
 as the budget token count.
 
 #### `permissionMode`
 
-| Property     | Value                                                               |
-| ------------ | ------------------------------------------------------------------- |
-| Type         | string                                                              |
-| Valid values | `acceptEdits`, `bypassPermissions`, `default`, `dontAsk`, `plan`   |
-| On invalid   | warn logged, field ignored                                          |
-
-#### `forkContext`
-
-| Property     | Value                                                        |
-| ------------ | ------------------------------------------------------------ |
-| Type         | boolean or string                                            |
-| Valid values | `true`, `false`, `"true"`, `"false"`                         |
-| On invalid   | warn logged, treated as falsy                                |
-
-When `true`, the agent receives the current session's conversation context.  If `true` and
-`model` is not `inherit`, Claude Code overrides `model` to `inherit` with a warning.
+| Property     | Value                                                                       |
+| ------------ | --------------------------------------------------------------------------- |
+| Type         | string                                                                      |
+| Valid values | `acceptEdits`, `auto`, `bypassPermissions`, `default`, `dontAsk`, `plan`   |
+| On invalid   | warn logged, field ignored                                                  |
 
 #### `background`
 
@@ -180,6 +180,16 @@ When `worktree`, the agent runs in an isolated git worktree.
 | On invalid   | warn logged, field ignored          |
 
 Limits the number of API round-trips the agent can make.
+
+#### `initialPrompt`
+
+| Property | Value  |
+| -------- | ------ |
+| Type     | string |
+
+Auto-submitted first message when this agent runs as the main session (via `--agent` or
+settings).  Not read when the agent is spawned as a subagent.  Empty or whitespace-only values
+are ignored.
 
 #### `color`
 
@@ -232,15 +242,17 @@ Each item is either:
 
   | type          | Required fields         | Optional fields                                |
   | ------------- | ----------------------- | ---------------------------------------------- |
-  | `stdio`       | `command` (string)      | `args` (string[]), `env` (Record<str,str>)     |
-  | `sse`         | `url` (string)          | `headers`, `headersHelper`, `oauth`            |
-  | `sse-ide`     | `url`, `ideName`        | `ideRunningInWindows` (bool)                   |
-  | `ws-ide`      | `url`, `ideName`        | `authToken`, `ideRunningInWindows`             |
-  | `http`        | `url` (string)          | `headers`, `headersHelper`, `oauth`            |
-  | `ws`          | `url` (string)          | `headers`, `headersHelper`                     |
-  | `sdk`         | `name` (string)         |                                                |
-  | `claudeai-proxy` | `url`, `id`          |                                                |
+  | `stdio`       | `command` (string)      | `args` (string[]), `env` (Record<str,str>), `alwaysLoad`, `role` |
+  | `sse`         | `url` (string)          | `headers`, `headersHelper`, `oauth`, `alwaysLoad`, `role` |
+  | `sse-ide`     | `url`, `ideName`        | `ideRunningInWindows` (bool), `alwaysLoad`, `role` |
+  | `ws-ide`      | `url`, `ideName`        | `authToken`, `ideRunningInWindows`, `alwaysLoad`, `role` |
+  | `http`        | `url` (string)          | `headers`, `headersHelper`, `oauth`, `alwaysLoad`, `role` |
+  | `ws`          | `url` (string)          | `headers`, `headersHelper`, `alwaysLoad`, `role` |
+  | `sdk`         | `name` (string)         | `alwaysLoad`                                   |
+  | `claudeai-proxy` | `url`, `id`          | `alwaysLoad`, `toolPermissions`                |
 
+  The `http` discriminant also accepts `streamable-http`, which is normalised to `http`.
+  `role` (optional) accepts a single literal value: `comms`.
   Invalid items produce a warn log and are dropped; remaining items are kept.
 
 #### `hooks`
@@ -261,20 +273,27 @@ hooks:
       hooks:
         - type: command
           command: "shell command"
-          timeout: 30           # optional, positive number (seconds)
-          statusMessage: "..."  # optional string
-          once: false           # optional bool; if true, runs once then removed
-          async: false          # optional bool; if true, runs non-blocking
+          args: ["--flag", "value"]  # optional; when present, command runs without a shell
+          if: "Bash(git *)"          # optional permission-rule filter
+          shell: bash                # optional: bash | powershell (default bash)
+          timeout: 30                # optional, positive number (seconds)
+          statusMessage: "..."       # optional string
+          once: false                # optional bool; runs once then removed
+          async: false               # optional bool; runs non-blocking
+          asyncRewake: false         # optional bool; async + wake model on exit 2
 
         - type: prompt
           prompt: "LLM prompt text"
+          if: "Bash(git *)"          # optional permission-rule filter
           timeout: 30
           model: "claude-haiku-4-5"  # optional, any model string
+          continueOnBlock: false     # optional bool; sets continue value on decision:"block"
           statusMessage: "..."
           once: false
 
         - type: http
           url: "https://example.com/webhook"
+          if: "Bash(git *)"          # optional permission-rule filter
           timeout: 30
           headers:                   # optional Record<string, string>
             Authorization: "Bearer $TOKEN"
@@ -284,8 +303,19 @@ hooks:
 
         - type: agent
           prompt: "Verify that unit tests ran and passed."
+          if: "Bash(git *)"          # optional permission-rule filter
           timeout: 60
           model: "claude-sonnet-4-6"  # optional
+          statusMessage: "..."
+          once: false
+
+        - type: mcp_tool
+          server: "my-server"        # name of a configured MCP server
+          tool: "verify"             # tool name on that server
+          input:                     # optional; string values support ${path} interpolation
+            file_path: "${tool_input.file_path}"
+          if: "Bash(git *)"          # optional permission-rule filter
+          timeout: 30
           statusMessage: "..."
           once: false
 ```
@@ -293,11 +323,14 @@ hooks:
 Valid event names:
 
 ```
-PreToolUse         PostToolUse       PostToolUseFailure   Notification
-UserPromptSubmit   SessionStart      SessionEnd           Stop
-SubagentStart      SubagentStop      PreCompact           PermissionRequest
-Setup              TeammateIdle      TaskCompleted        ConfigChange
-WorktreeCreate     WorktreeRemove
+PreToolUse         PostToolUse        PostToolUseFailure   PostToolBatch
+Notification       UserPromptSubmit   UserPromptExpansion  SessionStart
+SessionEnd         Stop               StopFailure          SubagentStart
+SubagentStop       PreCompact         PostCompact          PermissionRequest
+PermissionDenied   Setup              TeammateIdle         TaskCreated
+TaskCompleted      Elicitation        ElicitationResult    ConfigChange
+WorktreeCreate     WorktreeRemove     InstructionsLoaded   CwdChanged
+FileChanged
 ```
 
 ---
@@ -308,7 +341,8 @@ The skill's identifier (`skillName`) is taken from the containing directory name
 any front-matter field.  All front-matter fields are optional.  There is almost no validation;
 most bad values are silently coerced or ignored, with the sole exception of `hooks`.
 
-Skill loading function: `TF6` (line 273021).
+Skill loading function: `hrH` (line 483164), which calls helper `LE8` (line 483009).  Strict
+shadow schema is `ZT8` (line 236420).
 
 #### `name`
 
@@ -379,15 +413,62 @@ apply the same enum check as for agents.
 
 Valid aliases: same as agent `model` field (see above), plus any full model ID string.
 
+#### `effort`
+
+| Property     | Value                                                    |
+| ------------ | -------------------------------------------------------- |
+| Type         | string or integer                                        |
+| Valid values | `low`, `medium`, `high`, `xhigh`, `max`, or any integer  |
+| On invalid   | warn logged, field ignored                               |
+
+Thinking budget override for skill execution.  Same semantics as the agent `effort` field.
+
+#### `shell`
+
+| Property     | Value                              |
+| ------------ | ---------------------------------- |
+| Type         | string                             |
+| Valid values | `bash`, `powershell`               |
+| On invalid   | warn logged, falls back to `bash`  |
+
+Shell interpreter for `!`-prefixed command blocks in the skill body.  Defaults to `bash`
+regardless of platform.
+
+#### `fallback`
+
+| Property     | Value                                  |
+| ------------ | -------------------------------------- |
+| Type         | boolean or string                      |
+| Valid values | `true`, `false`, `"true"`, `"false"`   |
+
+`@internal`.  When `true`, this skill yields to a same-suffix plugin or MCP skill
+(`<plugin>:<name>` / `<server>:<name>`) when one is loaded.  Used for interim defense-in-depth
+on thin-pointer skill stubs.
+
+#### `created_by` / `improved_by`
+
+| Property | Value  |
+| -------- | ------ |
+| Type     | string |
+
+`@internal`.  Provenance markers.  The string value `dream-proposal` is recognised; any other
+value is passed through but not consumed by the loader.
+
 #### `context`
 
-| Property      | Value                               |
-| ------------- | ----------------------------------- |
-| Type          | string                              |
-| Valid values  | `fork`                              |
-| Other values  | silently treated as absent          |
+| Property      | Value                                          |
+| ------------- | ---------------------------------------------- |
+| Type          | string                                         |
+| Valid values  | `fork`, `inline` (or nullable / absent)        |
+| Other values  | silently treated as absent                     |
 
-When `fork`, the skill is executed in a forked context that inherits the current conversation.
+When `fork`, the skill spawns a subagent.  When `inline` (the default), it expands into the
+current conversation.  Only `fork` is materialised into the resulting skill object
+(`executionContext: "fork"`); any other value, including `inline`, leaves `executionContext`
+undefined.
+
+This is the runtime-level replacement for the agent-level `forkContext` field that existed
+in earlier versions (≤ 2.1.61).
 
 #### `agent`
 
@@ -454,7 +535,7 @@ then ignored.
 
 The file body is injected as output formatting instructions.  All fields are optional.
 
-Loading function: `dMq` (line 515851).
+Loading function: `k9K` (line 504258).  Strict shadow schema is `ge1` (line 236542).
 
 #### `name`
 
@@ -520,15 +601,13 @@ configuration mistakes.
 | ------------------------------------------ | ------------------------- | ------------- |
 | Agent missing `name`                       | silently dropped          | error         |
 | Agent missing `description`                | error logged, dropped     | error         |
-| Agent invalid `model`                      | warn, field ignored       | error         |
+| Agent invalid `model` alias                | passed through to resolver| error         |
 | Agent invalid `effort`                     | warn, field ignored       | error         |
 | Agent invalid `permissionMode`             | warn, field ignored       | error         |
-| Agent invalid `forkContext` value          | warn, treated as falsy    | error         |
 | Agent invalid `background` value           | warn                      | error         |
 | Agent invalid `memory`                     | warn, field ignored       | error         |
 | Agent invalid `isolation`                  | warn, field ignored       | error         |
 | Agent invalid `maxTurns`                   | warn, field ignored       | error         |
-| Agent `forkContext: true` + non-inherit model | warn + silent override | error         |
 | Agent invalid `mcpServers` item            | warn, item dropped        | error         |
 | Agent invalid `color`                      | silently ignored          | warning       |
 | Agent/skill invalid `hooks`                | warn, hooks ignored       | error         |
@@ -537,9 +616,12 @@ configuration mistakes.
 | Skill `user-invocable`/`disable-model-invocation` not bool/string | silently false | warning |
 | Skill `context` unrecognized value         | silently absent           | warning       |
 | Skill invalid `model` alias                | passed through            | error         |
+| Skill invalid `effort`                     | warn, field ignored       | error         |
+| Skill invalid `shell`                      | warn, falls back to bash  | error         |
 | Skill non-string `paths`                   | silently ignored          | warning       |
 | Output style `force-for-plugin` present    | warn, ignored             | warning       |
 | YAML requires sanitizer to parse           | silently accepted         | error         |
+| Unknown key in strict shadow schema        | telemetry event only      | error         |
 
 ---
 
@@ -547,11 +629,13 @@ configuration mistakes.
 
 Claude Code uses a mix of naming styles across file types:
 
-| Style     | Examples                                              |
-| --------- | ----------------------------------------------------- |
-| kebab-case | `allowed-tools`, `argument-hint`, `user-invocable`, `disable-model-invocation`, `when-to-use` (output style), `keep-coding-instructions` |
-| snake_case | `when_to_use` (skill only)                           |
-| camelCase  | none in frontmatter                                  |
-| plain      | `name`, `description`, `model`, `agent`, `tools`, `hooks`, `paths`, `memory`, `skills`, `version`, `context`, `background`, `isolation`, `color` |
+| Style      | Examples                                                                                |
+| ---------- | --------------------------------------------------------------------------------------- |
+| kebab-case | `allowed-tools`, `argument-hint`, `user-invocable`, `disable-model-invocation`, `keep-coding-instructions`, `force-for-plugin` |
+| snake_case | `when_to_use` (skill), `created_by`, `improved_by`                                      |
+| camelCase  | `disallowedTools`, `mcpServers`, `maxTurns`, `permissionMode`, `initialPrompt`          |
+| plain      | `name`, `description`, `model`, `agent`, `tools`, `hooks`, `paths`, `memory`, `skills`, `version`, `context`, `background`, `isolation`, `color`, `effort`, `shell`, `fallback`, `arguments` |
 
-Note: the skill field is `when_to_use` (underscore), not `when-to-use` (hyphen).
+Note: the skill field is `when_to_use` (underscore), not `when-to-use` (hyphen).  Agent-only
+fields use camelCase exclusively for tool/server configuration (`disallowedTools`,
+`mcpServers`, `maxTurns`, `permissionMode`, `initialPrompt`); skills do not use camelCase.
