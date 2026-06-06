@@ -1,402 +1,284 @@
 # @ File Inclusion and Completion
 
-Source: `cli.prettier.js` 2.1.119 (`work/2.1.119/package/cli.prettier.js`).
-This version is the JavaScript extracted from the bun-compiled native binary
-via `tweakcc unpack`. Earlier versions (≤ 2.1.116) were minified Node.js
-applications shipped via npm; the unpacked form is functionally equivalent.
-
-All function and variable names are minified and will differ
-between versions. The guidance below identifies features by stable string literals, log
-messages, API patterns, and structural characteristics rather than by name.
-
----
+Behavioral model verified against 2.1.165. This document follows the landmark style in
+`GUIDELINES.md`: features are identified by version-stable anchors (literal strings, log messages,
+`tengu_*` telemetry names, config keys, behavioral logic) with grep re-location recipes, not by
+minified symbol names or line numbers, which churn every release. Per-release facts live in the
+appendix.
 
 ## Feature Overview
 
 Typing `@` in the prompt triggers a file/resource completion mode. Two sub-mechanisms:
 
-1. File suggestions — fuzzy search of the workspace file tree, powered by git ls-files
-   (with a ripgrep fallback) and a custom in-process JavaScript index (`iY_`).
+1. File suggestions — fuzzy search of the workspace file tree, powered by git ls-files (with a
+   ripgrep fallback) and a custom in-process JavaScript index.
 2. MCP resource suggestions — drawn from connected MCP servers via `resources/list`.
 
 This document covers the file suggestion mechanism (1) and the TAB completion behavior.
 
----
+## Entry Point
 
-## How to Find the Entry Point
+The token extractor pulls the `@...` token from user input using a Unicode-property regex:
 
-Search for the regex literal used to extract the `@...` token from user input. It matches
-Unicode word chars, digits, separators, and path characters after `@`:
+  `@[\p{L}\p{N}\p{M}_\-./\\()[\]~:]*`
 
-  Pattern: `@[\p{L}\p{N}\p{M}_\-./\\()[\]~:]*`  (Unicode property escapes)
+It appears twice — once for unquoted tokens and once for the quoted form `@"..."`. Grep that regex
+(`rg -n '\\p\{L\}\\p\{N\}'`) to find the token extractor; it runs whenever the input changes while
+`@` mode is active.
 
-This regex appears twice — once for unquoted tokens and once for the quoted form `@"..."`.
-The function that contains these regexes is the token extractor; it is called whenever the
-input changes while `@` mode is active.
-
-A second useful anchor: the completion entry function is the one that checks for
-`fileSuggestion?.type === "command"` in the project settings object. This is the first
-branch of the file-suggestion dispatcher; the branch that follows handles the empty-query
-case, and then the main fuzzy-search path. This function is `rY_(state, query, force)`
-in 2.1.119 (was `rz7` in 2.1.104, `w5q` in 2.1.76).
-
----
+The completion entry dispatcher is the function that checks `fileSuggestion?.type === "command"` in
+the project settings. That check is the first branch; the empty-query case and the main fuzzy-search
+path follow. Grep `fileSuggestion?.type === "command"`. Near the top the dispatcher also checks a
+remote-mode predicate (see "Remote file-suggestions" below) before the hook short-circuit.
 
 ## File Index Build Pipeline
 
-The pipeline has three layers. Find them by their log messages (stable across minification):
+Three layers, all locatable by their stable `[FileIndex]` log strings.
 
-- Layer 1 — git ls-files:
-  Look for the log string `"[FileIndex] getFilesUsingGit called"` and nearby
-  the spawned git command `["-c", "core.quotepath=false", "ls-files",
-  "--recurse-submodules"]`. This function attempts git ls-files first; it returns
-  `null` if the directory is not a git repo (logged: `"[FileIndex] not a git repo,
-  returning null"`). If `git ls-files` exits non-zero it logs
-  `"[FileIndex] git ls-files failed (code=..., stderr=...), falling back to ripgrep"`
-  and also returns `null`. This function is `Gp5()` in 2.1.119 (was `SkY()` in 2.1.104,
-  `qeY()` in 2.1.76).
+Layer 1 — git ls-files. Grep `[FileIndex] getFilesUsingGit called`. It spawns git with the argv
+`["-c", "core.quotepath=false", "ls-files", "--recurse-submodules"]`. It returns null when the
+directory is not a git repo (`[FileIndex] not a git repo, returning null`), and also when
+`git ls-files` exits non-zero (`[FileIndex] git ls-files failed (code=..., stderr=...), falling back
+to ripgrep`). Telemetry on success: `tengu_file_suggestions_git_ls_files`.
 
-- Layer 2 — ripgrep fallback:
-  The log `"[FileIndex] git ls-files returned null, falling back to ripgrep"` leads to
-  the ripgrep invocation. Key signature: an array literal beginning `["--files",
-  "--follow", "--hidden", "--glob", "!.git/", ...]` assembled just before the call.
-  The array also excludes `.svn/`, `.hg/`, `.bzr/`, `.jj/`, and `.sl/`. The
-  single directory argument passed to ripgrep is `"."` (cwd). The results are made
-  relative to cwd via `path.relative(cwd, absolutePath)`.
-  Telemetry event name (also stable): `"tengu_file_suggestions_ripgrep"`.
-  This function is `kp5()` in 2.1.119 (was `bkY()` in 2.1.104).
+Layer 2 — ripgrep fallback. Reached after `[FileIndex] git ls-files returned null, falling back to
+ripgrep`. Grep `tengu_file_suggestions_ripgrep` or the args array starting
+`["--files", "--follow", "--hidden", "--glob", "!.git/", ...]`, which also excludes `.svn/`, `.hg/`,
+`.bzr/`, `.jj/`, and `.sl/`. The search directory passed to ripgrep is the absolute cwd, and results
+are made relative to it via `path.relative(cwd, absolutePath)`.
 
-- Layer 3 — index assembly:
-  The function that awaits both the project-files function (`kp5`) and the `.claude/`
-  dir scanner (`Lp5`) in a `Promise.all`, then loads the merged paths into the
-  in-process `iY_` index via `loadFromFileListAsync`. Log:
-  `"[FileIndex] cache refresh completed"`.
-  Telemetry event: `"tengu_file_suggestions_git_ls_files"`.
-  This function is `vp5()` in 2.1.119 (was `IkY()` in 2.1.104, `zeY()` in 2.1.76).
+Layer 3 — index assembly. Grep `[FileIndex] cache refresh completed`. The assembly awaits both the
+project-files lister (layers 1/2) and the `.claude/` scanner in a `Promise.all`, then loads the
+merged paths into the in-process index via `loadFromFileListAsync`.
 
-The `.claude/` scanner (separate from the file tree scanner) is `Lp5()` in 2.1.119
-(was `CkY()` in 2.1.104), which iterates the module-level array `qm7` (was `PA4` in
-2.1.104) of subdirectory names and calls a per-name reader for each. The array is
-`["commands", "agents", "output-styles", "skills", "workflows", "routines"]` —
-`workflows` and `routines` were added since 2.1.76. The results are stored in
-`state.cachedConfigFiles`.
+The `.claude/` scanner (separate from the file-tree scanner) iterates a module-level array of
+subdirectory names and calls a per-name reader for each. The array is
+`["commands", "agents", "output-styles", "skills", "workflows", "routines"]`. Results are stored on
+the state object's cached-config-files field.
 
-### git ls-files Always Runs First in a Git Repo
+### git ls-files always runs first in a git repo
 
-`git ls-files` is invoked unconditionally whenever the cwd is inside a git repository.
-The flags are hard-coded as `--recurse-submodules` with no way to include gitignored files.
-Because the function returns a non-null value (even an empty array) on success, the ripgrep
-fallback is never reached inside a git repo. Setting `respectGitignore: false` (see below)
-therefore has no effect on `git ls-files` — it only affects the ripgrep fallback path.
+`git ls-files` is invoked unconditionally whenever the cwd is inside a git repository, with
+`--recurse-submodules` and no way to include gitignored files. Because it returns a non-null value
+(even an empty array) on success, the ripgrep fallback is never reached inside a git repo. Setting
+`respectGitignore: false` therefore has no effect on `git ls-files` — it only affects the ripgrep
+fallback path.
 
-Consequence: files that are gitignored will not appear in `@` completion results when
-working inside a git repo, regardless of `respectGitignore`. The `fileSuggestion` hook
-(see below) is the only way to override this without patching.
-
----
+Consequence: gitignored files do not appear in `@` completion when working inside a git repo,
+regardless of `respectGitignore`. The `fileSuggestion` hook (below) is the only override without
+patching.
 
 ## `respectGitignore` Setting
 
-`respectGitignore` is a Claude Code setting (in `settings.json`, under the project or
-user config). It is not a ripgrep flag. Its only effect is to conditionally add
-`--no-ignore-vcs` to the ripgrep argument array:
+`respectGitignore` is a Claude Code setting (in `settings.json`, project or user config), not a
+ripgrep flag. Its only effect is to conditionally append `--no-ignore-vcs` to the ripgrep argument
+array when it is false. Default is `true` (respect `.gitignore`). Because ripgrep is only the
+fallback, this setting has no practical effect inside a git repo.
 
-```javascript
-[source fragment removed]
-```
-
-Default is `true` (respect `.gitignore`). Set to `false` to have ripgrep include
-gitignored files. However, because ripgrep is only the fallback (Layer 2 above), this
-setting has no practical effect inside a git repo — `git ls-files` will have already
-returned results, and ripgrep is never called.
-
-Note: ripgrep also respects `.ignore` and `.rgignore` files independently of this setting.
-The `--no-ignore-vcs` flag only disables VCS-managed ignore files (`.gitignore`).
-
----
+Note: ripgrep also respects `.ignore` and `.rgignore` independently of this setting; `--no-ignore-vcs`
+disables only VCS-managed ignore files (`.gitignore`).
 
 ## Result Limit
 
-All search paths cap results at 15. This constant is `sX8 = 15` in 2.1.119 (was
-`iz7 = 15` in 2.1.104, `rT6 = 15` in 2.1.76). It is applied consistently across every
-branch of the search dispatcher:
-
-- `fileSuggestion` hook results:  `.slice(0, sX8)`
-- Empty query (`"."` or `""`) readdir results: `.slice(0, sX8)`
-- `iY_` index search: `fileIndex.search(query, sX8)` — limit passed into the search loop
-- `iY_` empty-query path: served from `topLevelCache.slice(0, sX8)`
-
-The 15-result limit documented for `fileSuggestion` is therefore not a constraint specific
-to that hook — it matches the cap applied to all internal search results.
-
----
+All search paths cap results at 15. The same constant is applied across every branch of the search
+dispatcher: `fileSuggestion` hook results, the empty-query readdir results, the index `search(query,
+limit)` call, and the index empty-query top-level cache slice. The 15-result limit documented for
+`fileSuggestion` is therefore not specific to that hook — it matches the cap on all internal results.
 
 ## `fileSuggestion` Hook
 
-`fileSuggestion` is a Claude Code project setting that redirects `@` file completion to
-a custom command. It is implemented identically to other hooks (PreToolUse, PostToolUse)
-and runs through the same hook runner.
+`fileSuggestion` redirects `@` file completion to a custom command. It is implemented like other
+hooks (PreToolUse, PostToolUse) and runs through the same hook runner.
 
-### Configuration
+Configuration:
 
 ```json
 { "fileSuggestion": { "type": "command", "command": "/path/to/script.sh" } }
 ```
 
-The hook is short-circuit: when `fileSuggestion.type === "command"` is present, the
-entire internal index system (git ls-files, ripgrep, the `iY_` index) is bypassed.
+The hook short-circuits: when `fileSuggestion.type === "command"` is present, the entire internal
+index system (git ls-files, ripgrep, the in-process index) is bypassed.
 
-### Stdin Payload
+Stdin payload — the command receives a JSON object whose fields are: `session_id`, `transcript_path`,
+`cwd`, `agent_id`, `agent_type`, and `query` (the typed text after `@`). The base payload builder
+also produces `permission_mode` and `effort`; the `fileSuggestion` dispatcher calls the builder with
+no arguments, so `permission_mode` is `undefined` and dropped by `JSON.stringify`. `agent_id` /
+`agent_type` reflect the active subagent context, if any.
 
-The command receives a JSON object on stdin:
+Stdout — return up to 15 newline-separated file paths. Results are displayed directly as completion
+suggestions without passing through the internal index; each line becomes one suggestion via the
+same formatter used by the internal paths.
 
-```json
-{
-  "session_id":      "...",
-  "transcript_path": "...",
-  "cwd":             "/current/working/dir",
-  "agent_id":        "...",
-  "agent_type":      "...",
-  "query":           "the typed text after @"
-}
-```
-
-The base hook payload comes from `w1()` in 2.1.119 (was `_O()` in 2.1.104), which
-returns `session_id`, `transcript_path`, `cwd`, `permission_mode`, `agent_id`,
-`agent_type`; `query` is then appended. The `fileSuggestion` dispatcher calls the
-builder with no arguments, so `permission_mode` is `undefined` and is dropped by
-`JSON.stringify`. `agent_id` and `agent_type` were added since 2.1.76 — they reflect
-the active subagent context, if any.
-
-### Stdout
-
-Return up to 15 newline-separated file paths. Results are displayed directly as completion
-suggestions without passing through the internal index. Each line becomes one suggestion
-item via the same formatter (`ZS8` in 2.1.119, was `nl6` in 2.1.104) used by the
-internal paths.
-
-### Hook Environment
-
-The command inherits the same environment variables as other hooks, including
+Hook environment — the command inherits the same environment as other hooks, including
 `CLAUDE_PROJECT_DIR`.
 
-### Use Case: Gitignored Files
-
-`fileSuggestion` is the recommended way to include gitignored files in `@` completion,
-since setting `respectGitignore: false` does not help inside a git repo (see above).
-A script that runs `rg --files --no-ignore-vcs` (or `find`) can return any files
-regardless of gitignore status.
-
----
+Use case: gitignored files. `fileSuggestion` is the recommended way to include gitignored files in
+`@` completion, since `respectGitignore: false` does not help inside a git repo. A script running
+`rg --files --no-ignore-vcs` (or `find`) can return any files regardless of gitignore status.
 
 ## Ripgrep Binary Selection
 
-This section is verified against 2.1.165 (the rest of this document is pinned to 2.1.119; the
-resolver changed between them — see the note at the end). Claude Code resolves which ripgrep to run
-through a memoised, lazy-initialised resolver (`AP_` in 2.1.165, reached via `chH`; was `F9_` in
-2.1.119, `sa6` in 2.1.104, `Z81` in 2.1.76). It returns `{ mode, command, args, argv0? }`. In
-2.1.165 there are two modes:
+Claude Code resolves which ripgrep to run through a memoised resolver that returns
+`{ mode, command, args, argv0? }`. Two modes:
 
-1. System rg. Returns `{ mode: "system", command: <resolved rg>, args: [] }`. Chosen when a real
-   `rg` is found on PATH (via `RT6`, findActualExecutable) and either:
-   - `USE_BUILTIN_RIPGREP` parses as disabled (`0`/`false`/`no`/`off`, via the `M4` "is disabled"
-     helper), or
-   - the build is not a packaged native binary (`KA()` false; `KA` tests `Bun.embeddedFiles`).
-   `args` is empty, so the user's `~/.ripgreprc` / `RIPGREP_CONFIG_PATH` applies.
+1. System rg — `{ mode: "system", command: <resolved rg>, args: [] }`. Chosen when a real `rg` is
+   found on PATH and either `USE_BUILTIN_RIPGREP` parses as disabled (`0`/`false`/`no`/`off`) or the
+   build is not a packaged native binary. `args` is empty, so the user's `~/.ripgreprc` /
+   `RIPGREP_CONFIG_PATH` applies.
 
-2. Embedded rg. The default on the packaged native build (`KA()` true). Re-execs the host process as
-   ripgrep: `{ mode: "embedded", command: process.execPath, args: ["--no-config"], argv0: "rg" }`.
-   `--no-config` suppresses the user's ripgrep config. If `process.execPath` is not a runnable
-   packaged binary (`ep` false), it prefers a system `rg` on PATH and only falls back to the embedded
-   form when none is found.
+2. Embedded rg — `{ mode: "embedded", command: process.execPath, args: ["--no-config"], argv0: "rg" }`.
+   The default on the packaged native build; it re-execs the host process as ripgrep. `--no-config`
+   suppresses the user's ripgrep config. If `process.execPath` is not a runnable packaged binary, it
+   prefers a system `rg` on PATH and only falls back to the embedded form when none is found.
 
 `--no-config` lives in the embedded mode's `args`. It reaches the internal consumers that invoke the
-resolved binary with those args (the Grep/Search tool `vA7`; the `@`-file-suggestion ripgrep
-fallback above), but NOT the Bash-tool `rg` wrapper, which is generated from `argv0` alone and drops
-the args — see `BASH_TOOL_EXECUTION.md` ("Search-tool wrappers and ripgrep config"). In system mode
+resolved binary with those args (the Grep/Search tool; the `@`-file-suggestion ripgrep fallback
+above), but not the Bash-tool `rg` wrapper, which is generated from `argv0` alone and drops the args
+— see `BASH_TOOL_EXECUTION.md` ("Ripgrep config: Bash-tool rg vs the Search tool"). In system mode
 `args` is empty, so nothing suppresses config.
 
 The env var name `USE_BUILTIN_RIPGREP` is counter-intuitive: setting it to `0`/`false`/`no`/`off`
 disables Claude's bundled binary and switches to the system binary — and only takes effect when a
 system `rg` is actually found on PATH.
 
-Changed since earlier builds: 2.1.119 and earlier had a third mode — a vendored binary at
-`vendor/ripgrep/{arch}-{platform}/rg` (`{arch}-win32/rg.exe` on Windows) used as the default
-fallback. 2.1.165 has no `vendor/ripgrep` (only `vendor/seccomp`); the embedded mode covers that
-case. The separate `RIPGREP_EMBEDDED` env var and the Bun-specific `process.execPath --ripgrep`
-invocation (present up to 2.1.76) are also gone.
-
----
+Re-location: `rg -n 'no-config'`, `rg -n 'USE_BUILTIN_RIPGREP'`. Expect a memoised resolver returning
+the two shapes above, plus an "is disabled" helper that treats `0`/`false`/`no`/`off` as disabled.
 
 ## Workspace Directories
 
-There are two parallel stores for additional workspace directories (added via `--add-dir`
-CLI flag or `/add-dir` slash command). Both are updated by both mechanisms:
+Two parallel stores hold additional workspace directories (added via the `--add-dir` CLI flag or the
+`/add-dir` slash command):
 
 - A `Map` inside `toolPermissionContext.additionalWorkingDirectories` — the canonical,
-  permission-aware store. Updated via a reducer-style function that accepts an action of
-  `type: "addDirectories"`. Find this by searching for that string literal.
+  permission-aware store, updated via a reducer action `type: "addDirectories"` (grep that string).
+- A module-level array, the convenience copy for non-React code, exposed by a getter that returns
+  `additionalDirectoriesForClaudeMd` (grep that field). The matching setter appends new dirs to it.
 
-- A module-level array (the "ClaudeMd" alias) — a convenience copy maintained for
-  non-React code that cannot access app state. Find it by searching for the log string
-  `"working directory"` in the `/add-dir` command handler, or by looking for the pattern
-  `if (!array.includes(newDir)) setArray([...array, newDir])` near the call that updates
-  `toolPermissionContext`. The getter is `vL()` in 2.1.119 (was `af()` in 2.1.104,
-  `mT()` in 2.1.76): `function vL() { return T8.additionalDirectoriesForClaudeMd; }`.
-  The matching setter is `ZnH(q)` in 2.1.119 (was `NB6(q)` in 2.1.104).
+The file index builder reads only the module-level array (it runs outside React). Verify by checking
+which store the `Promise.all` assembly function reads.
 
-The file index builder uses only the module-level array (not the Map), because it runs
-outside React. Verify by checking which of the two stores the `Promise.all` assembly
-function reads.
+## File Index Implementation
 
----
+The file index is a single pure-JavaScript class. Grep `loadFromFileListAsync` together with a
+`charBits` field to find it; the older Rust `.node` FileIndex and the inlined Fuse.js fallback are
+gone (their log strings `[FileIndex] Rust module unavailable, falling back to Fuse.js` and
+`[FileIndex] Not in bundled mode, using Fuse.js fallback` no longer exist).
 
-## File Index Implementation (`iY_`)
+Identify the class by:
 
-Since 2.1.104 the file index is a single pure-JavaScript class — `iY_` in 2.1.119
-(was `x38` in 2.1.104, defined around L487201 in 2.1.119). The Rust `.node` native
-FileIndex and the inlined Fuse.js fallback that existed in 2.1.76 have both been
-removed, along with their identifying log strings (`"[FileIndex] Rust module
-unavailable, falling back to Fuse.js"` and `"[FileIndex] Not in bundled mode, using
-Fuse.js fallback"`).
+- Instance fields `paths`, `lowerPaths`, `charBits` (`Int32Array`), `pathLens` (`Uint16Array`),
+  `topLevelCache`, `readyCount`.
+- Methods `loadFromFileList` (sync), `loadFromFileListAsync` (returns `{ queryable, done }`),
+  `buildAsync`, `buildIndex`, `indexPath`, `search(query, limit)`.
+- A 26-bit a-z bitmap built per path in `indexPath` (`K |= 1 << (T - 97)` for char codes 97–122),
+  used as a fast prefilter before character-level matching.
 
-Identify `iY_` by:
-- Instance fields `paths`, `lowerPaths`, `charBits` (`Int32Array`), `pathLens`
-  (`Uint16Array`), `topLevelCache`, `readyCount`
-- Methods `loadFromFileList(paths)` (sync), `loadFromFileListAsync(paths)` (returns
-  `{ queryable, done }`), `buildAsync`, `buildIndex`, `indexPath`, `search(query, limit)`
-- A 26-bit a-z bitmap built per path: `if (T >= 97 && T <= 122) K |= 1 << (T - 97)`
-  in `indexPath`. This bitmap is used as a fast prefilter before character-level matching.
-
-`loadFromFileListAsync` yields back to the event loop every 256 entries (`(O & 255) === 255`)
-when a 4 ms budget is exceeded, calling a cooperative-yield helper — `f16()` in 2.1.119
-(was `Sl8()` in 2.1.104). This makes large-repo index builds non-blocking for the UI.
+`loadFromFileListAsync` yields to the event loop every 256 entries (`(O & 255) === 255`) when a ~4 ms
+budget is exceeded, via a cooperative-yield helper that resolves a `setImmediate` promise. This keeps
+large-repo index builds non-blocking for the UI.
 
 ## External Libraries
 
 ### Ink `useInput`
 
-The keypress event layer is Ink's `useInput` hook (React for terminals). Find it in the
-exports of the Ink module bundle — look for a `useInput` export alongside `render`,
-`useApp`, `useStdin`, `useFocus`. The hook receives a callback `(input, key)` where
-`key` has boolean fields: `.tab`, `.return`, `.escape`, `.upArrow`, `.downArrow`, etc.
-
-The completion logic itself is custom code layered on top of Ink — there is no external
-autocomplete library.
-
----
+The keypress layer is Ink's `useInput` hook (React for terminals). Find it among the Ink exports
+alongside `render`, `useApp`, `useStdin`, `useFocus`. The callback `(input, key)` receives a `key`
+with boolean fields `.tab`, `.return`, `.escape`, `.upArrow`, `.downArrow`, etc. The completion logic
+is custom code on top of Ink — there is no external autocomplete library.
 
 ## TAB Completion Dispatch
 
-The autocomplete hook registers keybinding actions: `"autocomplete:accept"`,
-`"autocomplete:dismiss"`, `"autocomplete:previous"`, `"autocomplete:next"`. Find these
-string literals to locate the keybinding registration and the four callbacks.
+The autocomplete hook registers keybinding actions `"autocomplete:accept"`, `"autocomplete:dismiss"`,
+`"autocomplete:previous"`, `"autocomplete:next"`. Grep these to locate the registration and the four
+callbacks.
 
-`"autocomplete:accept"` maps to the TAB handler. It is an `async useCallback` that
-switches on the current suggestion mode string (`"command"`, `"file"`, `"directory"`,
-`"agent"`, `"shell"`).
+`"autocomplete:accept"` maps to the TAB handler — an `async useCallback` that switches on the current
+suggestion mode (`"command"`, `"file"`, `"directory"`, `"agent"`, `"shell"`). A separate ENTER
+handler (invoked from `useInput` when `key.return` is true) carries its own copy of the same mode
+switch. Both contain the `"file"` mode branch with the directory-completion bug.
 
-There is also a second ENTER handler (a separate `useCallback`, called in `useInput`
-when `key.return` is true) with its own copy of the same mode switch. Both handlers
-contain the "file" mode branch that has the directory-completion bug.
+### Two return paths: `fileSuggestion` hook vs. internal index
 
-### Two Return Paths from `fileSuggestion` vs. Internal Index
+Results from the hook and from the internal index both flow through the same `"file"` mode handler in
+the TAB and ENTER dispatch. From the dispatcher's view they are identical: a list of
+`{ id, displayText, metadata }`. The handler does not know which source produced them.
 
-Results from the `fileSuggestion` hook and results from the internal index both flow
-through the same `"file"` mode handler in the TAB and ENTER dispatch. From the
-dispatcher's perspective they are identical: a list of `{ id, displayText, metadata }`
-objects. The handler does not know which source produced the results.
+Consequence: TAB directory drill-down needs different handling per source. The internal index marks
+directory entries with a trailing path separator — added by the parent-directory adder, which walks
+each path's `dirname` chain into a `Set` and appends `path.sep` to each. The `fileSuggestion` hook
+has no typed results; a trailing `/` in the returned string is the only available signal. See
+TAB_COMPLETION.md for the fix plan.
 
-Consequence: implementing TAB directory drill-down requires different handling for each
-source. The internal index produces directory entries with a trailing path separator —
-inserted by the parent-directory adder, which is the async function `OB7(H)` in 2.1.119
-(was `UhK(q)` in 2.1.104, `Sg8` in 2.1.76). It walks each path's `dirname` chain via
-the helper `Zp5` in 2.1.119 (was `hkY` in 2.1.104) into a `Set`, then returns
-`[...set].map(z => z + path.sep)`. The `fileSuggestion` hook has no typed results — a
-trailing `/` in the returned string is the only signal available. See TAB_COMPLETION.md
-for the fix plan.
+### Completion formatter
 
-### Finding the Completion Formatter
+Grep a small (3–4 line) function with `let X = isComplete ? " " : ""`, followed by conditional
+returns that prepend `@` when the token had an `@` prefix and wrap in quotes when quoting is needed.
+It is called just before the cursor-update function in both the TAB and ENTER handlers.
 
-Look for a small function (3–4 lines) with the pattern:
+### Directory vs. file distinction
 
-  `let suffix = isComplete ? " " : ""`
+The `"file"` mode branch unconditionally sets `isComplete: true` and calls the close-suggestions
+function — it does not check whether the selected item is a directory. The correct check is whether
+`displayText.endsWith(path.sep)`; directory entries (from the parent-directory adder) always carry a
+trailing separator. The `"directory"` mode handler (for slash-command argument completion) already
+does the analogous check via `metadata.type === "directory"`. See TAB_COMPLETION.md for the fix.
 
-followed by conditional returns that prepend `@` when `hasAtPrefix` is true, and wrap in
-quotes when `needsQuotes` is true. This is the formatter called just before the
-cursor-update function in both the TAB and ENTER handlers.
+### Common-prefix path (partial completion)
 
-### Directory vs. File Distinction
-
-The "file" mode branch unconditionally sets `isComplete: true` and calls the
-close-suggestions function — it does not check whether the selected item is a directory.
-The correct check is whether `displayText.endsWith(path.sep)`. Directory entries (inserted
-by the parent-directory adder `OB7`) always have a trailing separator.
-
-The "directory" mode handler (for slash-command argument completion) already does this
-check correctly — it uses `metadata.type === "directory"`. The "file" mode is missing the
-analogous check. See TAB_COMPLETION.md for the fix.
-
-### Common-Prefix Path (partial completion)
-
-When multiple suggestions share a common prefix longer than the current token, the handler
-fills in the common prefix and calls the refresh-suggestions function (not the close
-function). This is the correct partial-completion path — find it by the
-`isComplete: false` call to the formatter immediately above the specific-item selection
-block. The specific-item block (where the directory bug lives) follows in the same `else if`.
-
----
+When multiple suggestions share a common prefix longer than the current token, the handler fills in
+the common prefix and calls the refresh-suggestions function (not close). Find it by the
+`isComplete: false` call to the formatter immediately above the specific-item selection block; the
+specific-item block (where the directory bug lives) follows in the same `else if`.
 
 ## Cache Invalidation
 
-The file index is cached in module-level variables (not React state). A generation counter
-is incremented whenever the cache is invalidated, and async refreshes check it to discard
-stale results. Find by the pattern:
+The file index is cached in module-level variables (not React state). A generation counter is
+incremented on invalidation, and async refreshes check it to discard stale results — find the pattern
+`let generation = counter; ... async work ... if (generation !== counter) return;`. Cache is cleared
+on session start/reset. Refresh is lazy: kicked off the first time suggestions are generated without
+a warm cache, and on file-system watch events (untracked files added).
 
-  `let generation = counter; ... async work ... if (generation !== counter) return;`
+### Signature-based rebuild skip
 
-Cache is cleared (counter incremented) on session start/reset. The refresh is triggered
-lazily — it is kicked off the first time `generateFileSuggestions` is called without a
-warm cache, and also when file-system watch events arrive (untracked files added).
+The cache state carries `loadedTrackedSignature` and `loadedMergedSignature` hashes (an FNV-1a-style
+signature over the merged path list). When a refresh's new signature matches the loaded one, the
+rebuild is skipped with one of:
 
-### Since 2.1.104: signature-based rebuild skip
+- `[FileIndex] skipped index rebuild — tracked paths unchanged`
+- `[FileIndex] skipped index rebuild — merged paths unchanged`
 
-The cache state object now carries `loadedTrackedSignature` and `loadedMergedSignature`
-hashes (computed by an FNV-1a-style signature function over the merged path list). When a
-refresh is requested but the new signature matches the loaded one, the rebuild is skipped
-with one of:
+A successful rebuild logs `[FileIndex] rebuilt index with N tracked + M untracked files`.
 
-- `"[FileIndex] skipped index rebuild — tracked paths unchanged"`
-- `"[FileIndex] skipped index rebuild — merged paths unchanged"`
+### Remote file-suggestions
 
-A successful rebuild logs `"[FileIndex] rebuilt index with N tracked + M untracked files"`.
-
-### Since 2.1.104: remote-RPC file-suggestions path
-
-When running in remote/proxy mode (the dispatcher checks an `m8()` predicate at the top of
-`rY_`), the entire local file-index pipeline is bypassed and suggestions come from a
-control-channel RPC instead. The remote helper is `Sp5(query)` in 2.1.119 — it sends a
-`{ subtype: "file_suggestions", query }` request and returns the resulting `suggestions`
-array, falling back to `[]` on RPC failure (logged as `"[FileIndex] remote
-file_suggestions RPC failed"`). Note that the `fileSuggestion` hook short-circuit is
-checked *after* the remote-mode branch, so a project hook only fires in local mode.
-
----
+In remote/proxy mode (the dispatcher checks a remote predicate at the top of the completion entry,
+before the `fileSuggestion` short-circuit) the entire local file-index pipeline is bypassed and
+suggestions come from a control-channel RPC. The remote helper sends a
+`{ subtype: "file_suggestions", query }` request and returns the resulting `suggestions` array,
+falling back to `[]` on RPC failure (`[FileIndex] remote file_suggestions RPC failed`). Because the
+hook short-circuit is checked after the remote-mode branch, a project hook fires only in local mode.
 
 ## Search Strategy for a New Version
 
-When analyzing a newer version, recommended search order:
+Recommended grep order:
 
-1. Find `"[FileIndex]"` log prefix — anchors the entire file-index subsystem
-2. Find `"tengu_file_suggestions_ripgrep"` telemetry event — anchors the cwd ripgrep call
-3. Find `["--files", "--follow", "--hidden"]` array — anchors the ripgrep argument build
-4. Find `"autocomplete:accept"` string — anchors the TAB handler
-5. Find `loadFromFileListAsync` together with a `charBits` field — anchors the
-   index class (`iY_` in 2.1.119, was `x38` in 2.1.104; replaces the older Fuse.js
-   `threshold: 0.5` anchor)
-6. Find `type: "addDirectories"` — anchors the workspace directory update logic
-7. Find `additionalDirectoriesForClaudeMd` — anchors the module-level extra-dirs getter
-8. Find `fileSuggestion?.type === "command"` — anchors the completion entry dispatcher
-9. Find the `@[\p{L}...]*` Unicode regex — anchors the token extractor
-10. Find `["commands", "agents", "output-styles", "skills", "workflows", "routines"]` —
-    anchors the `.claude/` subdirectory scanner (`qm7` in 2.1.119, was `PA4` in 2.1.104)
+1. `[FileIndex]` — anchors the entire file-index subsystem.
+2. `tengu_file_suggestions_ripgrep` — anchors the ripgrep fallback call.
+3. `["--files", "--follow", "--hidden"]` — anchors the ripgrep argument build.
+4. `autocomplete:accept` — anchors the TAB handler.
+5. `loadFromFileListAsync` together with a `charBits` field — anchors the index class (replaces the
+   older Fuse.js `threshold: 0.5` anchor).
+6. `type: "addDirectories"` — anchors the workspace-directory update logic.
+7. `additionalDirectoriesForClaudeMd` — anchors the module-level extra-dirs getter.
+8. `fileSuggestion?.type === "command"` — anchors the completion entry dispatcher.
+9. `@[\p{L}...]*` Unicode regex — anchors the token extractor.
+10. `["commands", "agents", "output-styles", "skills", "workflows", "routines"]` — anchors the
+    `.claude/` subdirectory scanner.
+
+## Per-release notes
+
+- 2.1.165: behavioral model above verified. The ripgrep fallback searches the absolute cwd (not the
+  literal `"."`). The hook payload builder produces an `effort` field in addition to the fields
+  listed above.
+- The `.claude/` subdir set added `workflows` and `routines` over earlier builds. The single
+  pure-JS index class replaced an earlier Rust `.node` FileIndex plus a Fuse.js fallback.
