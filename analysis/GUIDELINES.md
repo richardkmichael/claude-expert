@@ -5,8 +5,8 @@ without constant rewriting.
 
 Status: trial, expanding. These guidelines govern the prompt-related documents — `PROMPTS.md`,
 `PROMPTS_RENDERED.md`, `GIT_USAGE.md` — and now also `BASH_TOOL_EXECUTION.md`, `FILE_INCLUSION.md`,
-and `TOOL_VALIDATION.md`. If the approach keeps holding up across releases, adopt it for the rest of
-`analysis/`.
+`TOOL_VALIDATION.md`, `HOOKS.md`, `TASK_TOOL_AND_SUBAGENTS.md`, and `MONITORING_USAGE.md`. If the
+approach keeps holding up across releases, adopt it for the rest of `analysis/`.
 
 ## The problem
 
