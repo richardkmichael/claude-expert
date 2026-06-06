@@ -1,357 +1,183 @@
 # Tool Validation
 
-Source: `cli.prettier.js` 2.1.76 (`work/2.1.76/package/cli.prettier.js`)
+Behavioral model verified against 2.1.165. This document follows the landmark style in
+`GUIDELINES.md`: it anchors on version-stable strings (user-facing error messages, class names,
+`tengu_*` names, tool names, behavioral logic) with grep re-location recipes, not on minified symbol
+names or line numbers, which churn every release. Error-message strings are the durable anchors here;
+numeric `errorCode` values are a weaker contract and are shown as current 2.1.165 values. Per-release
+changes are in the appendix.
+
+## Validation architecture
+
+Validation is tool-specific, not generic. Two tiers run per tool call:
+
+1. Schema validation (generic). The tool's input is checked against its Zod schema. On failure the
+   call short-circuits with a result carrying `is_error` and a `<tool_use_error>InputValidationError:
+   ...</tool_use_error>` body. Grep `InputValidationError` and `<tool_use_error>`.
+
+2. Input validation (per-tool). Each tool has an `async validateInput(...)` returning
+   `{ result, message?, behavior?, errorCode?, meta? }`. On `result: false` the call short-circuits
+   with a `<tool_use_error>${message}</tool_use_error>` body. This is where business-logic checks
+   (file state, permissions, string matching) live.
+
+There is no shared validation framework — each tool implements its own `validateInput` with its own
+reasons and codes.
+
+## Per-tool validateInput
+
+Locate each by a distinctive message string, then read the enclosing `validateInput`. The Read, Edit,
+and Write tools are distinguished by their destructured parameters: Read `{ file_path, pages }`; Edit
+`{ file_path, old_string, new_string, replace_all }` with a `readFileState` context; Write
+`{ file_path, content }` with `readFileState` / `agentId` context. NotebookEdit reuses several of the
+same messages — disambiguate by the parameter shape.
+
+### Read
+
+Destructures `{ file_path, pages }`. Note: existence (`File does not exist.`) is enforced in the read
+path, not in `validateInput`; size and empty-image checks also live in the read path now, not here.
+A UNC path (`\\` or `//` prefix) returns success before the binary/device checks.
+
+| Reason (message anchor)                                                      | code |
+|------------------------------------------------------------------------------|------|
+| `Invalid pages parameter: "…". Use formats like "1-5", "3", or "10-20".`     | 7    |
+| `Page range "…" exceeds maximum of 20 pages per request.`                    | 8    |
+| `File is in a directory that is denied by your permission settings.`         | 1    |
+| `This tool cannot read binary files.`                                        | 4    |
+| `Cannot read '…': this device file would block or produce infinite output.`  | 9    |
+
+### Edit
+
+Destructures `{ file_path, old_string, new_string, replace_all }`, context carries `readFileState`.
+Every failure branch carries `behavior: "ask"`. Codes 6/8/9 also attach a `meta` (`isFilePathAbsolute`,
+plus `actualOldString` on 9). The two dynamic-message guards (codes 12 and 0) come first.
+
+| Reason (message anchor)                                                      | code |
+|------------------------------------------------------------------------------|------|
+| worktree / background-session isolation guard (dynamic message)             | 12   |
+| content guard (dynamic message)                                             | 0    |
+| `No changes to make: old_string and new_string are exactly the same.`        | 1    |
+| `File is in a directory that is denied by your permission settings.`         | 2    |
+| `File is too large to edit (…). Maximum editable file size is …` (1 GiB)      | 10   |
+| `File is read-only — it has not been opened for edit in Perforce.`           | 11   |
+| `File does not exist.` (+ optional ` Did you mean …?`)                        | 4    |
+| `Cannot create new file - file already exists.`                              | 3    |
+| `File is a Jupyter Notebook. Use the … to edit this file.`                    | 5    |
+| `File has not been read yet. Read it first before writing to it.`            | 6    |
+| `File has been modified since read, either by the user or by a linter. …`     | 7    |
+| `String to replace not found in file.`                                       | 8    |
+| `Found N matches of the string to replace, but replace_all is false. …`      | 9    |
+
+### Write
+
+Destructures `{ file_path, content }`, context carries `readFileState` and `agentId`. ENOENT (file
+absent) returns success — Write creates new files.
+
+| Reason (message anchor)                                                      | code |
+|------------------------------------------------------------------------------|------|
+| worktree / background-session isolation guard (dynamic message)             | 7    |
+| `Subagents should return findings as text, not write report files. …`        | 5    |
+| content guard (dynamic message)                                             | 0    |
+| `File is in a directory that is denied by your permission settings.`         | 1    |
+| `File is read-only — it has not been opened for edit in Perforce.`           | 6    |
+| `File has not been read yet. Read it first before writing to it.`            | 2    |
+| `File has been modified since read, either by the user or by a linter. …`     | 3    |
+
+The Write subagent-report block fires only for subagents (`agentId` present) writing a file whose
+basename matches `REPORT|SUMMARY|FINDINGS|ANALYSIS*.md` (case-insensitive); it also emits the
+`tengu_subagent_md_report_blocked` telemetry event. The Write "modified since read" check has a
+fast path: a full-file read whose content still matches is allowed through.
+
+Re-location: grep a distinctive message, e.g. `rg -n 'No changes to make'` (Edit),
+`rg -n 'Subagents should return findings'` (Write), `rg -n 'this device file would block'` (Read).
+Disambiguate shared messages (`File has not been read yet`, `File has been modified since read`,
+the Perforce message) by the surrounding parameter shape.
+
+## Error handling architecture
+
+Tools fall into two categories with different error patterns.
+
+### Process-based tools (Bash, Grep/Search, MCP)
+
+These spawn processes and signal failure by throwing a custom ShellError. Anchor on the constructor
+message `Shell command failed` and the class name `ShellError`. The error object carries `stdout`,
+`stderr`, `code`, `interrupted`, and `hadSandboxViolation`. Grep `Shell command failed`.
 
-This document analyzes the validation system used by Claude Code tools, focusing on whether validations are per-tool or generic across all tools, with source line references from `package/cli.prettier.js`.
+- Bash tool: drives the bash generator, computes an is-error verdict from the command, exit code,
+  stdout, and stderr, and throws the ShellError on failure (passing the sandbox-violation flag). See
+  `BASH_TOOL_EXECUTION.md` for the execution model.
+- Grep/Search tool: ripgrep-backed. Description anchored on `A powerful search tool built on ripgrep`
+  (wording unchanged across recent versions; it interpolates the Grep / Bash / Agent tool names).
+  Binary resolution is in `FILE_INCLUSION.md` ("Ripgrep Binary Selection").
+- MCP tools: flagged in telemetry via an `isMcp` field; grep `isMcp`.
 
-## Summary
+### File-based tools (Read, Edit, Write, NotebookEdit)
 
-Validation is TOOL-SPECIFIC, not generic. Each tool implements its own `validateInput` function with custom validation logic and error codes. There is no shared validation system.
+These do direct file-system operations and do not throw during execution — their only failures are
+`validateInput` returns. Consequence: a PostToolUse hook never fires on a file-tool validation
+failure, because there is no execution phase to wrap.
 
-## Validation Architecture
+### Error-message formatter
 
-### Two-Tier Validation System
+Errors surfaced to the user pass through a formatter that caps length at 10 KB (10000 chars). On
+overflow it keeps the first 5000 and last 5000 chars joined by `... [N characters truncated] ...`.
+Grep `characters truncated`.
 
-1. Schema Validation (Generic)
-   - Uses Zod schema to validate input structure
-   - Handled by tool execution framework in `XZ5` function
-   - Validates parameter types, required fields, etc.
-   - Fails fast if schema doesn't match
-
-2. Input Validation (Per-Tool)
-   - Custom `async validateInput()` function per tool
-   - Tool-specific business logic validation
-   - Returns `{result: boolean, message?: string, errorCode?: number}`
-   - THIS IS WHERE HOOKS GET BLOCKED in original implementation
-
-## Detailed Tool Analysis
-
-### Read Tool Validation
-
-Location: Lines 382353-382399 in `package/cli.prettier.js`
-
-Input Validation (Tool-Specific):
-```javascript
-[source fragment removed]
-```
-
-### Edit Tool Validation
-
-Location: Lines 393309-393416 in `package/cli.prettier.js`
-
-Input Validation (Tool-Specific):
-```javascript
-[source fragment removed]
-```
-
-### Write Tool Validation
-
-Location: Lines 393972-393998 in `package/cli.prettier.js`
-
-Input Validation (Tool-Specific):
-```javascript
-[source fragment removed]
-```
-
-## Error Code Patterns
-
-### Read Tool Error Codes
-- `1`: File in ignored directory (Line 382361)
-- `2`: File does not exist -- PRIMARY TEST CASE (Line 382370)
-- `4`: Binary file not supported (Line 382378)
-- `5`: Empty image file (Line 382385)
-- `6`: File too large without pagination (Line 382396)
+## Hook enhancement (design notes)
 
-### Edit Tool Error Codes
-- `1`: No changes (old_string === new_string) (Line 393319)
-- `2`: File in ignored directory (Line 393328)
-- `3`: Cannot create - file already exists (Line 393346)
-- `4`: File does not exist (when editing) (Line 393358)
-- `5`: Jupyter notebook (use NotebookEdit instead) (Line 393365)
-- `6`: File not read yet (Line 393375)
-- `7`: File modified since read (Line 393384)
-- `8`: String to replace not found (Line 393400)
-- `9`: Multiple matches without replace_all (Line 393410)
+These are notes on a proposed local enhancement, not current Claude Code behavior.
 
-### Write Tool Error Codes
-- `1`: File in ignored directory (Line 393979)
-- `2`: File not read yet (Line 393989)
-- `3`: File modified since read (Line 393996)
+Core finding: validation failures and execution errors short-circuit before hooks get full context.
+File-tool validation failures never reach PostToolUse (no execution phase). For process-tool
+failures, the error catch historically preserved only the error message, discarding the ShellError's
+`stdout` / `stderr` / `code`.
 
-## Key Findings
+Proposed direction:
+- PreToolUse: pass a validation context (schema result + input-validation result with message and
+  code) so hooks can react to specific validation failures.
+- PostToolUse: add a `tool_execution` property alongside `tool_response`, carrying `success`,
+  `duration_ms`, and on failure `error_message` (size-limited via the formatter above), `error_type`,
+  and `details` lifted from the ShellError (`stdout`, `stderr`, `exitCode`, `interrupted`). Keep
+  `tool_response` clean (null on failure).
 
-### 1. No Shared Validation Framework
-- Each tool implements its own `validateInput` function
-- Error codes are tool-specific, not standardized
-- Validation logic is entirely custom per tool
+Illustrative `tool_execution` shape for a failed process tool:
 
-### 2. Validation Complexity Varies by Tool
-- Read Tool: File system focused (existence, permissions, file type)
-- Edit Tool: Most complex (file state, string matching, conflict detection)
-- Write Tool: Simplest (mainly file state tracking)
-
-### 3. File State Management
-- Edit and Write tools require files to be read first
-- They track file modification times to detect external changes
-- This creates a dependency chain: Read -> Edit/Write
-
-### 4. Hook Blocking Points
-- Validation failures cause immediate returns in `XZ5` function
-- Original implementation: hooks never execute on validation failure
-- Enhanced implementation: hooks receive validation context first
-
-## Test Cases for Hook Enhancement
-
-### Primary Test Case: Non-existent File (Read Tool)
-```bash
-Read /tmp/this_file_definitely_does_not_exist.txt
-```
-Expected Results:
-- Before Enhancement: Hook never fires, tool fails with "File does not exist." (Line 382370)
-- After Enhancement: Hook fires with validation context:
-  ```json
-  {
-    "tool_validation": {
-      "schema_validation": {"passed": true, "error_message": null},
-      "input_validation": {
-        "passed": false,
-        "error_message": "File does not exist.",
-        "error_code": 2
-      }
-    }
-  }
-  ```
-
-### Secondary Test Cases
-
-Binary File (Read Tool):
-```bash
-Read /usr/bin/ls
-```
-- Validation Failure: Error Code 4, binary file not supported (Line 382378)
-
-File in Ignored Directory (Read Tool):
-```bash
-Read node_modules/some-package/package.json
-```
-- Validation Failure: Error Code 1, ignored directory (Line 382361)
-
-Edit Tool - File Not Read:
-```bash
-Edit /some/file.txt old_text new_text
-```
-- Validation Failure: Error Code 6, file not read yet (Line 393375)
-
-## Hook Enhancement Implementation
-
-Our enhanced PreToolUse hook implementation provides hooks with validation context for all these tool-specific validations, enabling sophisticated hook logic that can handle validation failures intelligently.
-
-Key Changes Made:
-- lNA function (Line 363564): Added `validationContext` parameter
-- XZ5 function (Line 419689): Create and pass validation context to hooks
-- Validation flow: Hooks execute before validation blocking
-
-This analysis confirms that our hook enhancement correctly addresses the core issue: validation failures were blocking hook execution entirely, preventing hooks from making informed decisions about tool usage based on the specific validation failures.
-
-### PostToolUse Hook Enhancement with tool_execution Property
-
-Our PostToolUse hook enhancement uses a separate `tool_execution` property to provide rich error context while maintaining clean API semantics. This approach preserves `tool_response` for actual tool output and adds execution metadata separately.
-
-## Built-In Tool Error Handling Architecture
-
-Based on comprehensive code analysis, Claude Code tools fall into two distinct categories with different error handling patterns:
-
-### Process-Based Tools
-
-These tools spawn external processes and use Claude Code's custom `cN` (ShellError) class for structured error capture.
-
-#### 1. Bash Tool (Lines 384953-384997)
-Process Execution Pattern:
-```javascript
-[source fragment removed]
-```
-
-Error Information Available:
-- `H.stdout`: Complete command output
-- `H.stderr`: Error messages from shell command
-- `H.code`: Process exit code (0 = success, non-zero = failure)
-- `H.interrupted`: Boolean indicating if process was killed/interrupted
-
-#### 2. Grep/Search Tool (Ripgrep)
-
-Ripgrep binary resolution is documented authoritatively in `FILE_INCLUSION.md`
-("Ripgrep Binary Selection", verified against 2.1.165). The memoised resolver returns
-`{ mode, command, args, argv0? }` with two modes: `embedded` (the packaged-native default —
-re-execs the host process as ripgrep with `args: ["--no-config"]`, `argv0: "rg"`) and `system`
-(a real `rg` on PATH, `args: []`, selected when `USE_BUILTIN_RIPGREP` is disabled
-(`0`/`false`/`no`/`off`) or the build is not native). The older `--ripgrep` re-exec flag and the
-vendored `vendor/ripgrep/{arch}-{platform}/rg` fallback shown in earlier builds are gone as of
-2.1.165.
-
-Process Spawning (Lines 40911, 40916):
-```javascript
-[source fragment removed]
-```
-
-Error Handling: Uses same infrastructure as Bash tool, should throw `cN` (ShellError) on ripgrep failures.
-
-Tool Description (Lines 372740-372748):
-```javascript
-[source fragment removed]
-```
-
-#### 3. MCP Tools Pattern
-Identification (Line 419871): MCP tools are flagged in telemetry
-```javascript
-[source fragment removed]
-```
-
-Recommended Pattern: MCP tools should follow the same ShellError pattern when spawning processes:
-```javascript
-[source fragment removed]
-```
-
-### File-Based Tools
-
-These tools perform direct file system operations and do not throw errors during execution. They only have validation failures during `validateInput()` phase.
-
-#### Error Pattern Differences:
-- Process Tools: Throw `cN` (ShellError) with rich context -> PostToolUse hooks can receive error details
-- File Tools: Return validation objects -> No execution errors -> PostToolUse hooks never fire on failures
-
-Current Impact: Only process-based tools can benefit from enhanced PostToolUse error handling.
-
-## ShellError (`cN`) Class Implementation
-
-Location: Lines 341631-341644
-```javascript
-[source fragment removed]
-```
-
-Design Purpose:
-- Custom Claude Code implementation (not Node.js built-in)
-- Structured error capture - Node.js child_process only provides separate streams and events
-- Single object containing complete process execution context
-- Hook-friendly - all error information available in one place
-
-## Error Size and Safety Controls
-
-### Error Message Formatting (`SM0` function) - Lines 419963-419983
-```javascript
-[source fragment removed]
-```
-
-Safety Features:
-- 10KB limit on error messages
-- Intelligent truncation preserves beginning and end of large errors
-- Automatic formatting handles different error types
-- No memory issues even with massive stderr output
-
-## PostToolUse Hook Enhancement Strategy
-
-### Current Limitation (Lines 419864-419895)
-```javascript
-[source fragment removed]
-```
-
-### Enhanced Error Context Capture with tool_execution Property
-```javascript
-[source fragment removed]
-```
-
-### Enhanced Hook Schema Examples
-
-Successful jq tool:
-```json
-{
-  "tool_response": {
-    "type": "json",
-    "result": {"name": "John", "age": 30}
-  },
-  "tool_execution": {
-    "success": true,
-    "duration_ms": 142
-  }
-}
-```
-
-Failed jq tool:
 ```json
 {
   "tool_response": null,
   "tool_execution": {
     "success": false,
     "duration_ms": 234,
-    "error_message": "Shell command failed: parse error: Invalid JSON...",
+    "error_message": "Shell command failed: …",
     "error_type": "ShellError",
-    "details": {
-      "stdout": "",
-      "stderr": "jq: parse error: Invalid JSON at line 1, column 5",
-      "exitCode": 5,
-      "interrupted": false
-    }
+    "details": { "stdout": "", "stderr": "…", "exitCode": 5, "interrupted": false }
   }
 }
 ```
 
-Failed grep tool:
-```json
-{
-  "tool_response": null,
-  "tool_execution": {
-    "success": false,
-    "duration_ms": 89,
-    "error_message": "Shell command failed: No such file or directory",
-    "error_type": "ShellError",
-    "details": {
-      "stdout": "",
-      "stderr": "rg: /nonexistent/path: No such file or directory",
-      "exitCode": 2,
-      "interrupted": false
-    }
-  }
-}
-```
+To implement, re-locate the join points by stable anchors rather than line numbers: the PreToolUse
+and PostToolUse runners (grep `PreToolUse` / `PostToolUse` near the tool-use pipeline), the per-tool
+dispatch catch (grep the `<tool_use_error>` emission), and the ShellError class (grep
+`Shell command failed`).
 
-Failed Read tool (validation error):
-```json
-{
-  "tool_response": null,
-  "tool_execution": {
-    "success": false,
-    "duration_ms": 0,
-    "error_message": "File does not exist.",
-    "error_type": "InputValidationError",
-    "details": {
-      "error_code": 2
-    }
-  }
-}
-```
+## Tripwire checklist (re-verify on a new version)
 
-Generic JavaScript error:
-```json
-{
-  "tool_response": null,
-  "tool_execution": {
-    "success": false,
-    "duration_ms": 156,
-    "error_message": "TypeError: Cannot read property 'foo' of undefined",
-    "error_type": "TypeError",
-    "details": {
-      "stack": "TypeError: Cannot read property 'foo' of undefined\n    at toolFunction..."
-    }
-  }
-}
-```
+□ two tiers: Zod schema then per-tool `validateInput`; both short-circuit via `<tool_use_error>`
+□ Read validates `pages`; existence/size/empty-image are not Read `validateInput` branches
+□ permission-deny message is `…denied by your permission settings.` (not "ignored by your project
+  configuration")
+□ Edit failures all carry `behavior: "ask"`
+□ Write blocks subagent `REPORT|SUMMARY|FINDINGS|ANALYSIS*.md` writes
+□ ShellError carries `stdout/stderr/code/interrupted/hadSandboxViolation`, message
+  `Shell command failed`
+□ error formatter caps at 10 KB with first-5000 / last-5000 truncation
 
-## Implementation Benefits
+## Per-release notes
 
-1. Complete Process Context: Captures all stdout, stderr, exit codes from external commands
-2. Tool Agnostic: Works for any tool that uses ShellError pattern (Bash, Grep, MCP tools)
-3. Size Safe: Leverages existing 10KB limiting with intelligent truncation
-4. Backward Compatible: Existing PostToolUse hooks continue working unchanged
-5. Structured Data: Clean separation of core error info and tool-specific details
-6. Minimal Implementation: Reuses all existing error handling infrastructure
-
-This enhancement enables PostToolUse hooks to receive rich error context from any process-based tool failure while maintaining all existing safety measures and compatibility.
+- 2.1.165: behavioral model above verified. Versus earlier builds: the "ignored directory" reason
+  (string `File is in a directory that is ignored by your project configuration.`) was replaced by a
+  permission-deny reason; Read's `validateInput` dropped the empty-image reason (string
+  `Empty image files cannot be processed.` is gone) and the in-validate size check, and added PDF
+  `pages` validation (codes 7/8) and a device-file reason (code 9); Edit added too-large (1 GiB
+  limit), Perforce read-only, worktree/background isolation, and content-guard reasons, and now marks
+  all failures `behavior: "ask"`; Write added a subagent report-file block, Perforce read-only,
+  isolation, and content-guard reasons; ShellError gained the `hadSandboxViolation` field.
