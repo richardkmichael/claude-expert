@@ -9,9 +9,10 @@ the durable contract. Per-release changes are in the appendix.
 Claude Code persists conversation state as JSONL (newline-delimited JSON): one self-contained JSON
 object per line, terminated by `\n`. There is no official schema. A companion JSON Schema
 (Draft 2020-12) lives at [`schemas/transcript.schema.json`](schemas/transcript.schema.json); it is
-evolved from a large corpus of real transcripts across many Claude Code versions by
-`bin/generate-transcript-schema.py`, and is the machine-readable counterpart to this prose model.
-For token-usage attribution from these records, see `MONITORING_USAGE.md`.
+cross-checked against a large corpus of real transcripts across many Claude Code versions
+(`bin/generate-transcript-schema.py` regenerates that observed-coverage view), and is the
+machine-readable counterpart to this prose model. For token-usage attribution from these records,
+see `MONITORING_USAGE.md`.
 
 ## Re-location recipes
 
@@ -77,6 +78,8 @@ read.
 | `gitBranch`         | string or undefined     | Current git branch                                   |
 | `agentId`           | string or undefined     | Agent ID for subagent transcripts                    |
 | `slug`              | string or undefined     | Human-readable session slug                          |
+| `entrypoint`        | string or undefined     | Originating client (`cli`, `sdk-cli`, `sdk-py`, `claude-desktop`, `claude-vscode`) |
+| `forkedFrom`        | object or undefined     | Source session/message this conversation was forked from |
 
 ## Conversation record types
 
@@ -90,7 +93,7 @@ Re-locate by grepping the record carrying `isCompactSummary` and `toolUseResult`
 | `uuid`                      | string               | UUIDv4                                                      |
 | `timestamp`                 | string               | ISO 8601                                                    |
 | `message.role`              | `"user"`             | Always "user"                                               |
-| `message.content`           | string or array      | Plain string for human turns; array of `tool_result` and/or `text` blocks |
+| `message.content`           | string or array      | Plain string for human turns; or array of `tool_result`, `text`, `image`, `document` blocks |
 | `isMeta`                    | boolean or undefined | True for injected meta-messages                             |
 | `isVisibleInTranscriptOnly` | boolean or undefined | Display-only message                                        |
 | `isCompactSummary`          | boolean or undefined | True when this is a compaction summary                      |
@@ -99,15 +102,21 @@ Re-locate by grepping the record carrying `isCompactSummary` and `toolUseResult`
 | `mcpMeta`                   | object or undefined  | MCP-related metadata                                        |
 | `imagePasteIds`             | array or undefined   | IDs of pasted images                                        |
 | `sourceToolAssistantUUID`   | string or undefined  | UUID of the assistant record that issued the tool call      |
-| `permissionMode`            | string or undefined  | e.g. `"plan"`, `"default"`                                  |
+| `sourceToolUseID`           | string or undefined  | Tool use ID that produced this result                       |
+| `interruptedMessageId`      | string or undefined  | Message ID interrupted by this turn                         |
+| `permissionMode`            | string or undefined  | Permission mode (`default`/`acceptEdits`/`bypassPermissions`/`plan`/`dontAsk`/`auto`) |
+| `planContent`               | string or undefined  | Plan text when submitted from plan mode                     |
+| `promptSource`              | string or undefined  | How the prompt was entered (`typed`, `queued`, `system`)    |
+| `promptId`                  | string or undefined  | Identifier for the originating prompt                       |
+| `origin`                    | object or undefined  | Prompt origin metadata                                      |
 | `thinkingMetadata`          | object or undefined  | Contains `maxThinkingTokens` when thinking is active        |
 | `todos`                     | array or undefined   | Todo list state snapshot                                    |
 
-When `message.content` is an array (tool results), each block is
-`{ type: "tool_result", tool_use_id: string, content: string, is_error?: boolean }`. The
-`toolUseResult` field is either an object with tool-specific fields (commonly `stdout`, `stderr`,
-`interrupted`, `isImage`; Grep adds `mode`, `numFiles`, `filenames`, `content`, `numLines`), a plain
-string (error output), or an array of content blocks (e.g. web-search text).
+When `message.content` is an array, each block is one of: `tool_result`
+(`{ type, tool_use_id, content, is_error? }`), `text`, `image` (base64 source), or `document`
+(base64 source, e.g. a pasted PDF). The `toolUseResult` field is either an object with tool-specific
+fields (commonly `stdout`, `stderr`, `interrupted`, `isImage`; Grep adds `mode`, `numFiles`,
+`filenames`, `content`, `numLines`), a plain string (error output), or an array of content blocks.
 
 ### `assistant` — model response
 
@@ -120,13 +129,18 @@ Re-locate by grepping the record carrying `requestId` and `isApiErrorMessage`.
 | `timestamp`                  | string              | ISO 8601                                          |
 | `requestId`                  | string or undefined | Anthropic API request ID                          |
 | `apiError`                   | object or undefined | API error details                                 |
+| `apiErrorStatus`             | int or undefined    | HTTP status of an API error (e.g. 429, 529)       |
 | `error`                      | object or undefined | General error                                     |
 | `isApiErrorMessage`          | boolean             | Whether this record represents an API error       |
+| `attributionSkill`           | string or undefined | Skill credited with this turn's work              |
+| `attributionPlugin`          | string or undefined | Plugin credited with this turn's work             |
+| `attributionMcpServer`       | string or undefined | MCP server credited with this turn's work         |
+| `attributionMcpTool`         | string or undefined | MCP tool credited with this turn's work           |
 | `message.id`                 | string              | Anthropic message ID (e.g. `msg_01…`)             |
 | `message.model`              | string              | Model ID (e.g. `"claude-opus-4-8"`)               |
 | `message.role`               | `"assistant"`       | Always "assistant"                                |
 | `message.type`               | `"message"`         | Always "message"                                  |
-| `message.stop_reason`        | string or null      | `"end_turn"`, `"stop_sequence"`, `"tool_use"`, or null (streaming) |
+| `message.stop_reason`        | string or null      | `end_turn`, `stop_sequence`, `tool_use`, `max_tokens`, `refusal`, or null (streaming) |
 | `message.stop_sequence`      | string              | The stop sequence if applicable                   |
 | `message.container`          | null                | Reserved                                          |
 | `message.context_management` | null                | Reserved                                          |
@@ -191,7 +205,8 @@ Re-locate by grepping the record whose payload is keyed by `attachment` and disc
 | `timestamp`  | string         | ISO 8601                                      |
 | `attachment` | object         | Payload, discriminated by `attachment.type`  |
 
-Observed `attachment.type` values (grep each literal to confirm in a given version):
+`attachment.type` is an open set; the schema treats it as a string. Observed values (grep each
+literal to confirm in a given version):
 
 | Subtype                       | Category      |
 |-------------------------------|---------------|
@@ -226,8 +241,8 @@ Observed `attachment.type` values (grep each literal to confirm in a given versi
 ### `system` — system events
 
 Common fields: `type` (`"system"`), `subtype`, `uuid`, `timestamp`, optional `level` (`"info"` /
-`"error"` / `"suggestion"`), `isMeta` (true), `content` (human-readable). Subtypes and their extra
-fields:
+`"error"` / `"suggestion"` / `"warning"`), `isMeta` (true), `content` (human-readable). Subtypes and
+their extra fields:
 
 `compact_boundary` — `compactMetadata.trigger`, `compactMetadata.preTokens`,
 `compactMetadata.userContext?`, `compactMetadata.messagesSummarized?`, plus `logicalParentUuid?`.
@@ -235,13 +250,24 @@ fields:
 `microcompact_boundary` — `microcompactMetadata.trigger`, `.preTokens`, `.tokensSaved`,
 `.compactedToolIds` (string[]), `.clearedAttachmentUUIDs` (string[]).
 
-`local_command` — `content` carries the command output text.
+`local_command` — `content` carries the command output text; `hasOutput`, `toolUseID`.
 
 `api_error` — `cause?`, `error`, `retryInMs`, `retryAttempt`, `maxRetries`.
 
-`stop_hook_summary` — summary of stop-hook execution.
+`stop_hook_summary` — `hookInfos`, `hookCount`, `hookErrors`, `stopReason`, `preventedContinuation`,
+`pendingWorkflowCount`, `pendingBackgroundAgentCount`.
 
-`turn_duration` — turn timing metrics; fields vary, `level`/`content` may be absent.
+`turn_duration` — turn timing metrics: `durationMs`, `messageCount`; `level`/`content` may be
+absent.
+
+`away_summary` — summary written while the user is away.
+
+`bridge_status` — bridge (remote-control) connection status.
+
+`scheduled_task_fire` — a scheduled task / cron fired.
+
+`informational` — informational notice (e.g. mode explainers, "Args from unknown skill"); carries
+`content`, often `level`, and sometimes `url` / `upgradeNudge`.
 
 ## Metadata-only record types
 
@@ -250,22 +276,28 @@ Written directly (append), not wrapped with envelope fields; all carry `sessionI
 
 | Record type             | Shape                                                                          |
 |-------------------------|--------------------------------------------------------------------------------|
-| `custom-title`          | `{ type, customTitle, sessionId }`                                             |
+| `custom-title`          | `{ type, customTitle, sessionId }` — user-set title                            |
+| `ai-title`              | `{ type, aiTitle, sessionId }` — auto-generated title (distinct from `custom-title`) |
 | `tag`                   | `{ type, tag, sessionId }`                                                     |
 | `agent-name`            | `{ type, agentName, sessionId }`                                               |
 | `agent-color`           | `{ type, agentColor, sessionId }`                                              |
 | `agent-setting`         | `{ type, agentSetting, sessionId }`                                            |
 | `mode`                  | `{ type, mode, sessionId }`                                                    |
+| `permission-mode`       | `{ type, permissionMode, sessionId }` — active permission mode (distinct from `mode`) |
 | `pr-link`               | `{ type, sessionId, prNumber, prUrl, prRepository, timestamp }`                |
 | `summary`              | `{ type, summary, leafUuid }` — written at session end, keyed by `leafUuid`     |
+| `last-prompt`           | `{ type, sessionId, lastPrompt?, leafUuid? }` — most recent prompt              |
 | `file-history-snapshot` | `{ type, messageId, snapshot, isSnapshotUpdate }`                              |
 | `attribution-snapshot`  | `{ type, messageId, …otherFields }`                                            |
 | `queue-operation`       | `{ type, operation, timestamp, sessionId, content? }`                          |
 | `speculation-accept`    | `{ type, timestamp, timeSavedMs }`                                             |
+| `bridge-session`        | `{ type, sessionId, bridgeSessionId, lastSequenceNum }`                        |
+| `worktree-state`        | `{ type, sessionId, worktreeSession }` — `worktreeSession` is an object or null |
 
 The `file-history-snapshot` `snapshot` object contains `messageId`, `trackedFileBackups` (file path
 → backup data), and `timestamp`. `queue-operation` operations are `"enqueue"`, `"dequeue"`,
-`"remove"`, `"popAll"`.
+`"remove"`, `"popAll"`. The `worktree-state` `worktreeSession` object carries `originalCwd`,
+`worktreePath`, `worktreeName`, `worktreeBranch`, `originalBranch`.
 
 ## JSONL parser
 
@@ -334,12 +366,14 @@ MCP debug entry: `{ debug, timestamp, sessionId, cwd }`. MCP error entry:
 
 ## Per-release appendix
 
-- 2.1.165: verified. Record-type inventory, metadata-only record types, system subtypes, and
-  envelope fields all confirmed present. The big-file partial-load env var is
-  `CLAUDE_CODE_DISABLE_PRECOMPACT_SKIP` (default skips pre-compaction content; the var forces a full
-  load) — renamed and inverted from the earlier `CLAUDE_CODE_SKIP_PRECOMPACT_LOAD`. The
-  `hook_additional_context` attachment subtype persists, but the prior
-  `CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT` gate is no longer present under that name.
-- The companion `schemas/transcript.schema.json` is data-evolved across many versions (run
-  `bin/generate-transcript-schema.py`); field-level detail here is cross-checked against that
-  corpus and the 2.1.165 structure.
+- 2.1.165: verified, and the companion schema refreshed to `x-schema-version` 1.2.0 (validated with
+  zero failures against the local transcript corpus, observed range 2.0.27–2.1.167). Record types
+  added since the earlier inventory: `ai-title`, `last-prompt`, `permission-mode`, `bridge-session`,
+  `worktree-state`. System subtypes added: `away_summary`, `bridge_status`, `scheduled_task_fire`,
+  `informational`. Envelope gained `entrypoint` and `forkedFrom`. `assistant` `stop_reason` gained
+  `max_tokens` and `refusal`; `system` `level` gained `warning`; `user` content gained `document`
+  blocks.
+- The big-file partial-load env var is `CLAUDE_CODE_DISABLE_PRECOMPACT_SKIP` (default skips
+  pre-compaction content; the var forces a full load) — renamed and inverted from the earlier
+  `CLAUDE_CODE_SKIP_PRECOMPACT_LOAD`. The `hook_additional_context` attachment subtype persists, but
+  the prior `CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT` gate is no longer present under that name.
