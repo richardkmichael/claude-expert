@@ -4,7 +4,7 @@ Source: `cli.prettier.js` 2.1.143 (`work/2.1.143/package/cli.prettier.js`)
 
 This document is intended to serve as a specification for formatter and linter tooling targeting
 Claude Code's Markdown configuration files.  A machine-readable JSON Schema derived from this
-specification lives at [`schemas/claude-code-frontmatter.schema.json`](./schemas/claude-code-frontmatter.schema.json);
+specification lives at [`schemas/frontmatter.schema.json`](./schemas/frontmatter.schema.json);
 see [`schemas/README.md`](./schemas/README.md) for editor and CI wiring.
 
 ---

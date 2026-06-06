@@ -1,0 +1,600 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/local/claude-code-analysis/main/analysis/schemas/frontmatter.schema.json",
+  "title": "Claude Code Markdown Frontmatter",
+  "description": "Validates the YAML frontmatter of Claude Code Markdown configuration files (agents, skills, output styles, memory). Verified against cli.prettier.js 2.1.143. See analysis/MARKDOWN_FRONTMATTER.md for narrative documentation. Use #/$defs/Agent, #/$defs/Skill, #/$defs/OutputStyle, or #/$defs/Memory as the entry point per file type.",
+  "$defs": {
+    "ModelAlias": {
+      "description": "Model identifier. One of the documented aliases, the literal 'inherit', or a full Claude model ID (e.g. 'claude-sonnet-4-6').",
+      "type": "string",
+      "minLength": 1,
+      "anyOf": [
+        {
+          "enum": [
+            "sonnet",
+            "opus",
+            "haiku",
+            "best",
+            "sonnet[1m]",
+            "opus[1m]",
+            "opusplan",
+            "inherit"
+          ]
+        },
+        {
+          "pattern": "^claude-"
+        }
+      ]
+    },
+    "Effort": {
+      "description": "Thinking effort: a named preset or a positive-integer token budget.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": ["low", "medium", "high", "xhigh", "max"]
+        },
+        {
+          "type": "integer",
+          "minimum": 0
+        }
+      ]
+    },
+    "PermissionMode": {
+      "type": "string",
+      "enum": [
+        "acceptEdits",
+        "auto",
+        "bypassPermissions",
+        "default",
+        "dontAsk",
+        "plan"
+      ]
+    },
+    "AgentColor": {
+      "type": "string",
+      "enum": [
+        "red",
+        "blue",
+        "green",
+        "yellow",
+        "purple",
+        "orange",
+        "pink",
+        "cyan"
+      ]
+    },
+    "MemoryScope": {
+      "type": "string",
+      "enum": ["user", "project", "local"]
+    },
+    "Isolation": {
+      "type": "string",
+      "enum": ["worktree"]
+    },
+    "ShellInterpreter": {
+      "type": "string",
+      "enum": ["bash", "powershell"]
+    },
+    "BooleanLike": {
+      "description": "Boolean value. Accepts native booleans or their string forms 'true' / 'false'.",
+      "oneOf": [
+        { "type": "boolean" },
+        { "type": "string", "enum": ["true", "false"] }
+      ]
+    },
+    "ToolList": {
+      "description": "A single tool name, a YAML list of tool names, or the wildcard '*' meaning all tools.",
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      ]
+    },
+    "PathsGlob": {
+      "description": "Comma-separated glob patterns. Brace expansion ({a,b}) is supported. A trailing '/**' is stripped. A bare '**' is treated as no scoping.",
+      "type": "string"
+    },
+
+    "HookEvent": {
+      "type": "string",
+      "enum": [
+        "PreToolUse",
+        "PostToolUse",
+        "PostToolUseFailure",
+        "PostToolBatch",
+        "Notification",
+        "UserPromptSubmit",
+        "UserPromptExpansion",
+        "SessionStart",
+        "SessionEnd",
+        "Stop",
+        "StopFailure",
+        "SubagentStart",
+        "SubagentStop",
+        "PreCompact",
+        "PostCompact",
+        "PermissionRequest",
+        "PermissionDenied",
+        "Setup",
+        "TeammateIdle",
+        "TaskCreated",
+        "TaskCompleted",
+        "Elicitation",
+        "ElicitationResult",
+        "ConfigChange",
+        "WorktreeCreate",
+        "WorktreeRemove",
+        "InstructionsLoaded",
+        "CwdChanged",
+        "FileChanged"
+      ]
+    },
+    "CommandHook": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "command"],
+      "properties": {
+        "type": { "const": "command" },
+        "command": { "type": "string", "minLength": 1 },
+        "args": {
+          "description": "Argument list for exec form. When present, 'command' is spawned directly without a shell.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "if": {
+          "description": "Permission-rule filter (e.g. 'Bash(git *)'). Hook runs only when the tool call matches.",
+          "type": "string"
+        },
+        "shell": { "$ref": "#/$defs/ShellInterpreter" },
+        "timeout": { "type": "number", "exclusiveMinimum": 0 },
+        "statusMessage": { "type": "string" },
+        "once": { "type": "boolean" },
+        "async": { "type": "boolean" },
+        "asyncRewake": {
+          "description": "If true, hook runs in background and wakes the model on exit code 2. Implies async.",
+          "type": "boolean"
+        },
+        "rewakeMessage": { "type": "string", "minLength": 1 },
+        "rewakeSummary": { "type": "string", "minLength": 1 }
+      }
+    },
+    "PromptHook": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "prompt"],
+      "properties": {
+        "type": { "const": "prompt" },
+        "prompt": { "type": "string" },
+        "if": { "type": "string" },
+        "timeout": { "type": "number", "exclusiveMinimum": 0 },
+        "model": { "type": "string" },
+        "continueOnBlock": { "type": "boolean" },
+        "statusMessage": { "type": "string" },
+        "once": { "type": "boolean" }
+      }
+    },
+    "HttpHook": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "url"],
+      "properties": {
+        "type": { "const": "http" },
+        "url": { "type": "string", "format": "uri" },
+        "if": { "type": "string" },
+        "timeout": { "type": "number", "exclusiveMinimum": 0 },
+        "headers": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "allowedEnvVars": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "statusMessage": { "type": "string" },
+        "once": { "type": "boolean" }
+      }
+    },
+    "AgentHook": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "prompt"],
+      "properties": {
+        "type": { "const": "agent" },
+        "prompt": { "type": "string" },
+        "if": { "type": "string" },
+        "timeout": { "type": "number", "exclusiveMinimum": 0 },
+        "model": { "type": "string" },
+        "statusMessage": { "type": "string" },
+        "once": { "type": "boolean" }
+      }
+    },
+    "McpToolHook": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "server", "tool"],
+      "properties": {
+        "type": { "const": "mcp_tool" },
+        "server": { "type": "string" },
+        "tool": { "type": "string" },
+        "input": {
+          "description": "Arguments passed to the MCP tool. String values support ${path} interpolation from the hook input JSON.",
+          "type": "object"
+        },
+        "if": { "type": "string" },
+        "timeout": { "type": "number", "exclusiveMinimum": 0 },
+        "statusMessage": { "type": "string" },
+        "once": { "type": "boolean" }
+      }
+    },
+    "Hook": {
+      "description": "A single hook entry, discriminated by 'type'.",
+      "oneOf": [
+        { "$ref": "#/$defs/CommandHook" },
+        { "$ref": "#/$defs/PromptHook" },
+        { "$ref": "#/$defs/HttpHook" },
+        { "$ref": "#/$defs/AgentHook" },
+        { "$ref": "#/$defs/McpToolHook" }
+      ]
+    },
+    "HookMatcher": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hooks"],
+      "properties": {
+        "matcher": {
+          "description": "String pattern to match. Tool name ('Bash'), pipe-separated list ('Edit|Write'), or empty/absent to match all.",
+          "type": "string"
+        },
+        "hooks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Hook" }
+        }
+      }
+    },
+    "Hooks": {
+      "description": "Hook registrations, keyed by event name. Values are arrays of matcher groups.",
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/HookEvent" },
+      "additionalProperties": {
+        "type": "array",
+        "items": { "$ref": "#/$defs/HookMatcher" }
+      }
+    },
+
+    "McpRole": {
+      "description": "Role marker. Only 'comms' is recognised.",
+      "type": "string",
+      "enum": ["comms"]
+    },
+    "McpOAuth": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "clientId": { "type": "string" },
+        "callbackPort": { "type": "integer", "exclusiveMinimum": 0 },
+        "authServerMetadataUrl": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://"
+        },
+        "scopes": { "type": "string", "minLength": 1 },
+        "xaa": { "type": "boolean" }
+      }
+    },
+    "McpServerStdio": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command"],
+      "properties": {
+        "type": { "const": "stdio" },
+        "command": { "type": "string", "minLength": 1 },
+        "args": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "alwaysLoad": { "type": "boolean" },
+        "role": { "$ref": "#/$defs/McpRole" }
+      }
+    },
+    "McpServerSse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "url"],
+      "properties": {
+        "type": { "const": "sse" },
+        "url": { "type": "string" },
+        "headers": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "headersHelper": { "type": "string" },
+        "oauth": { "$ref": "#/$defs/McpOAuth" },
+        "alwaysLoad": { "type": "boolean" },
+        "role": { "$ref": "#/$defs/McpRole" }
+      }
+    },
+    "McpServerSseIde": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "url", "ideName"],
+      "properties": {
+        "type": { "const": "sse-ide" },
+        "url": { "type": "string" },
+        "ideName": { "type": "string" },
+        "ideRunningInWindows": { "type": "boolean" },
+        "alwaysLoad": { "type": "boolean" },
+        "role": { "$ref": "#/$defs/McpRole" }
+      }
+    },
+    "McpServerWsIde": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "url", "ideName"],
+      "properties": {
+        "type": { "const": "ws-ide" },
+        "url": { "type": "string" },
+        "ideName": { "type": "string" },
+        "authToken": { "type": "string" },
+        "ideRunningInWindows": { "type": "boolean" },
+        "alwaysLoad": { "type": "boolean" },
+        "role": { "$ref": "#/$defs/McpRole" }
+      }
+    },
+    "McpServerHttp": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "url"],
+      "properties": {
+        "type": {
+          "description": "'streamable-http' is accepted and normalised to 'http' at load time.",
+          "type": "string",
+          "enum": ["http", "streamable-http"]
+        },
+        "url": { "type": "string" },
+        "headers": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "headersHelper": { "type": "string" },
+        "oauth": { "$ref": "#/$defs/McpOAuth" },
+        "alwaysLoad": { "type": "boolean" },
+        "role": { "$ref": "#/$defs/McpRole" }
+      }
+    },
+    "McpServerWs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "url"],
+      "properties": {
+        "type": { "const": "ws" },
+        "url": { "type": "string" },
+        "headers": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "headersHelper": { "type": "string" },
+        "alwaysLoad": { "type": "boolean" },
+        "role": { "$ref": "#/$defs/McpRole" }
+      }
+    },
+    "McpServerSdk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "name"],
+      "properties": {
+        "type": { "const": "sdk" },
+        "name": { "type": "string" },
+        "alwaysLoad": { "type": "boolean" }
+      }
+    },
+    "McpServerClaudeAiProxy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "url", "id"],
+      "properties": {
+        "type": { "const": "claudeai-proxy" },
+        "url": { "type": "string" },
+        "id": { "type": "string" },
+        "alwaysLoad": { "type": "boolean" },
+        "toolPermissions": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "enum": ["allow", "ask", "blocked"]
+          }
+        }
+      }
+    },
+    "McpServer": {
+      "description": "A single MCP server definition.",
+      "oneOf": [
+        { "$ref": "#/$defs/McpServerStdio" },
+        { "$ref": "#/$defs/McpServerSse" },
+        { "$ref": "#/$defs/McpServerSseIde" },
+        { "$ref": "#/$defs/McpServerWsIde" },
+        { "$ref": "#/$defs/McpServerHttp" },
+        { "$ref": "#/$defs/McpServerWs" },
+        { "$ref": "#/$defs/McpServerSdk" },
+        { "$ref": "#/$defs/McpServerClaudeAiProxy" }
+      ]
+    },
+    "AgentMcpServerEntry": {
+      "description": "Either a string reference to a named MCP server, or a one-key map from server name to server config.",
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/McpServer" },
+          "minProperties": 1
+        }
+      ]
+    },
+
+    "Agent": {
+      "type": "object",
+      "title": "Agent frontmatter (.claude/agents/*.md)",
+      "description": "Frontmatter schema for agent definition files. Required fields: name, description.",
+      "additionalProperties": false,
+      "required": ["name", "description"],
+      "properties": {
+        "name": {
+          "description": "Agent identifier (becomes agentType). Required.",
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "description": "When-to-use text shown in the Agent tool listing. Literal '\\n' escapes are expanded to real newlines. Required.",
+          "type": "string",
+          "minLength": 1
+        },
+        "model": { "$ref": "#/$defs/ModelAlias" },
+        "tools": { "$ref": "#/$defs/ToolList" },
+        "disallowedTools": { "$ref": "#/$defs/ToolList" },
+        "color": { "$ref": "#/$defs/AgentColor" },
+        "effort": { "$ref": "#/$defs/Effort" },
+        "permissionMode": { "$ref": "#/$defs/PermissionMode" },
+        "mcpServers": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/AgentMcpServerEntry" }
+        },
+        "hooks": { "$ref": "#/$defs/Hooks" },
+        "maxTurns": { "type": "integer", "minimum": 1 },
+        "skills": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "initialPrompt": {
+          "description": "Auto-submitted first message when this agent runs as the main session. Ignored for subagent spawns.",
+          "type": "string"
+        },
+        "memory": { "$ref": "#/$defs/MemoryScope" },
+        "background": { "$ref": "#/$defs/BooleanLike" },
+        "isolation": { "$ref": "#/$defs/Isolation" }
+      }
+    },
+
+    "Skill": {
+      "type": "object",
+      "title": "Skill frontmatter (.claude/skills/<name>/SKILL.md)",
+      "description": "Frontmatter schema for skill definition files. All fields are optional; the skill's identifier is the containing directory name.",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "Display name override. Defaults to the directory name.",
+          "type": ["string", "number", "boolean", "null"]
+        },
+        "description": {
+          "description": "One-line summary shown in skill listings.",
+          "type": ["string", "number", "boolean"]
+        },
+        "model": { "$ref": "#/$defs/ModelAlias" },
+        "allowed-tools": { "$ref": "#/$defs/ToolList" },
+        "argument-hint": {
+          "description": "Short hint shown after the slash command name. Coerced to string.",
+          "type": ["string", "number", "boolean", "null"]
+        },
+        "arguments": {
+          "description": "Named argument slots. String is split on whitespace; arrays keep non-empty, non-numeric strings only.",
+          "oneOf": [
+            { "type": "string" },
+            {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          ]
+        },
+        "disable-model-invocation": { "$ref": "#/$defs/BooleanLike" },
+        "user-invocable": { "$ref": "#/$defs/BooleanLike" },
+        "effort": { "$ref": "#/$defs/Effort" },
+        "shell": { "$ref": "#/$defs/ShellInterpreter" },
+        "version": {
+          "description": "Version string. Passed through; not validated.",
+          "type": ["string", "number", "boolean", "null"]
+        },
+        "when_to_use": {
+          "description": "Guidance for when the model should reach for this skill. Note the underscore, not a hyphen.",
+          "type": "string"
+        },
+        "paths": { "$ref": "#/$defs/PathsGlob" },
+        "hooks": { "$ref": "#/$defs/Hooks" },
+        "context": {
+          "description": "Execution context. 'fork' spawns a subagent; 'inline' (or absent) expands into the current conversation.",
+          "type": ["string", "null"],
+          "enum": ["fork", "inline", null]
+        },
+        "agent": {
+          "description": "Agent type to spawn when context: fork.",
+          "type": "string"
+        },
+        "fallback": {
+          "description": "@internal — if true, yields to a same-suffix plugin or MCP skill when one is loaded.",
+          "$ref": "#/$defs/BooleanLike"
+        },
+        "created_by": {
+          "description": "@internal — provenance marker (e.g. 'dream-proposal').",
+          "type": "string"
+        },
+        "improved_by": {
+          "description": "@internal — provenance marker (e.g. 'dream-proposal').",
+          "type": "string"
+        },
+        "mcpServers": { "description": "@internal — reserved for plugin tooling.", "type": ["object", "array", "null"] },
+        "lspServers": { "description": "@internal — reserved for plugin tooling.", "type": ["object", "array", "null"] },
+        "agents": { "description": "@internal — reserved for plugin tooling.", "type": ["object", "array", "null"] },
+        "outputStyles": { "description": "@internal — reserved for plugin tooling.", "type": ["object", "array", "null"] },
+        "themes": { "description": "@internal — reserved for plugin tooling.", "type": ["object", "array", "null"] },
+        "workflows": { "description": "@internal — reserved for plugin tooling.", "type": ["object", "array", "null"] },
+        "channels": { "description": "@internal — reserved for plugin tooling.", "type": ["object", "array", "null"] },
+        "monitors": { "description": "@internal — reserved for plugin tooling.", "type": ["object", "array", "null"] },
+        "settings": { "description": "@internal — reserved for plugin tooling.", "type": ["object", "array", "null"] },
+        "experimental": { "description": "@internal — reserved for plugin tooling.", "type": ["object", "array", "null"] },
+        "dependencies": { "description": "@internal — reserved for plugin tooling.", "type": ["object", "array", "null"] },
+        "metadata": { "description": "@internal — reserved for plugin tooling.", "type": ["object", "array", "null"] }
+      }
+    },
+
+    "OutputStyle": {
+      "type": "object",
+      "title": "Output style frontmatter (.claude/output-styles/*.md)",
+      "description": "Frontmatter schema for output style definition files. All fields are optional.",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "Display name. Defaults to the filename without '.md'.",
+          "type": ["string", "number", "boolean", "null"]
+        },
+        "description": {
+          "description": "Shown in the /output-style picker.",
+          "type": ["string", "number", "boolean"]
+        },
+        "keep-coding-instructions": {
+          "description": "If true, the default coding instructions stay in the system prompt alongside this style.",
+          "$ref": "#/$defs/BooleanLike"
+        },
+        "force-for-plugin": {
+          "description": "@internal — only meaningful for plugin-bundled styles; warn-and-ignored for user styles.",
+          "type": ["boolean", "string", "number", "null"]
+        }
+      }
+    },
+
+    "Memory": {
+      "type": "object",
+      "title": "Memory file frontmatter (CLAUDE.md, memory/*.md)",
+      "description": "Frontmatter schema for CLAUDE.md and memory files. Only 'paths' is read; other keys are ignored at load time.",
+      "properties": {
+        "paths": { "$ref": "#/$defs/PathsGlob" }
+      }
+    }
+  },
+
+  "$comment": "This document is a schema library, not a single-shot validator. Memory is intentionally permissive and matches every object, so a top-level oneOf cannot discriminate between file types. Tooling must select the appropriate $defs entry by file path. See analysis/schemas/README.md for editor configuration snippets.",
+
+  "type": "object"
+}
