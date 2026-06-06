@@ -3,8 +3,12 @@
 Evolve the Claude Code session transcript JSON schema from real JSONL data.
 
 Reads JSONL files from ~/.claude/projects/, samples across Claude Code versions
-for coverage, and updates the schema with newly observed record types, fields,
-enum values, and type widenings.
+for coverage, and reports newly observed record types, fields, enum values, and
+type widenings against the current schema. The record-type and enum-field maps
+are derived from the schema itself (no hardcoded lists to drift). With --apply it
+appends new enum values, bumps x-schema-version, and updates x-claude-code
+coverage; new record types and fields are reported for source-authoritative
+review (required/optional, full enum domains, descriptions), not auto-written.
 
 Usage:
     # Dry run (default): show what would change
@@ -34,40 +38,55 @@ from pathlib import Path
 
 SCHEMA_PATH = Path(__file__).parent.parent / "analysis" / "schemas" / "transcript.schema.json"
 
-# Fields in the schema that use enums (dotted paths from record root)
-ENUM_FIELDS = {
-    "system": {
-        "subtype": "$defs/systemRecord/properties/subtype",
-        "level": "$defs/systemRecord/properties/level",
-    },
-    "attachment": {
-        "attachment.type": "$defs/attachmentRecord/properties/attachment/properties/type",
-    },
-    "queue-operation": {
-        "operation": "$defs/queueOperationRecord/properties/operation",
-    },
-}
+def derive_type_to_def(schema):
+    """Map each record `type` const to its $defs name, read from the schema.
 
-# Map from record type to the $defs name
-TYPE_TO_DEF = {
-    "user": "userRecord",
-    "assistant": "assistantRecord",
-    "progress": "progressRecord",
-    "attachment": "attachmentRecord",
-    "system": "systemRecord",
-    "custom-title": "customTitleRecord",
-    "tag": "tagRecord",
-    "agent-name": "agentNameRecord",
-    "agent-color": "agentColorRecord",
-    "agent-setting": "agentSettingRecord",
-    "mode": "modeRecord",
-    "pr-link": "prLinkRecord",
-    "summary": "summaryRecord",
-    "file-history-snapshot": "fileHistorySnapshotRecord",
-    "attribution-snapshot": "attributionSnapshotRecord",
-    "queue-operation": "queueOperationRecord",
-    "speculation-accept": "speculationAcceptRecord",
-}
+    Avoids a hardcoded list that drifts as record types are added."""
+    out = {}
+    for defname, defn in schema.get("$defs", {}).items():
+        if not isinstance(defn, dict):
+            continue
+        const = defn.get("properties", {}).get("type", {}).get("const")
+        if isinstance(const, str):
+            out[const] = defname
+    return out
+
+
+def derive_enum_fields(schema, type_to_def):
+    """For each record type, find its enum-valued fields by walking the $def.
+
+    Returns {record_type: {dotted_data_key: schema_enum_path}}. Handles enums
+    declared inline on a property and enums reached through a one-level $ref to a
+    shared $def (e.g. permissionMode). Nested object properties (e.g. message.*)
+    are followed so dotted keys like "message.stop_reason" resolve. A field that
+    is no longer an enum (e.g. attachment.type) simply isn't discovered."""
+    defs = schema.get("$defs", {})
+
+    def walk(node_props, data_prefix, schema_prefix, acc):
+        for prop, sub in node_props.items():
+            if not isinstance(sub, dict):
+                continue
+            data_key = data_prefix + prop
+            ref = sub.get("$ref")
+            if ref and ref.startswith("#/$defs/"):
+                target = defs.get(ref.split("/")[-1], {})
+                if isinstance(target, dict) and "enum" in target:
+                    acc[data_key] = ref[2:]  # "#/$defs/permissionMode" -> "$defs/permissionMode"
+                continue
+            if "enum" in sub:
+                acc[data_key] = schema_prefix + "/properties/" + prop
+                continue
+            if sub.get("type") == "object" and isinstance(sub.get("properties"), dict):
+                walk(sub["properties"], data_key + ".", schema_prefix + "/properties/" + prop, acc)
+
+    out = {}
+    for rtype, defname in type_to_def.items():
+        props = defs.get(defname, {}).get("properties", {})
+        acc = {}
+        walk(props, "", "$defs/" + defname, acc)
+        if acc:
+            out[rtype] = acc
+    return out
 
 
 def json_type_of(value):
@@ -162,7 +181,7 @@ def get_dotted(record, dotted_key):
     return obj
 
 
-def collect_observations(files):
+def collect_observations(files, enum_fields):
     """Read selected JSONL files and collect observations about the data shape."""
     obs = {
         "record_types": set(),
@@ -199,8 +218,8 @@ def collect_observations(files):
                     obs["versions"].add(v)
 
                 # Collect enum field values
-                if rtype in ENUM_FIELDS:
-                    for dotted_key in ENUM_FIELDS[rtype]:
+                if rtype in enum_fields:
+                    for dotted_key in enum_fields[rtype]:
                         val = get_dotted(rec, dotted_key)
                         if val is not None:
                             obs["enum_values"][rtype][dotted_key].add(val)
@@ -225,12 +244,12 @@ def resolve_schema_path(schema, dotted_path):
     return node
 
 
-def compute_changes(schema, obs):
+def compute_changes(schema, obs, type_to_def, enum_fields):
     """Compare observations against the current schema and compute changes needed."""
     changes = []
 
     # 1. New record types not in schema
-    known_types = set(TYPE_TO_DEF.keys())
+    known_types = set(type_to_def.keys())
     new_types = obs["record_types"] - known_types
     for t in sorted(new_types):
         fields = obs["field_types"].get(t, {})
@@ -244,10 +263,10 @@ def compute_changes(schema, obs):
 
     # 2. New enum values
     for rtype, field_map in obs["enum_values"].items():
-        if rtype not in ENUM_FIELDS:
+        if rtype not in enum_fields:
             continue
         for dotted_key, observed_values in field_map.items():
-            schema_path = ENUM_FIELDS[rtype][dotted_key]
+            schema_path = enum_fields[rtype][dotted_key]
             node = resolve_schema_path(schema, schema_path)
             current_enum = set(node.get("enum", []))
             new_values = observed_values - current_enum
@@ -309,8 +328,10 @@ def apply_enum_changes(schema, changes):
         node = resolve_schema_path(schema, change["schema_path"])
         if "enum" in node:
             for val in change["new_values"]:
-                node["enum"].append(val)
-            node["enum"].sort()
+                if val not in node["enum"]:
+                    node["enum"].append(val)
+            # Tolerate null in an enum (e.g. stop_reason); avoid None/str compare.
+            node["enum"].sort(key=lambda x: (x is None, str(x)))
             modified = True
     return modified
 
@@ -338,25 +359,18 @@ def apply_version_bump(schema, changes):
     return new_version
 
 
-def apply_comment(schema, changes):
-    """Update the $comment with the schema version and validation coverage."""
-    ver_min = ver_max = "?"
-    ver_count = 0
-    lines = 0
+def apply_coverage(schema, changes):
+    """Update x-claude-code.validated-min/max from the observed version range.
 
+    Leaves $comment and x-claude-code.analyzed untouched: the version lives only
+    in x-schema-version, and `analyzed` records the source version a human/LLM
+    verified against, which this script does not read."""
     for change in changes:
         if change["kind"] == "version_range":
-            ver_min = change["min"]
-            ver_max = change["max"]
-            ver_count = change["count"]
-        if change["kind"] == "stats":
-            lines = change["lines"]
-
-    schema["$comment"] = (
-        f"Schema version {schema.get('x-schema-version', '?')}. "
-        f"Validated against {lines:,}+ lines spanning "
-        f"Claude Code versions {ver_min} through {ver_max} ({ver_count} versions)."
-    )
+            xcc = schema.setdefault("x-claude-code", {})
+            xcc["validated-min"] = change["min"]
+            xcc["validated-max"] = change["max"]
+            return
 
 
 def main():
@@ -395,6 +409,9 @@ def main():
     with open(schema_path) as f:
         schema = json.load(f)
 
+    type_to_def = derive_type_to_def(schema)
+    enum_fields = derive_enum_fields(schema, type_to_def)
+
     print(f"Schema: {schema_path}")
     print(f"  x-schema-version: {schema.get('x-schema-version', '(none)')}")
     print()
@@ -417,7 +434,7 @@ def main():
 
     # Collect observations
     print("Collecting observations from JSONL data...")
-    obs = collect_observations(selected)
+    obs = collect_observations(selected, enum_fields)
     print(f"  {obs['lines']:,} lines across {obs['files']} files")
     print(f"  {len(obs['record_types'])} record types, {len(obs['versions'])} versions")
     if obs["parse_errors"]:
@@ -471,7 +488,7 @@ def main():
         print()
 
     # Compute changes
-    changes = compute_changes(schema, obs)
+    changes = compute_changes(schema, obs, type_to_def, enum_fields)
 
     actionable = [c for c in changes if c["kind"] in ("new_record_type", "new_enum_values")]
 
@@ -501,7 +518,7 @@ def main():
             apply_enum_changes(schema, changes)
 
         new_version = apply_version_bump(schema, changes)
-        apply_comment(schema, changes)
+        apply_coverage(schema, changes)
 
         with open(schema_path, "w") as f:
             json.dump(schema, f, indent=2)
