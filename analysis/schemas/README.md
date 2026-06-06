@@ -1,8 +1,15 @@
-# Claude Code Frontmatter JSON Schemas
+# Claude Code JSON Schemas
 
-JSON Schema (Draft 2020-12) for the YAML frontmatter in Claude Code's Markdown configuration
-files.  Derived from the analysis in `analysis/MARKDOWN_FRONTMATTER.md`; verified against
-`cli.prettier.js` 2.1.143.
+JSON Schema (Draft 2020-12) definitions derived from the `analysis/` documentation, for validating
+Claude Code's own files. Two schemas live here:
+
+| Schema file               | Validates                                         | Derived from                       |
+| ------------------------- | ------------------------------------------------- | ---------------------------------- |
+| `frontmatter.schema.json` | YAML frontmatter in Markdown config files         | `analysis/MARKDOWN_FRONTMATTER.md` |
+| `transcript.schema.json`  | One JSON object per session-transcript JSONL line | `analysis/SESSION_TRANSCRIPT.md`   |
+
+The frontmatter schema (covered first below) is verified against `cli.prettier.js` 2.1.143; the
+transcript schema is described under "Transcript schema" at the end.
 
 `frontmatter.schema.json` is a schema library, not a single-shot validator.  The
 four file types must be selected explicitly because Memory is intentionally permissive and
@@ -135,3 +142,25 @@ When `cli.prettier.js` changes, re-verify against the new version using the work
 - Permission modes: `Tv`/`vjq`
 - Effort enum: `Yg`
 - Model aliases: `YqH`
+
+## Transcript schema
+
+`transcript.schema.json` validates a single line of a Claude Code session transcript JSONL file
+(`~/.claude/projects/<encoded-cwd>/<sessionId>.jsonl`). The top level is a `oneOf` over every record
+type (`user`, `assistant`, `progress`, `attachment`, `system`, and the metadata-only records), with
+shared `$defs` for the envelope, content blocks, and the usage object. It carries an
+`x-schema-version` (semver). Behavioral reference: `analysis/SESSION_TRANSCRIPT.md`.
+
+Unlike the frontmatter schema, this one is evolved from real data rather than hand-written from a
+single bundle read. `bin/generate-transcript-schema.py` samples JSONL files from
+`~/.claude/projects/` across Claude Code versions and folds in newly observed record types, fields,
+and enum values, bumping `x-schema-version` (minor for a new record type, patch for new enum values
+only).
+
+```bash
+# dry run (show what would change)
+uv run --with jsonschema python3 bin/generate-transcript-schema.py
+
+# apply changes to transcript.schema.json
+uv run --with jsonschema python3 bin/generate-transcript-schema.py --apply
+```

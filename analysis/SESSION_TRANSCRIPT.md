@@ -7,7 +7,7 @@ Each line is a self-contained JSON object terminated by `\n`.
 There is no official schema; this document is derived from source code analysis.
 
 A JSON Schema (draft 2020-12) is provided at
-[claude-code-session-transcript.schema.json](claude-code-session-transcript.schema.json),
+[transcript.schema.json](schemas/transcript.schema.json),
 validated against 248,000+ lines across 493 sessions spanning 61 Claude Code versions
 (2.0.24 through 2.1.68).
 

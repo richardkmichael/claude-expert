@@ -19,7 +19,7 @@ attribution recipe. It cross-references the field-level references that already 
 
 | Topic                                              | Lives in                          |
 |----------------------------------------------------|-----------------------------------|
-| `message.usage` field reference (per-message)      | `JSONL_TRANSCRIPT_FORMAT.md`      |
+| `message.usage` field reference (per-message)      | `SESSION_TRANSCRIPT.md`      |
 | statusLine `context_window` input object           | `PROMPTS_RENDERED.md`             |
 | `compactMetadata.preTokens`, microcompact tokens   | `CLEAR_COMPACT_FORK_CONTEXT.md`   |
 | Session-memory background billing                  | `SESSION_MEMORY_AND_SUMMARY.md`   |
@@ -31,7 +31,7 @@ attribution recipe. It cross-references the field-level references that already 
 Every assistant message record in the transcript JSONL carries a `message.usage` object with
 `input_tokens`, `output_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens`, and the
 `cache_creation.ephemeral_1h_input_tokens` / `ephemeral_5m_input_tokens` breakdown. Field reference:
-`JSONL_TRANSCRIPT_FORMAT.md`.
+`SESSION_TRANSCRIPT.md`.
 
 The canonical "tokens for one usage object" sum used throughout the product is the four-term total:
 

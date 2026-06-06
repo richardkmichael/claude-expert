@@ -8,16 +8,16 @@ enum values, and type widenings.
 
 Usage:
     # Dry run (default): show what would change
-    uv run --with jsonschema python3 analysis/claude_exp-evolve-schema.py
+    uv run --with jsonschema python3 bin/generate-transcript-schema.py
 
     # Apply changes to the schema file
-    uv run --with jsonschema python3 analysis/claude_exp-evolve-schema.py --apply
+    uv run --with jsonschema python3 bin/generate-transcript-schema.py --apply
 
     # Scan a specific directory instead of ~/.claude/projects/
-    uv run --with jsonschema python3 analysis/claude_exp-evolve-schema.py --projects-dir /path/to/dir
+    uv run --with jsonschema python3 bin/generate-transcript-schema.py --projects-dir /path/to/dir
 
     # Limit to N files per version (default: 10)
-    uv run --with jsonschema python3 analysis/claude_exp-evolve-schema.py --per-version 5
+    uv run --with jsonschema python3 bin/generate-transcript-schema.py --per-version 5
 
 Version bumping (x-schema-version, semver):
     - New record types found:   minor bump (e.g. 1.0.0 -> 1.1.0)
@@ -32,7 +32,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-SCHEMA_PATH = Path(__file__).parent / "claude-code-session-transcript.schema.json"
+SCHEMA_PATH = Path(__file__).parent.parent / "analysis" / "schemas" / "transcript.schema.json"
 
 # Fields in the schema that use enums (dotted paths from record root)
 ENUM_FIELDS = {
