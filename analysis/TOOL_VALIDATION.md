@@ -178,10 +178,15 @@ Error Information Available:
 - `H.interrupted`: Boolean indicating if process was killed/interrupted
 
 #### 2. Grep/Search Tool (Ripgrep)
-Configuration (Lines 348249-348269):
-```javascript
-[source fragment removed]
-```
+
+Ripgrep binary resolution is documented authoritatively in `FILE_INCLUSION.md`
+("Ripgrep Binary Selection", verified against 2.1.165). The memoised resolver returns
+`{ mode, command, args, argv0? }` with two modes: `embedded` (the packaged-native default —
+re-execs the host process as ripgrep with `args: ["--no-config"]`, `argv0: "rg"`) and `system`
+(a real `rg` on PATH, `args: []`, selected when `USE_BUILTIN_RIPGREP` is disabled
+(`0`/`false`/`no`/`off`) or the build is not native). The older `--ripgrep` re-exec flag and the
+vendored `vendor/ripgrep/{arch}-{platform}/rg` fallback shown in earlier builds are gone as of
+2.1.165.
 
 Process Spawning (Lines 40911, 40916):
 ```javascript
