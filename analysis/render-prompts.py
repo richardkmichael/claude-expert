@@ -11,8 +11,10 @@ noise.
 Heuristic (best-effort, not a full prompt assembly): for each anchor we locate the string/template
 literal that contains it. In "literal" mode we emit that literal as-is. In "function" mode (used when
 the anchor is a short heading living in an array of sibling literals, e.g. ["# System", *bullets]) we
-emit every literal in the enclosing builder function. "auto" picks literal for multi-line/long
-literals, else function. Template ${...} placeholders are preserved verbatim. The result captures the
+emit every literal in the enclosing builder function. "array" mode emits the contiguous run of
+sibling string literals around the anchor (an array of bullet strings, where consecutive literals are
+separated only by a comma). "auto" picks literal for multi-line/long literals, else function.
+Template ${...} placeholders are preserved verbatim. The result captures the
 section's full wording for diffing; it does not reproduce join/formatting logic or evaluate
 conditionals.
 
@@ -61,9 +63,17 @@ ANCHORS = [
     ("Dynamic — Context management", "# Context management", "literal"),
     ("Dynamic — Focus mode", "# Focus mode", "literal"),
     ("Dynamic — Reproduce/verify workflow", "Work step by step:", "literal"),
+    ("Subagent — Explore", "You are a file search specialist for Claude Code", "literal"),
+    ("Subagent — general-purpose", "You are an agent for Claude Code, Anthropic's official CLI for Claude.", "literal"),
+    ("Subagent — Plan", "You are a software architect and planning specialist for Claude Code", "literal"),
+    ("Subagent — statusline-setup", "You are a status line setup agent for Claude Code", "literal"),
+    ("Subagent — claude-code-guide (static base)", "You are the Claude guide agent.", "literal"),
+    ("Subagent — claude (background job)", "This session is a background job. The user may be live or away", "literal"),
+    ("Subagent — worker (coordinator)", "You are a worker agent executing a task assigned by the coordinator.", "literal"),
     ("Bash tool — terse description", "Executes a bash command and returns its output.", "function"),
     ("Bash tool — legacy description", "Executes a given bash command and returns its output.", "function"),
     ("Bash tool — # Git block", "Interactive flags (`-i`, e.g. `git rebase -i`", "literal"),
+    ("Bash tool — For git commands (legacy)", "Prefer to create a new commit rather than amending an existing commit", "array"),
     ("Git workflow — commit & PR", "# Committing changes with git", "literal"),
     ("Context injection — wrapper", "As you answer the user's questions, you can use the following context:", "literal"),
     ("Context injection — CLAUDE.md", "Codebase and user instructions are shown below", "literal"),
@@ -272,6 +282,21 @@ def extract(src, literals, cooked, fn_tokens, fn_starts, needle, mode):
         mode = "literal" if ("\n" in text or len(text) > 200) else "function"
     if mode == "literal":
         return text, lit[0], "literal"
+    if mode == "array":
+        # The needle can also appear inside an unrelated template (e.g. the same rule rendered as a
+        # markdown bullet elsewhere); target the standalone string-literal bullet so the
+        # comma-separated sibling walk stays within the intended array.
+        aidx = next((k for k, t in enumerate(cooked)
+                     if literals[k][2] == "string" and t.strip().startswith(needle)), None)
+        if aidx is None:
+            return None
+        lo = hi = aidx
+        while lo > 0 and src[literals[lo - 1][1]:literals[lo][0]].strip() == ",":
+            lo -= 1
+        while hi + 1 < len(literals) and src[literals[hi][1]:literals[hi + 1][0]].strip() == ",":
+            hi += 1
+        parts = [cooked[k] for k in range(lo, hi + 1)]
+        return "\n".join(parts), literals[lo][0], "array"
     # function mode: emit all literals in the enclosing builder function.
     p = bisect.bisect_right(fn_starts, lit[0]) - 1
     prev_fn = fn_starts[p] if p >= 0 else 0
