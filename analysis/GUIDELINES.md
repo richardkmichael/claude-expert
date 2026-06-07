@@ -3,10 +3,9 @@
 How to document findings from exploring the Claude Code bundle so the docs survive version bumps
 without constant rewriting.
 
-Status: trial, expanding. These guidelines govern the prompt-related documents — `PROMPTS.md`,
-`PROMPTS_RENDERED.md`, `GIT_USAGE.md` — and now also `BASH_TOOL_EXECUTION.md`, `FILE_INCLUSION.md`,
-`TOOL_VALIDATION.md`, `HOOKS.md`, `TASK_TOOL_AND_SUBAGENTS.md`, and `MONITORING_USAGE.md`. If the
-approach keeps holding up across releases, adopt it for the rest of `analysis/`.
+Status: trial, expanding. The landmark style is the target for all of `analysis/`. `README.md` (the
+index) marks which docs already follow it (Style `landmark`) and which still need retrofitting (Style
+`legacy`); convert legacy docs as you touch them rather than maintaining a separate list here.
 
 ## The problem
 
@@ -96,3 +95,31 @@ script plus a regenerated snapshot over hand-copying.
 - `PROMPTS_RENDERED.md` — generated verbatim snapshot (see above). Never edited by hand.
 - `GIT_USAGE.md` — behavioral deep-dive on git instructions; retrofit toward this style as the
   trial proceeds.
+
+## Version stamping
+
+Every findings doc starts with one line recording the bundle it was last checked against:
+
+    Verified against: cli.prettier.js <version> (<YYYY-MM-DD>)
+
+This makes the staleness check mechanical: compare the stamp to the latest local version
+(`ls work/ | sort -V | tail -1`). The stamp is a per-release fact — bump it whenever you re-verify,
+even if no wording changed. Mirror the version into the doc's row in `README.md`.
+
+## Updating an existing doc
+
+When source behavior has changed, or a doc trails the latest bundle:
+
+1. Relocate the behavior in the current bundle using the doc's landmark strings (and the Key
+   landmarks column in `README.md`). If a landmark string itself changed, that is a finding — record
+   the old and new strings.
+2. Rewrite only the claims that actually changed, in landmark style. Leave correct evergreen prose
+   alone; the goal is minimal, truthful drift, not a rewrite for its own sake.
+3. If the section you touched was legacy style (line numbers, pasted minified code), retrofit it to
+   landmark anchors while you are there. Don't leave a doc half-migrated with fresh line numbers.
+4. Restamp `Verified against:` and bump the Verified column in `README.md`, in the same commit.
+5. Record genuinely new per-release facts in the doc's dated appendix, one line each.
+6. Commit with `(analysis:<version>) short description`.
+
+The tripwire checklists (technique 4 above) make step 1 cheap: a future reader runs the checks
+against a new bundle and drift surfaces as a failed check instead of silent rot.
