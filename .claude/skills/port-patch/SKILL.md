@@ -9,7 +9,7 @@ Ports an existing patch to a new Claude Code version. The minified source
 changes completely between versions (different function/variable names,
 different line numbers) but the underlying structure is preserved.
 
-Read PATCH_METHODOLOGY.md first — it is the authoritative reference for the
+Read patches/PATCH_METHODOLOGY.md first — it is the authoritative reference for the
 full workflow. This skill adds operational guardrails specific to porting.
 
 # Invocation

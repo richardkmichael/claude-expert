@@ -99,8 +99,8 @@ Style legend:
 
 - `schemas/` — JSON Schemas for Claude Code's own files (frontmatter, transcript) derived from the
   docs above; see `schemas/README.md`.
-- `../patches/README.md` and `../PATCH_METHODOLOGY.md` — the patch corpus and how to regenerate
-  patches for a new version.
+- `../patches/README.md` and `../patches/PATCH_METHODOLOGY.md` — the patch corpus and how to
+  regenerate patches for a new version.
 - `../mcp/README.md` — the expert server that turns this repo into an `ask_claude_code_expert` tool.
 
 ## Maintaining this index
