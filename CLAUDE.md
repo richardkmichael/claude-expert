@@ -23,7 +23,7 @@ these docs automatically, so keeping them current is part of the work.
    behind that, treat its version-specific specifics as suspect and re-check them.
 
 3. Research the bundle. Grep the doc's landmark strings to relocate the behavior; use the
-   `code-intel` MCP for structure-aware navigation and `analysis/render-prompts.py` for prompt
+   `code-intel` MCP for structure-aware navigation and `bin/render-prompts.py` for prompt
    text. App and library code are interleaved in the bun-compiled bundle, so anchor on
    app-specific strings (`tengu_*`, prompt literals, tool names, `CLAUDE_CODE_*` env vars) — these
    do not appear inside third-party libraries.
@@ -56,7 +56,7 @@ Full methodology, including the version-stamp and update procedure: `analysis/GU
 - `code-intel` MCP — structure-aware navigation of the bundle (configured in `.mcp.json`).
 - `anthropic-docs` / `claude-code-docs` MCP — the published docs, for the "is this still current?"
   check.
-- `analysis/render-prompts.py <version>` — regenerates `analysis/PROMPTS_RENDERED.md` verbatim from
+- `bin/render-prompts.py <version>` — regenerates `analysis/PROMPTS_RENDERED.md` verbatim from
   a bundle.
 - `bin/generate-transcript-schema.py` — evolves `analysis/schemas/transcript.schema.json` from real
   session JSONL under `~/.claude/projects/`.

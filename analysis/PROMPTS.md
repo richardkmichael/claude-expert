@@ -142,7 +142,7 @@ for the two blocks.
 `PROMPTS_RENDERED.md` is generated, not hand-written. After preparing a new version:
 
 ```
-python3 analysis/render-prompts.py <version>
+python3 bin/render-prompts.py <version>
 ```
 
 Anchors live in the `ANCHORS` list at the top of `render-prompts.py`; a `NOT FOUND` report means a

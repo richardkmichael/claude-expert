@@ -67,13 +67,13 @@ for anyway. Minified names are the worst.
 Verbatim prompt text is both the highest-signal thing to diff across versions and the most
 expensive to maintain by hand. Generate it instead.
 
-`analysis/render-prompts.py` extracts rendered prompt blocks from any
+`bin/render-prompts.py` extracts rendered prompt blocks from any
 `work/<version>/package/cli.prettier.js` by anchoring on stable literal strings (see the `ANCHORS`
 list at the top of the script), and writes `analysis/PROMPTS_RENDERED.md`. Regenerate with:
 
 ```
-python3 analysis/render-prompts.py <version>      # writes PROMPTS_RENDERED.md
-python3 analysis/render-prompts.py <version> --stdout
+python3 bin/render-prompts.py <version>      # writes PROMPTS_RENDERED.md
+python3 bin/render-prompts.py <version> --stdout
 ```
 
 The script is a deliberate heuristic, not a prompt evaluator: it emits the verbatim
