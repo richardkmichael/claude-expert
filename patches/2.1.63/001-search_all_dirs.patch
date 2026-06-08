@@ -1,0 +1,77 @@
+diff --git a/work/2.1.63/package/cli.prettier.js b/work/2.1.63/package/cli.prettier.js
+index aedc105..c5cc33c 100755
+--- a/work/2.1.63/package/cli.prettier.js
++++ b/work/2.1.63/package/cli.prettier.js
+@@ -457150,6 +457150,34 @@ async function YeY(A, q) {
+     _
+   );
+ }
++async function getAdditionalDirFiles(A, q, K) {
++  y(`[FileIndex] getAdditionalDirFiles called for ${K}, respectGitignore=${q}`);
++  let Y = Date.now();
++  try {
++    let z = await Z7(
++      eA(),
++      ["-c", "core.quotepath=false", "ls-files", "--recurse-submodules"],
++      { timeout: 5000, abortSignal: A, cwd: K },
++    );
++    if (z.code === 0) {
++      let w = z.stdout
++            .trim()
++            .split(`\n`)
++            .filter(Boolean)
++            .map((H) => WJ.relative(y1(), WJ.join(K, H))),
++          $ = Date.now() - Y;
++      return (y(`[FileIndex] additional dir git ls-files: ${w.length} files in ${$}ms`), w);
++    }
++    y(`[FileIndex] additional dir git ls-files failed (code=${z.code}), falling back to ripgrep`);
++  } catch (z) {
++    y(`[FileIndex] additional dir git ls-files error: ${z}, falling back to ripgrep`);
++  }
++  let _ = ["--files", "--follow", "--hidden", "--glob", "!.git/"];
++  if (!q) _.push("--no-ignore-vcs");
++  let w = (await Lu(_, K, A)).map((H) => WJ.relative(y1(), H)),
++    $ = Date.now() - Y;
++  return (y(`[FileIndex] additional dir ripgrep: ${w.length} files in ${$}ms`), w);
++}
+ async function zeY() {
+   let A = AbortSignal.timeout(1e4);
+   try {
+@@ -457157,8 +457185,13 @@ async function zeY() {
+       K = k1(),
+       Y = q.respectGitignore ?? K.respectGitignore ?? !0,
+       z = y1(),
+-      [w, _] = await Promise.all([YeY(A, Y), KeY(z)]),
+-      $ = [...w, ..._],
++      extraDirs = mT(),
++      [w, _, ...extraResults] = await Promise.all([
++        YeY(A, Y),
++        KeY(z),
++        ...extraDirs.map((dir) => getAdditionalDirFiles(A, Y, dir)),
++      ]),
++      $ = [...w, ...extraResults.flat(), ..._],
+       H = [...Sg8($), ...$],
+       j = [],
+       J = await ttY();
+@@ -457166,11 +457199,7 @@ async function zeY() {
+       try {
+         J.loadFromFileList(H);
+       } catch (D) {
+-        (y(
+-          `[FileIndex] Failed to load Rust index, using Fuse.js fallback: ${D instanceof Error ? D.message : String(D)}`,
+-        ),
+-          $6(D),
+-          (j = H));
++        j = H;
+       }
+     else j = H;
+     return { fileIndex: J, fileList: j };
+@@ -457302,7 +457331,7 @@ async function $eY() {
+ async function w5q(A, q = !1) {
+   if (!A && !q) return [];
+   if (U7().fileSuggestion?.type === "command") {
+-    let Y = { ...U$(), query: A };
++    let Y = { ...U$(), query: A, additional_dirs: mT() };
+     return (await hg8(Y)).slice(0, rT6).map(nl6);
+   }
+   if (A === "" || A === "." || A === "./") {
