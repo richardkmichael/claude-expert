@@ -94,7 +94,6 @@ Style legend:
 | -------------------------- | -------------------------------------------------------------- | -------- | ----------- |
 | `GUIDELINES.md`            | How to write and update analysis docs (authoritative)          | 2.1.154  | methodology |
 | `ANALYSIS_IMPROVEMENTS.md` | ast-grep structural search techniques                          | 2.1.76   | methodology |
-| `ANALYSIS.md`              | Older chunk-based analysis spec; superseded by `GUIDELINES.md` | 2.1.76   | methodology |
 
 ## Related material outside analysis/
 
