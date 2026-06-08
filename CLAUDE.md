@@ -69,6 +69,6 @@ Full methodology, including the version-stamp and update procedure: `analysis/GU
 - `analysis/README.md` — index of all findings docs. Start here.
 - `analysis/GUIDELINES.md` — how to write and update analysis docs.
 - `analysis/schemas/` — JSON Schemas for Claude Code's own files (frontmatter, transcript).
-- `patches/` — patch corpus, with `README.md` (per-patch semantics) and `PATCH_METHODOLOGY.md`
-  (per-version regeneration workflow).
+- `patches/README.md` — patch corpus index: the per-patch catalog (`PATCHES.md`) and the
+  regeneration workflow (`METHODOLOGY.md`).
 - `work/<version>/package/cli.prettier.js` — the prettified sources, one dir per version.

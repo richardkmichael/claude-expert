@@ -9,7 +9,7 @@ Ports an existing patch to a new Claude Code version. The minified source
 changes completely between versions (different function/variable names,
 different line numbers) but the underlying structure is preserved.
 
-Read patches/PATCH_METHODOLOGY.md first — it is the authoritative reference for the
+Read patches/METHODOLOGY.md first — it is the authoritative reference for the
 full workflow. This skill adds operational guardrails specific to porting.
 
 # Invocation
@@ -28,7 +28,7 @@ Parse the arguments to determine:
 
 Find the most recent previous version of the named patch by scanning
 `patches/<prev-version>/<name>.patch`. Read it and the corresponding entry
-in `patches/README.md` for semantic context.
+in `patches/PATCHES.md` for semantic context.
 
 # Prerequisites
 
@@ -106,7 +106,7 @@ git diff -- work/<version>/package/cli.prettier.js \
 
 Verify the patch is non-empty and contains the expected hunks.
 
-## 6. Update patches/README.md
+## 6. Update patches/PATCHES.md
 
 Add an entry for the new patch under the target version's section. Include:
 - Patch filename and purpose

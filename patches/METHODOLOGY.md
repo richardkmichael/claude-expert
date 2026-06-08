@@ -33,7 +33,7 @@ If the MCP code-intel tools are unavailable, STOP IMMEDIATELY and inform the use
 
 Examine patches from the most recent previous version to understand the semantic changes made.
 
-**Essential**: Read the comprehensive semantic documentation in `patches/README.md` which contains:
+**Essential**: Read the comprehensive semantic documentation in `patches/PATCHES.md` which contains:
 - Detailed purpose and intent of each patch
 - Original code behavior vs. patched behavior
 - Critical design decisions and trade-offs

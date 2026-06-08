@@ -63,9 +63,9 @@ Prepare the requested version source code to generate new patches.
 }
 ```
 
-2. Follow @patches/PATCH_METHODOLOGY.md to create patches in `patches/{REQUESTED_VERSION}/`
+2. Follow @patches/METHODOLOGY.md to create patches in `patches/{REQUESTED_VERSION}/`
 
-**CRITICAL**: patches/PATCH_METHODOLOGY.md is documentation to follow, NOT code to analyze with`mcp-code-intel`
+**CRITICAL**: patches/METHODOLOGY.md is documentation to follow, NOT code to analyze with`mcp-code-intel`
 tools. Use the `Read` tool for .md files,`mcp-code-intel` tools only for .js files.
 
 
