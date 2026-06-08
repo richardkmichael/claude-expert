@@ -69,6 +69,11 @@ refuses to write a file that is a symlink — silently, as far as the user can t
 approvals and any other local/project settings change are dropped, the change lives only in the
 in-memory UI, and it is lost on restart. User settings (`~/.claude/settings.json`) are exempt.
 
+This refusal was introduced in 2.1.138 (bisected: 2.1.137 lacks it, 2.1.138 has it). Through 2.1.137 the
+writer took no `allowSymlink` option and unconditionally `readlink`ed the target and wrote the real file,
+logging `Writing through symlink` — so a symlinked `settings.local.json` was written through for every
+scope.
+
 Relocate: `rg -n 'Refusing to write through symlink|Refusing to write into symlinked directory|Writing through symlink'`.
 
 The guarded writer takes options `allowSymlink` and `checkParentDir`, set by scope:
