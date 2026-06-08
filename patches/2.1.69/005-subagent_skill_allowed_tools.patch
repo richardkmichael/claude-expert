@@ -1,0 +1,15 @@
+diff --git a/work/2.1.69/package/cli.prettier.js b/work/2.1.69/package/cli.prettier.js
+index 9a282da..a7cdb79 100755
+--- a/work/2.1.69/package/cli.prettier.js
++++ b/work/2.1.69/package/cli.prettier.js
+@@ -405224,6 +405224,10 @@ async function* gS({
+       let T6 = y6(V6, z6.progressMessage);
+       V.push(Y8({ content: [{ type: "text", text: T6 }, ...t] }));
+     }
++    let Q6 = ti(H6.flatMap(({ skill: V6 }) => V6.allowedTools ?? []));
++    if (Q6.length > 0) {
++      m = f7z(m, Q6);
++    }
+   }
+   let {
+       clients: A6,
