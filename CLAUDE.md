@@ -22,7 +22,8 @@ these docs automatically, so keeping them current is part of the work.
 2. Pick the source. Use the latest local `work/<version>`. If the matching doc's Verified version is
    behind that, treat its version-specific specifics as suspect and re-check them.
 
-3. Research the bundle. Grep the doc's landmark strings to relocate the behavior; use the
+3. Research the bundle. Search the doc's landmark strings with `rg` (not `grep` — see Research
+   tooling) to relocate the behavior; use the
    `code-intel` MCP for structure-aware navigation and `bin/render-prompts.py` for prompt
    text. App and library code are interleaved in the bun-compiled bundle, so anchor on
    app-specific strings (`tengu_*`, prompt literals, tool names, `CLAUDE_CODE_*` env vars) — these
@@ -53,6 +54,11 @@ Full methodology, including the version-stamp and update procedure: `analysis/GU
 
 # Research tooling
 
+- Search the bundle with `rg`, never `grep`. In the Bash tool, `grep` is bundled `ugrep` dispatched
+  busybox-style from the `claude` binary itself (argv-switched — not installed on the machine, and it
+  presents only as `grep`, so you cannot detect it). It catastrophically backtracks on bounded
+  quantifier + alternation patterns (`[^"]{0,90}(a|b|c)…`) over the 25MB `cli.prettier.js` and hangs.
+  `rg` uses a DFA and stays fast — use it for every bundle scan; restrict `grep` to fixed strings (`-F`).
 - `code-intel` MCP — structure-aware navigation of the bundle (configured in `.mcp.json`).
 - `anthropic-docs` / `claude-code-docs` MCP — the published docs, for the "is this still current?"
   check.
