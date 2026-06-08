@@ -90,10 +90,10 @@ Style legend:
 
 ## Methodology (not findings)
 
-| Doc                        | Scope                                                          | Verified | Style       |
-| -------------------------- | -------------------------------------------------------------- | -------- | ----------- |
-| `GUIDELINES.md`            | How to write and update analysis docs (authoritative)          | 2.1.154  | methodology |
-| `ANALYSIS_IMPROVEMENTS.md` | ast-grep structural search techniques                          | 2.1.76   | methodology |
+| Doc                        | Scope                                                 | Verified | Style       |
+| -------------------------- | ----------------------------------------------------- | -------- | ----------- |
+| `GUIDELINES.md`            | How to write and update analysis docs (authoritative) | 2.1.154  | methodology |
+| `ANALYSIS_IMPROVEMENTS.md` | ast-grep structural search techniques                 | 2.1.76   | methodology |
 
 ## Related material outside analysis/
 
