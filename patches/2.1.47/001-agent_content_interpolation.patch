@@ -1,0 +1,67 @@
+diff --git a/2.1.47/package/cli.prettier.js b/2.1.47/package/cli.prettier.js
+--- a/2.1.47/package/cli.prettier.js
++++ b/2.1.47/package/cli.prettier.js
+@@ -261134,6 +261134,29 @@
+   bz();
+ });
+ import { join as Af9, basename as qf9 } from "path";
++function interpolateAgentContent(A) {
++  let { commit: q, pr: K } = $T1(),
++    Y = `  - When issuing multiple commands:
++    - If the commands are independent and can run in parallel, make multiple ${K4} tool calls in a single message. For example, if you need to run "git status" and "git diff", send a single message with two ${K4} tool calls in parallel.
++    - If the commands depend on each other and must run sequentially, use a single ${K4} call with '&&' to chain them together (e.g., \`git add . && git commit -m "message" && git push\`). For instance, if one operation must complete before another starts (like mkdir before cp, Write before Bash for git operations, or git add before git commit), run these operations sequentially instead.
++    - Use ';' only when you need to run commands sequentially but don't care if earlier commands fail
++    - DO NOT use newlines to separate commands (newlines are ok in quoted strings)`,
++    z = {
++      BASH_TOOL_NAME: K4,
++      GLOB_TOOL_NAME: ZY,
++      GREP_TOOL_NAME: z5,
++      READ_TOOL_NAME: Aq,
++      WEBFETCH_TOOL_NAME: dH,
++      WRITE_TOOL_NAME: l3,
++      EDIT_TOOL_NAME: xq,
++      TASK_TOOL_NAME: CK,
++      WEBSEARCH_TOOL_NAME: xL,
++      GIT_COMMAND_PARALLEL_NOTE: Y,
++      COMMIT_CO_AUTHORED_BY_CLAUDE_CODE: q,
++      PR_GENERATED_WITH_CLAUDE_CODE: K,
++    };
++  return A.replace(/\$\{([A-Z_]+)\}/g, (w, $) => z[$] ?? w);
++}
+ function YU7(A, q, K, Y) {
+   let z = [],
+     w = c6();
+@@ -261192,14 +261215,14 @@
+         if (PY() && v) {
+           let y = A36(j, v);
+           return (
+-            V +
++            interpolateAgentContent(V) +
+             `
+ 
+ ` +
+             y
+           );
+         }
+-        return V;
++        return interpolateAgentContent(V);
+       },
+       source: "plugin",
+       color: P,
+@@ -262378,14 +262401,14 @@
+         if (PY() && P) {
+           let n = A36(w, P);
+           return (
+-            U +
++            interpolateAgentContent(U) +
+             `
+ 
+ ` +
+             n
+           );
+         }
+-        return U;
++        return interpolateAgentContent(U);
+       },
+       source: z,
+       filename: y,
