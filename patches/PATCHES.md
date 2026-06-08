@@ -695,3 +695,54 @@ shortened.
 | `TASK_TOOL_NAME`                     | `CK`   | `JJ6`  |
 | `WEBSEARCH_TOOL_NAME`                | `xL`   | `Gk`   |
 | Memory append function               | `A36`  | `qY6`  |
+
+# Patch 8: Allow Symlinked Local Settings Writes
+
+## Purpose
+Re-enable writes to a symlinked `.claude/settings.local.json`, restoring the pre-2.1.138 behavior for the
+local scope only. Supports git-worktree workflows that share one `settings.local.json` across worktrees
+via a symlink to a workspace-level file.
+
+## Original Code Behavior
+Since 2.1.138 the settings writer refuses to write through a symlinked project or local settings file,
+throwing `SymlinkWriteRefusedError: Refusing to write through symlink: <path>`. The throw is swallowed to
+an `error`-level log, so the write silently fails — MCP approvals, "always allow" grants, and the startup
+migration write are all dropped. Only user settings (`~/.claude/settings.json`) are exempt. Full mechanism
+in `analysis/SETTINGS.md` ("Settings writes refuse symlinks").
+
+## Patch Implementation
+
+### Key change
+The writer sets `allowSymlink` per scope:
+
+    allowSymlink: H === "userSettings" || T
+
+The patch adds the local scope:
+
+    allowSymlink: H === "userSettings" || H === "localSettings" || T
+
+The writer only consults `checkParentDir` in the `allowSymlink === false` branch, so this also lets a
+symlinked `.claude` directory through for local-settings writes.
+
+### Scope: local only
+`projectSettings` (`.claude/settings.json`) stays guarded. Project settings are committed/team-shared, so
+a symlinked one is the more plausible attack vector; the local file is gitignored and not normally shipped
+in a repo. The change is the minimum needed for the worktree workflow.
+
+### Security note
+This re-opens a link-following write (CWE-59) for the local settings file: a repo shipping a symlinked
+`.claude/settings.local.json` could redirect a settings write outside the tree. Mitigate at the wrapper
+level by warning/aborting when a `settings.local.json` already exists that the wrapper did not create.
+
+## Relocation
+Anchor on the `Refusing to write through symlink` / `SymlinkWriteRefusedError` string and read up to the
+`allowSymlink:` / `checkParentDir:` option pair, or `rg -n 'allowSymlink: '`. The minified `H`/`T` names
+churn; the stable anchors are the `allowSymlink:` key and the scope strings `"userSettings"` /
+`"localSettings"`.
+
+## Apply (bun-era, not yet worked out)
+2.1.168 ships as a bun-compiled native binary (`// @bun @bytecode @bun-cjs`); `cli.prettier.js` is not
+runnable standalone. Applying to the running binary means injecting the equivalent edit into the binary's
+embedded cli.js (e.g. via `tweakcc`, the tool the prepare step uses to unpack it) and accounting for the
+`@bytecode` pragma so the modified JS actually executes. The `.patch` here targets
+`work/2.1.168/package/cli.prettier.js` for reference and the `verify/` flow.

@@ -1,0 +1,13 @@
+diff --git a/work/2.1.168/package/cli.prettier.js b/work/2.1.168/package/cli.prettier.js
+index 9c707a1..87a6a58 100755
+--- a/work/2.1.168/package/cli.prettier.js
++++ b/work/2.1.168/package/cli.prettier.js
+@@ -65996,7 +65996,7 @@ ${K.join(`
+ `,
+           {
+             encoding: "utf-8",
+-            allowSymlink: H === "userSettings" || T,
++            allowSymlink: H === "userSettings" || H === "localSettings" || T,
+             checkParentDir:
+               (H === "projectSettings" || H === "localSettings") && !T,
+           },
