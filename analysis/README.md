@@ -56,6 +56,7 @@ Style legend:
 | `CLEAR_COMPACT_FORK_CONTEXT.md` | /compact, /clear, /fork, /rewind record mechanics    | 2.1.76   | landmark | `compact_boundary`, `microcompact_boundary`, `forkedFrom`     |
 | `CONTEXT_OPS_DIAGRAMS.md`       | Diagrams: context ops as append-only JSONL           | unstated | landmark | `parentUuid`, `logicalParentUuid`, `forkedFrom`               |
 | `COMMAND_HISTORY.md`            | Input history file format and filtering              | 2.1.76   | landmark | `~/.claude/history.jsonl`, `sessionId`                        |
+| `BACKGROUND_SESSIONS_RESPAWN.md` | Background-session retire→wake flag/env preservation, respawn-state validation | 2.1.169  | landmark | `retireIfSettled`, `respawnFlags`, `stripped non-allowlisted`, `tengu_bg_retired` |
 
 ## Config, settings, and frontmatter
 
