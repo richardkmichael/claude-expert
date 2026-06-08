@@ -98,8 +98,6 @@ Style legend:
 
 ## Related material outside analysis/
 
-- `../structure/LIBRARY_BOUNDARIES.md` — where app code ends and bundled libraries begin in the
-  prettified bundle. Use it to scope a search to native code.
 - `schemas/` — JSON Schemas for Claude Code's own files (frontmatter, transcript) derived from the
   docs above; see `schemas/README.md`.
 - `../patches/README.md` and `../PATCH_METHODOLOGY.md` — the patch corpus and how to regenerate

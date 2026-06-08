@@ -23,8 +23,10 @@ these docs automatically, so keeping them current is part of the work.
    behind that, treat its version-specific specifics as suspect and re-check them.
 
 3. Research the bundle. Grep the doc's landmark strings to relocate the behavior; use the
-   `code-intel` MCP for structure-aware navigation; `analysis/render-prompts.py` for prompt text;
-   `structure/LIBRARY_BOUNDARIES.md` to tell app code from bundled libraries.
+   `code-intel` MCP for structure-aware navigation and `analysis/render-prompts.py` for prompt
+   text. App and library code are interleaved in the bun-compiled bundle, so anchor on
+   app-specific strings (`tengu_*`, prompt literals, tool names, `CLAUDE_CODE_*` env vars) — these
+   do not appear inside third-party libraries.
 
 4. Cross-check the official docs when the question is whether documented behavior is current. The
    `anthropic-docs` and `claude-code-docs` MCP servers hold the published docs; drift between those
@@ -67,6 +69,5 @@ Full methodology, including the version-stamp and update procedure: `analysis/GU
 - `analysis/README.md` — index of all findings docs. Start here.
 - `analysis/GUIDELINES.md` — how to write and update analysis docs.
 - `analysis/schemas/` — JSON Schemas for Claude Code's own files (frontmatter, transcript).
-- `structure/` — map of app code vs bundled libraries in the prettified bundle.
 - `patches/` + `PATCH_METHODOLOGY.md` — patch corpus and per-version regeneration workflow.
 - `work/<version>/package/cli.prettier.js` — the prettified sources, one dir per version.
