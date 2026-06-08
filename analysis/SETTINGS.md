@@ -58,6 +58,57 @@ moves inside the custom dir.  This means setting `CLAUDE_CONFIG_DIR` to a
 project directory effectively gives you per-project isolation of the global
 config.
 
+## Settings writes refuse symlinks (project and local scopes)
+
+Verified against `cli.prettier.js` 2.1.168 (2026-06-08). Landmark style; newer than the 2.1.76 baseline
+above.
+
+Claude Code persists each settings scope through a guarded writer that, for project and local settings,
+refuses to write a file that is a symlink — silently, as far as the user can tell. A symlinked
+`.claude/settings.local.json` (or `.claude/settings.json`) reads fine but is never written: MCP
+approvals and any other local/project settings change are dropped, the change lives only in the
+in-memory UI, and it is lost on restart. User settings (`~/.claude/settings.json`) are exempt.
+
+Relocate: `rg -n 'Refusing to write through symlink|Refusing to write into symlinked directory|Writing through symlink'`.
+
+The guarded writer takes options `allowSymlink` and `checkParentDir`, set by scope:
+
+- `allowSymlink` is true only for user settings; false for project and local settings.
+- `checkParentDir` is true for project and local settings.
+
+With `allowSymlink: false`, before writing it:
+
+1. opens the parent directory with `O_NOFOLLOW`; if the directory is itself a symlink (errno `ELOOP` /
+   `ENOTDIR`) it throws `Refusing to write into symlinked directory: <dir>`;
+2. `lstat`s the target; if it is a symlink it throws
+   `Refusing to write through symlink: <path>. Resolve the symlink and pass the real target path explicitly.`
+
+With `allowSymlink: true` (user settings) it does the opposite — `readlink`s the target and writes
+through to the real file, logging `Writing through symlink: <path> -> <target>`. So a dotfiles-style
+symlink for `~/.claude/settings.json` works; the same on project/local settings does not.
+
+The throw is swallowed. The per-scope writer that merges a partial update and calls the guarded writer
+wraps it in try/catch, logs the failure at `error` level (so it surfaces in `claude --debug` / the error
+log, not the TUI), and returns an error the caller ignores — the UI shows the change applied but it is
+never persisted.
+
+Reads are unaffected: the settings watcher resolves a symlinked settings file to its real path and
+watches the target's directory, logging `Settings file <link> is a symlink to <target>; also watching
+<dir> so atomic-save edits to the target are detected`. The file loads correctly and only the write
+fails.
+
+Consequence for git-worktree workflows that share `settings.local.json` across worktrees via a symlink to
+a workspace-level file: reads work, but every settings write (MCP approval, permission "always allow",
+`/add-dir`, …) is silently refused. Use a plain per-worktree file instead.
+
+Relocation aids (version-specific, will churn): the per-scope writer that catches the throw logs
+`updateSettingsForSource: invalid JSON in settings file at`; the scope→path resolver returns
+`.claude/settings.local.json` for the local scope.
+
+Tripwire for a new version: □ `allowSymlink` true only for user scope □ project/local writes `lstat` the
+target and throw on a symlink □ parent-dir `O_NOFOLLOW` check present □ the throw is caught and logged at
+`error` level, not surfaced to the TUI □ user-settings symlink still writes through.
+
 ## Global Config Keys (DEFAULT_GLOBAL_CONFIG / ~/.claude.json)
 
 The `BC` object defines defaults, and `$fq` (GLOBAL_CONFIG_KEYS) lists which
