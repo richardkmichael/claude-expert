@@ -4,6 +4,43 @@ Source: `cli.prettier.js` 2.1.76 (`work/2.1.76/package/cli.prettier.js`)
 
 This document provides a comprehensive analysis of the Model Context Protocol (MCP) implementation in Claude Code, separating the TypeScript MCP SDK from Claude Code's application logic.
 
+## Project (`.mcp.json`) server approval and enablement
+
+Verified against `cli.prettier.js` 2.1.165 (2026-06-07). This section is newer than the rest of the
+document (see the `Source:` line) and follows the landmark style.
+
+Servers declared in a project's `.mcp.json` are not loaded until approved. Each carries a status —
+`pending`, `approved`, or `rejected` — decided from three settings keys:
+
+- name in `disabledMcpjsonServers` → `rejected`
+- name in `enabledMcpjsonServers`, or `enableAllProjectMcpServers` is set → `approved`
+- otherwise → `pending`: the server does not connect and does not appear in `/mcp`
+
+Relocate with `rg -n 'enabledMcpjsonServers|disabledMcpjsonServers|enableAllProjectMcpServers'`. The
+gate function returns the literal `"pending"`/`"approved"`/`"rejected"`; the connect path loads only
+`approved` servers.
+
+Where the state lives. These three are settings-system keys (settings.json), not the legacy per-project
+store. The `/mcp` UI and the approval prompt write the decision to local project settings
+(`.claude/settings.local.json`): approving appends the name to `enabledMcpjsonServers`, "enable all"
+sets `enableAllProjectMcpServers`, rejecting appends to `disabledMcpjsonServers`. Older copies of these
+keys under `~/.claude.json` `projects.<path>` are folded into local settings by a migration; the
+rejection UI points there too — `Rejected (see disabledMcpjsonServers in settings)`. Local-scoped
+servers added with `claude mcp add` instead live under `~/.claude.json` `projects.<path>.mcpServers`
+and load directly with no approval — that asymmetry is why `claude mcp add` servers work immediately
+while `.mcp.json` servers wait.
+
+The approval prompt. The prompt to approve pending `.mcp.json` servers runs only at interactive
+startup, and only when the config loaded without errors; it is not re-evaluated mid-session, and
+headless/`-p` runs skip it. A server added to `.mcp.json` during a running session won't prompt until
+the next interactive start in that project. If it still doesn't prompt, `claude mcp
+reset-project-choices` resets the project's approved/rejected decisions back to `pending` so the prompt
+re-fires; or set `enabledMcpjsonServers` in `.claude/settings.local.json` directly.
+
+Tripwire for a new version: □ the three keys present □ status literals `pending`/`approved`/`rejected`
+□ approvals written to local settings, not `~/.claude.json` □ prompt gated on interactive startup with
+no config errors □ `claude mcp reset-project-choices` subcommand present.
+
 ## Executive Summary
 
 Claude Code uses the **TypeScript MCP SDK** (minified to JavaScript) for protocol implementation, while building application-specific configuration management, tool integration, and user interface components on top of it. The MCP implementation is production-grade with full protocol compliance and multiple transport options.

@@ -67,11 +67,11 @@ Style legend:
 
 ## API, networking, and MCP
 
-| Doc                      | Scope                                                 | Verified | Style    | Key landmarks                                                   |
-| ------------------------ | ----------------------------------------------------- | -------- | -------- | --------------------------------------------------------------- |
-| `ANTHROPIC_API_USAGE.md` | API call sites and request-construction pipeline      | 2.1.76   | landmark | `/v1/messages`, `CLAUDE_CONFIG_DIR`                             |
-| `API_REFERENCE.md`       | Config and prompt-management functions (line-indexed) | 2.1.76   | legacy   | `CLAUDE_CONFIG_DIR`, `.claude/.config.json`, `compact_boundary` |
-| `MCP.md`                 | MCP SDK integration and server/tool management        | 2.1.76   | legacy   | `MCP-Protocol-Version`, `mcp-session-id`, `resources/list`      |
+| Doc                      | Scope                                                         | Verified | Style    | Key landmarks                                                     |
+| ------------------------ | ------------------------------------------------------------- | -------- | -------- | ----------------------------------------------------------------- |
+| `ANTHROPIC_API_USAGE.md` | API call sites and request-construction pipeline              | 2.1.76   | landmark | `/v1/messages`, `CLAUDE_CONFIG_DIR`                               |
+| `API_REFERENCE.md`       | Config and prompt-management functions (line-indexed)         | 2.1.76   | legacy   | `CLAUDE_CONFIG_DIR`, `.claude/.config.json`, `compact_boundary`   |
+| `MCP.md`                 | MCP integration, tools/resources, `.mcp.json` approval gating | 2.1.76   | legacy   | `MCP-Protocol-Version`, `resources/list`, `enabledMcpjsonServers` |
 
 ## Observability
 
