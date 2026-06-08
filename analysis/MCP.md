@@ -23,12 +23,15 @@ gate function returns the literal `"pending"`/`"approved"`/`"rejected"`; the con
 Where the state lives. These three are settings-system keys (settings.json), not the legacy per-project
 store. The `/mcp` UI and the approval prompt write the decision to local project settings
 (`.claude/settings.local.json`): approving appends the name to `enabledMcpjsonServers`, "enable all"
-sets `enableAllProjectMcpServers`, rejecting appends to `disabledMcpjsonServers`. Older copies of these
-keys under `~/.claude.json` `projects.<path>` are folded into local settings by a migration; the
-rejection UI points there too — `Rejected (see disabledMcpjsonServers in settings)`. Local-scoped
-servers added with `claude mcp add` instead live under `~/.claude.json` `projects.<path>.mcpServers`
-and load directly with no approval — that asymmetry is why `claude mcp add` servers work immediately
-while `.mcp.json` servers wait.
+sets `enableAllProjectMcpServers`, rejecting appends to `disabledMcpjsonServers`. Because these are
+local-scope settings, the write goes through the guarded settings writer; a symlinked
+`.claude/settings.local.json` silently refuses it, so an approval can appear to take in the UI yet
+never persist (see `SETTINGS.md`, the symlink-refusal section). Older copies of these keys under
+`~/.claude.json` `projects.<path>` are folded into local settings by a migration; the rejection UI
+points there too — `Rejected (see disabledMcpjsonServers in settings)`. Local-scoped servers added
+with `claude mcp add` instead live under `~/.claude.json` `projects.<path>.mcpServers` and load
+directly with no approval — that asymmetry is why `claude mcp add` servers work immediately while
+`.mcp.json` servers wait.
 
 The approval prompt. The prompt to approve pending `.mcp.json` servers runs only at interactive
 startup, and only when the config loaded without errors; it is not re-evaluated mid-session, and

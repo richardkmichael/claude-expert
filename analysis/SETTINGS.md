@@ -123,8 +123,8 @@ The throw is a `SymlinkWriteRefusedError`. It is swallowed: the per-scope update
 `error` level (so it surfaces in `claude --debug` / the error log, not the TUI), and returns an error
 the caller ignores — the UI shows the change applied but it is never persisted. A symlinked
 `.claude/settings.local.json` (or `.claude/settings.json`) therefore reads fine but drops every write:
-MCP approvals, permission "always allow", `/add-dir`, and the like live only in memory and are lost on
-restart.
+MCP approvals (see `MCP.md`), permission "always allow", `/add-dir`, and the like live only in
+memory and are lost on restart.
 
 With `allowSymlink: true` (user settings) it does the opposite — `readlink`s the target and writes
 through to the real file, logging `Writing through symlink: <path> -> <target>`. So a dotfiles-style
