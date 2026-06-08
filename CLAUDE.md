@@ -60,8 +60,7 @@ Full methodology, including the version-stamp and update procedure: `analysis/GU
   a bundle.
 - `bin/generate-transcript-schema.py` — evolves `analysis/schemas/transcript.schema.json` from real
   session JSONL under `~/.claude/projects/`.
-- Skills: `prepare-for-patch-generation`, `match-code-patterns`, `prepare-library-versions`,
-  `search-for-libraries`, `compare-library-signatures`, `port-patch`. Agent: `identify-library-version`.
+- Skills: `prepare-for-patch-generation`, `match-code-patterns`, `port-patch`.
 - `mcp/expert-server.mjs` — exposes this repo to other projects as `ask_claude_code_expert`.
 
 # Where things are
