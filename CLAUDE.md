@@ -59,6 +59,10 @@ Full methodology, including the version-stamp and update procedure: `analysis/GU
   presents only as `grep`, so you cannot detect it). It catastrophically backtracks on bounded
   quantifier + alternation patterns (`[^"]{0,90}(a|b|c)…`) over the 25MB `cli.prettier.js` and hangs.
   `rg` uses a DFA and stays fast — use it for every bundle scan; restrict `grep` to fixed strings (`-F`).
+- When you grep a raw artifact instead — a native binary, or minified JS with no line breaks (e.g. to
+  bisect versions without prettifying) — match for presence, not lines: `grep -aqF` (true/false via exit
+  code), `-ac` (count), or `-ao` (just the matched substring). Bare line output dumps a multi-KB line or
+  binary bytes; `-a` treats the file as text so the match isn't skipped.
 - `code-intel` MCP — structure-aware navigation of the bundle (configured in `.mcp.json`).
 - `anthropic-docs` / `claude-code-docs` MCP — the published docs, for the "is this still current?"
   check.
