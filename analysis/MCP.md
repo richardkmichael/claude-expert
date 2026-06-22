@@ -51,7 +51,20 @@ won't prompt until the next interactive start in that project. If it still doesn
 reset-project-choices` resets the project's approved/rejected decisions back to `pending` so the prompt
 re-fires — but reset only re-arms; it never approves. The reliable fix is to set `enabledMcpjsonServers`
 in `.claude/settings.local.json` directly (and confirm that file is a real file, not a symlink, or the
-write silently no-ops — see `SETTINGS.md`).
+write silently no-ops — see `SETTINGS.md`). Explicit enablement loads the server regardless of the
+prompt gates below — they only control whether the interactive prompt fires.
+
+Two gates suppress the prompt before it ever renders, distinct from approval state:
+
+- `IS_DEMO` set, or a background session (`CLAUDE_CODE_SESSION_KIND` of `bg`/`daemon`/`daemon-worker`),
+  short-circuits the startup routine that drives onboarding, the trust dialog, and the approval prompt —
+  none of the three appear. Relocate via `rg -n 'IS_DEMO|CLAUDE_CODE_SESSION_KIND'`; the startup
+  function early-returns on `process.env.IS_DEMO` unless the session kind is the background fast-path.
+- A settings-load error (severity not `warning`) in any source other than the local settings file leaves
+  the prompt skipped with a startup notice: `skipping .mcp.json server approval (settings errors in
+  <files>) · run /doctor and fix them, then restart`. A failed MCP server connection is explicitly NOT
+  such an error — the suppressor filters on `!mcpErrorMetadata`, so a server stuck "failed" never blocks
+  the prompt. Relocate via the notice string and `rg -n 'mcpErrorMetadata'`.
 
 Project trust is a separate gate and is inherited up the directory tree: a project with no
 `hasTrustDialogAccepted` entry of its own counts as trusted if any ancestor directory has it set, so a
@@ -60,7 +73,9 @@ nested worktree under a trusted source root needs no trust prompt.
 Tripwire for a new version: □ the three keys present □ status literals `pending`/`approved`/`rejected`
 □ effective-status wrapper still overrides to `approved` for bypass-permissions and non-interactive runs
 □ approvals written to local settings, not `~/.claude.json` □ prompt gated on interactive startup with
-no config errors □ `claude mcp reset-project-choices` subcommand present.
+no config errors □ `IS_DEMO` / background `CLAUDE_CODE_SESSION_KIND` still skip the prompt entirely
+□ MCP server errors excluded from the suppressor (`!mcpErrorMetadata`) □ `claude mcp
+reset-project-choices` subcommand present.
 
 ## Executive Summary
 
