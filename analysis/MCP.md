@@ -50,6 +50,14 @@ with `claude mcp add` instead live under `~/.claude.json` `projects.<path>.mcpSe
 directly with no approval — that asymmetry is why `claude mcp add` servers work immediately while
 `.mcp.json` servers wait.
 
+Command-line `--mcp-config <path>` servers are a third scope, connected through a separate direct path
+(the connect factory categorizes them `regular`/`alwaysLoad` and connects them) that never consults the
+project approval gate or project-file discovery. So a server loaded with `--mcp-config` connects
+regardless of approval state or any project-`.mcp.json` discovery problem — which is why
+`claude --mcp-config ./.mcp.json` is a reliable workaround when interactive auto-discovery of the same
+file fails. `--strict-mcp-config` restricts the session to only the `--mcp-config` servers, ignoring all
+other MCP configuration. Relocate with `rg -n '"--mcp-config"|--strict-mcp-config'`.
+
 The approval prompt. The prompt to approve pending `.mcp.json` servers runs only at interactive
 startup, and only when the config loaded without errors; it is not re-evaluated mid-session. Headless/
 `-p` runs don't prompt because the effective-status override already approves pending servers there (see

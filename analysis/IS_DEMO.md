@@ -21,6 +21,14 @@ CLAUDE.md `@imports` stay unloaded unless they were already approved or enabled 
 session silently runs without them rather than prompting. The early-return is the same one that skips
 the prompts for a background session (`CLAUDE_CODE_SESSION_KIND`).
 
+`IS_DEMO` gates only these interactive dialogs, not MCP connection itself. The skipped routine is the
+dialog orchestrator (internally "showSetupScreens"); MCP servers connect through a separate path (the
+connect factory, and the memoized client accessor `XR` called from many non-dialog sites). So an
+already-approved server (`enabledMcpjsonServers` or `enableAllProjectMcpServers`) still connects under
+`IS_DEMO`; only a *pending* server is blocked, and only because the prompt that would approve it never
+shows. A pending server's loss of loading is a second-order effect of the suppressed prompt, not a
+direct gate on connection.
+
 A separate gate forces per-project onboarding off: the project-onboarding check returns "don't show"
 when `hasCompletedProjectOnboarding`, `projectOnboardingSeenCount >= 4`, or `IS_DEMO`.
 
