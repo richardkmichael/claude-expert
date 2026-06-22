@@ -6,7 +6,7 @@ This document provides a comprehensive analysis of the Model Context Protocol (M
 
 ## Project (`.mcp.json`) server approval and enablement
 
-Verified against `cli.prettier.js` 2.1.165 (2026-06-07). This section is newer than the rest of the
+Verified against `cli.prettier.js` 2.1.169 (2026-06-22). This section is newer than the rest of the
 document (see the `Source:` line) and follows the landmark style.
 
 Servers declared in a project's `.mcp.json` are not loaded until approved. Each carries a status —
@@ -16,9 +16,19 @@ Servers declared in a project's `.mcp.json` are not loaded until approved. Each 
 - name in `enabledMcpjsonServers`, or `enableAllProjectMcpServers` is set → `approved`
 - otherwise → `pending`: the server does not connect and does not appear in `/mcp`
 
-Relocate with `rg -n 'enabledMcpjsonServers|disabledMcpjsonServers|enableAllProjectMcpServers'`. The
-gate function returns the literal `"pending"`/`"approved"`/`"rejected"`; the connect path loads only
-`approved` servers.
+Relocate with `rg -n 'enabledMcpjsonServers|disabledMcpjsonServers|enableAllProjectMcpServers'`. A raw
+status function returns the literal `"pending"`/`"approved"`/`"rejected"` from those three keys, but it
+is wrapped by an effective-status function that overrides `pending` → `approved` in two cases (find it
+as the wrapper whose first call is the raw function, then two `return "approved"` guards):
+
+- bypass-permissions session with `skipDangerousModePermissionPrompt` set, and `projectSettings` is an
+  active settings source
+- non-interactive run (`-p`/headless), and `projectSettings` is an active settings source
+
+The effective function is what the connect path, the `/mcp` UI, and the pending-prompt list all call,
+so a pending server in those two modes loads without ever prompting. Outside them, the three keys
+decide. Relocate the override guards with `rg -n 'skipDangerousModePermissionPrompt'` and the
+non-interactive flag check beside it.
 
 Where the state lives. These three are settings-system keys (settings.json), not the legacy per-project
 store. The `/mcp` UI and the approval prompt write the decision to local project settings
@@ -34,13 +44,21 @@ directly with no approval — that asymmetry is why `claude mcp add` servers wor
 `.mcp.json` servers wait.
 
 The approval prompt. The prompt to approve pending `.mcp.json` servers runs only at interactive
-startup, and only when the config loaded without errors; it is not re-evaluated mid-session, and
-headless/`-p` runs skip it. A server added to `.mcp.json` during a running session won't prompt until
-the next interactive start in that project. If it still doesn't prompt, `claude mcp
+startup, and only when the config loaded without errors; it is not re-evaluated mid-session. Headless/
+`-p` runs don't prompt because the effective-status override already approves pending servers there (see
+above), not because the servers stay pending. A server added to `.mcp.json` during a running session
+won't prompt until the next interactive start in that project. If it still doesn't prompt, `claude mcp
 reset-project-choices` resets the project's approved/rejected decisions back to `pending` so the prompt
-re-fires; or set `enabledMcpjsonServers` in `.claude/settings.local.json` directly.
+re-fires — but reset only re-arms; it never approves. The reliable fix is to set `enabledMcpjsonServers`
+in `.claude/settings.local.json` directly (and confirm that file is a real file, not a symlink, or the
+write silently no-ops — see `SETTINGS.md`).
+
+Project trust is a separate gate and is inherited up the directory tree: a project with no
+`hasTrustDialogAccepted` entry of its own counts as trusted if any ancestor directory has it set, so a
+nested worktree under a trusted source root needs no trust prompt.
 
 Tripwire for a new version: □ the three keys present □ status literals `pending`/`approved`/`rejected`
+□ effective-status wrapper still overrides to `approved` for bypass-permissions and non-interactive runs
 □ approvals written to local settings, not `~/.claude.json` □ prompt gated on interactive startup with
 no config errors □ `claude mcp reset-project-choices` subcommand present.
 
