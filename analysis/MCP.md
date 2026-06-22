@@ -56,10 +56,17 @@ startup, and only when the config loaded without errors; it is not re-evaluated 
 above), not because the servers stay pending. A server added to `.mcp.json` during a running session
 won't prompt until the next interactive start in that project. If it still doesn't prompt, `claude mcp
 reset-project-choices` resets the project's approved/rejected decisions back to `pending` so the prompt
-re-fires — but reset only re-arms; it never approves. The reliable fix is to set `enabledMcpjsonServers`
-in `.claude/settings.local.json` directly (and confirm that file is a real file, not a symlink, or the
-write silently no-ops — see `SETTINGS.md`). Explicit enablement loads the server regardless of the
-prompt gates below — they only control whether the interactive prompt fires.
+re-fires — but reset only re-arms; it never approves. It deletes all three keys for the project from
+both the `localSettings` file (`settings.local.json`) and the legacy `~/.claude.json`
+`projects.<path>` store, so it is project-wide, not per-server. It clears the legacy store first; if
+that fails it changes nothing, and if `settings.local.json` carries validation warnings it refuses to
+rewrite the local file (clearing only the legacy store) and points at `/doctor`. It resets only MCP
+choices — not the workspace trust dialog (`hasTrustDialogAccepted`) and not the external CLAUDE.md
+includes decision (see `CLAUDE_MD_EXTERNAL_INCLUDES.md`), which have no reset subcommand. The reliable
+fix is to set `enabledMcpjsonServers` in `.claude/settings.local.json` directly (and confirm that file
+is a real file, not a symlink, or the write silently no-ops — see `SETTINGS.md`). Explicit enablement
+loads the server regardless of the prompt gates below — they only control whether the interactive
+prompt fires.
 
 Two gates suppress the prompt before it ever renders, distinct from approval state:
 
