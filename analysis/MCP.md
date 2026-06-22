@@ -31,12 +31,19 @@ decide. Relocate the override guards with `rg -n 'skipDangerousModePermissionPro
 non-interactive flag check beside it.
 
 Where the state lives. These three are settings-system keys (settings.json), not the legacy per-project
-store. The `/mcp` UI and the approval prompt write the decision to local project settings
-(`.claude/settings.local.json`): approving appends the name to `enabledMcpjsonServers`, "enable all"
-sets `enableAllProjectMcpServers`, rejecting appends to `disabledMcpjsonServers`. Because these are
-local-scope settings, the write goes through the guarded settings writer; a symlinked
-`.claude/settings.local.json` silently refuses it, so an approval can appear to take in the UI yet
-never persist (see `SETTINGS.md`, the symlink-refusal section). Older copies of these keys under
+store. Read and write use different scopes. The status gate reads the effective merged settings (the
+writer is hardcoded, the reader is not), so a name you hand-add to `enabledMcpjsonServers` in any
+scope — including the shared, checked-in `.claude/settings.json` — is honored. But the `/mcp` UI and
+the approval prompt always write the decision to local project settings (`.claude/settings.local.json`,
+the `localSettings` scope is passed literally): approving appends the name to `enabledMcpjsonServers`,
+"enable all" sets `enableAllProjectMcpServers`, rejecting (or cancelling/Esc, which the dialog treats as
+"no") appends to `disabledMcpjsonServers`. Writing to local rather than the shared file is deliberate:
+approval is a personal, untracked security decision, so it is not committed onto teammates, and a cloned
+repo cannot pre-approve its own servers by shipping a `settings.json` with `enabledMcpjsonServers` —
+approval has to come from your local file or the prompt. Because these are local-scope settings, the
+write goes through the guarded settings writer; a symlinked `.claude/settings.local.json` silently
+refuses it, so an approval can appear to take in the UI yet never persist (see `SETTINGS.md`, the
+symlink-refusal section). Older copies of these keys under
 `~/.claude.json` `projects.<path>` are folded into local settings by a migration; the rejection UI
 points there too — `Rejected (see disabledMcpjsonServers in settings)`. Local-scoped servers added
 with `claude mcp add` instead live under `~/.claude.json` `projects.<path>.mcpServers` and load
