@@ -1,6 +1,6 @@
 # Demo mode (`IS_DEMO`)
 
-Verified against: cli.prettier.js 2.1.169 (2026-06-22)
+Verified against: cli.prettier.js 2.1.186 (2026-06-22)
 
 `IS_DEMO` is an internal flag that prepares Claude Code for clean demos and screenshots. It is read as
 a plain string env var (truthy by the usual `1`/`true`/`yes`/`on` test) and can be set through a
