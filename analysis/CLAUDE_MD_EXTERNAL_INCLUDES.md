@@ -37,11 +37,17 @@ Startup placement. The dialog is driven from the interactive startup routine imm
 approval also skips this dialog (see `MCP.md`, the approval-prompt suppression gates) — so under
 `IS_DEMO` it never appears.
 
-Re-enabling after a decline. `/config` → `External CLAUDE.md includes` (setting id
-`showExternalIncludesDialog`) re-opens the dialog so the answer can be changed to `Yes` — selecting
-that row runs the equivalent of `yH("ExternalIncludes")`. Or edit `~/.claude.json` directly: set
-`.projects[<path>].hasClaudeMdExternalIncludesApproved` to `true` to approve outright, or clear both
-flags (`false`/removed) to make the startup dialog re-fire on next launch.
+Re-enabling after a decline. Two routes:
+
+- `~/.claude.json` (works from anywhere): set `.projects[<path>].hasClaudeMdExternalIncludesApproved`
+  to `true` to approve outright, or clear both flags (`false`/removed) to make the startup dialog
+  re-fire on next launch.
+- `/config` → `External CLAUDE.md includes` (setting id `showExternalIncludesDialog`) re-opens the
+  dialog (selecting the row runs the equivalent of `yH("ExternalIncludes")`). This row is conditional:
+  it renders only when the current project has external includes — gated on `Jw6(NX(true))`, i.e. the
+  forced memory scan finds an `@import` resolving outside the project root. The config view passes the
+  force flag, so the row appears even after a decline, but only when Claude Code is launched from a
+  project that has such an import. From a project with no external include, the row is absent.
 
 No CLI reset. Unlike MCP servers (`claude mcp reset-project-choices`), there is no external-includes
 reset subcommand or flag. The only project-scoped CLI command is `claude project purge [path]`, which
