@@ -66,6 +66,7 @@ Style legend:
 | `MARKDOWN_FRONTMATTER.md`        | Frontmatter parsing, schema, per-file-type validation     | 2.1.143  | legacy   | `tengu_frontmatter_shadow_unknown_key`, `name` required             |
 | `CLI_OPTIONS.md`                 | Undocumented CLI flags and auto-mode behavior             | 2.1.76   | legacy   | `--permission-mode`, `isAutoModeCircuitBroken`                      |
 | `CLAUDE_MD_EXTERNAL_INCLUDES.md` | External CLAUDE.md `@import` approval dialog and flags    | 2.1.169  | landmark | `hasClaudeMdExternalIncludesApproved`, `showExternalIncludesDialog` |
+| `IS_DEMO.md`                     | Demo flag: skips startup gates, redacts org/email in UI   | 2.1.169  | landmark | `process.env.IS_DEMO`, `projectOnboardingSeenCount`                 |
 
 ## API, networking, and MCP
 
