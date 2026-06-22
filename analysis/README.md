@@ -60,11 +60,12 @@ Style legend:
 
 ## Config, settings, and frontmatter
 
-| Doc                       | Scope                                                     | Verified | Style    | Key landmarks                                            |
-| ------------------------- | --------------------------------------------------------- | -------- | -------- | -------------------------------------------------------- |
-| `SETTINGS.md`             | Settings scopes/precedence, merge, write, symlink refusal | 2.1.168  | landmark | `CLAUDE_CONFIG_DIR`, `Refusing to write through symlink` |
-| `MARKDOWN_FRONTMATTER.md` | Frontmatter parsing, schema, per-file-type validation     | 2.1.143  | legacy   | `tengu_frontmatter_shadow_unknown_key`, `name` required  |
-| `CLI_OPTIONS.md`          | Undocumented CLI flags and auto-mode behavior             | 2.1.76   | legacy   | `--permission-mode`, `isAutoModeCircuitBroken`           |
+| Doc                              | Scope                                                     | Verified | Style    | Key landmarks                                                       |
+| -------------------------------- | --------------------------------------------------------- | -------- | -------- | ------------------------------------------------------------------- |
+| `SETTINGS.md`                    | Settings scopes/precedence, merge, write, symlink refusal | 2.1.168  | landmark | `CLAUDE_CONFIG_DIR`, `Refusing to write through symlink`            |
+| `MARKDOWN_FRONTMATTER.md`        | Frontmatter parsing, schema, per-file-type validation     | 2.1.143  | legacy   | `tengu_frontmatter_shadow_unknown_key`, `name` required             |
+| `CLI_OPTIONS.md`                 | Undocumented CLI flags and auto-mode behavior             | 2.1.76   | legacy   | `--permission-mode`, `isAutoModeCircuitBroken`                      |
+| `CLAUDE_MD_EXTERNAL_INCLUDES.md` | External CLAUDE.md `@import` approval dialog and flags    | 2.1.169  | landmark | `hasClaudeMdExternalIncludesApproved`, `showExternalIncludesDialog` |
 
 ## API, networking, and MCP
 
