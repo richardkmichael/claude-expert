@@ -39,8 +39,14 @@ approval also skips this dialog (see `MCP.md`, the approval-prompt suppression g
 
 Re-enabling after a decline. `/config` → `External CLAUDE.md includes` (setting id
 `showExternalIncludesDialog`) re-opens the dialog so the answer can be changed to `Yes` — selecting
-that row runs the equivalent of `yH("ExternalIncludes")`. Or edit `~/.claude.json` directly and set
-`.projects[<path>].hasClaudeMdExternalIncludesApproved` to `true`.
+that row runs the equivalent of `yH("ExternalIncludes")`. Or edit `~/.claude.json` directly: set
+`.projects[<path>].hasClaudeMdExternalIncludesApproved` to `true` to approve outright, or clear both
+flags (`false`/removed) to make the startup dialog re-fire on next launch.
+
+No CLI reset. Unlike MCP servers (`claude mcp reset-project-choices`), there is no external-includes
+reset subcommand or flag. The only project-scoped CLI command is `claude project purge [path]`, which
+deletes the entire project state (transcripts, tasks, file history, and the `~/.claude.json` entry) —
+it clears these flags only as a side effect of removing everything.
 
 Telemetry: `tengu_claude_md_includes_dialog_shown` (on render),
 `tengu_claude_md_external_includes_dialog_accepted`, `tengu_claude_md_external_includes_dialog_declined`.
