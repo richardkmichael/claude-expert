@@ -1,6 +1,26 @@
 # Session Memory: Background Note-Taking Pipeline in Claude Code
 
-Source: `cli.prettier.js` 2.1.76 (`work/2.1.76/package/cli.prettier.js`)
+Status: REMOVED. This feature no longer ships. The strings `summary.md`, `session-memory`,
+`tengu_session_memory`, and `tengu_sm_compact` are all absent from current bundles. Bisecting the
+local corpus: present in 2.1.119 (`session-memory`=7, `tengu_session_memory`=4) and gone from
+2.1.138 onward, so it was removed between 2.1.119 and 2.1.138. The content below is retained as a
+historical record of the experiment and is not verifiable against the current source. Re-confirm
+removal with
+`rg -c session-memory work/<latest>/package/cli.prettier.js` (expect 0).
+
+This is unrelated to the durable memory family (auto / agent / team) documented in
+`MEMORY_SYSTEM.md`. Session memory was a per-session compaction optimization, not cross-session
+memory — it shared only the word "memory."
+
+With it gone, compaction reverted to the standard on-demand path it always layered on top of: when
+context fills (or `/compact` runs), a single LLM call summarizes the earlier conversation into one
+summary message (preamble: "This session is being continued from a previous conversation that ran
+out of context."), with recent messages kept verbatim. The summary is generated on demand instead of
+pre-built; no capability was lost. See `CLEAR_COMPACT_FORK_CONTEXT.md` for the current mechanics.
+
+Last verified present against: cli.prettier.js 2.1.76. Removal window confirmed against 2.1.119 →
+2.1.138 (checked 2026-06-26). Line numbers and minified names below are from 2.1.76 and will not
+match any current bundle.
 
 
 ## Overview
