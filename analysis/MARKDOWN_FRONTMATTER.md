@@ -158,8 +158,13 @@ When `true`, the agent runs as a background task.
 | Valid values | `user`, `project`, `local`              |
 | On invalid   | warn logged, field ignored              |
 
-Determines which memory store the agent has access to.  Only active when memory features are
-enabled.
+Gives the subagent its own persistent memory directory, scoped by the value: `user` →
+`~/.claude/agent-memory/<name>/`, `project` → `.claude/agent-memory/<name>/`, `local` →
+`.claude/agent-memory-local/<name>/`.  Only active when memory is enabled at all (the `Gc()` gate).
+When set, the agent's `MEMORY.md` index is auto-loaded into its system prompt and `Read`/`Edit`/`Write`
+are appended to its tools (see the `tools` field).  Added in 2.1.33.  Full mechanics — directory
+resolution, permissions, git exclusion, the `/agents` scope picker — are in `AGENT_MEMORY.md`; the
+shared memory machinery is in `MEMORY_SYSTEM.md`.
 
 #### `isolation`
 

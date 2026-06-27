@@ -90,6 +90,9 @@ Markdown frontmatter an agent definition supports (grep the validation strings '
 `initialPrompt`, `memory` (`user`/`project`/`local`), `background`, `isolation` (`worktree`).
 JSON-sourced (flag) definitions supply `prompt` in place of the markdown body.
 
+`memory` gives the subagent its own persistent memory directory and auto-appends `Read`/`Edit`/`Write`;
+mechanics are in `AGENT_MEMORY.md` (shared machinery in `MEMORY_SYSTEM.md`).
+
 ## Built-in agents
 
 Grep `source: "built-in"` for the set. `Explore` and `Plan` are special-cased in output handling

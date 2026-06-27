@@ -51,12 +51,25 @@ Style legend:
 | Doc                             | Scope                                                | Verified | Style    | Key landmarks                                                 |
 | ------------------------------- | ---------------------------------------------------- | -------- | -------- | ------------------------------------------------------------- |
 | `SESSION_TRANSCRIPT.md`         | JSONL transcript format, record types, linkage model | 2.1.165  | landmark | `parentUuid`, `logicalParentUuid`, `<sessionId>.jsonl`        |
-| `SESSION_MEMORY_AND_SUMMARY.md` | Background session-summary pipeline and compaction   | 2.1.76   | landmark | `tengu_session_memory`, `session-memory/summary.md`           |
+| `SESSION_MEMORY_AND_SUMMARY.md` | Background summary compaction (removed by 2.1.138)   | 2.1.76   | legacy   | `tengu_session_memory`, `session-memory/summary.md`          |
 | `SESSION_RESUME.md`             | Post-resume "resume vs summary" prompt and dismissal | 2.1.104  | landmark | `tengu_gleaming_fair`, `CLAUDE_CODE_RESUME_THRESHOLD_MINUTES` |
 | `CLEAR_COMPACT_FORK_CONTEXT.md` | /compact, /clear, /fork, /rewind record mechanics    | 2.1.76   | landmark | `compact_boundary`, `microcompact_boundary`, `forkedFrom`     |
 | `CONTEXT_OPS_DIAGRAMS.md`       | Diagrams: context ops as append-only JSONL           | unstated | landmark | `parentUuid`, `logicalParentUuid`, `forkedFrom`               |
 | `COMMAND_HISTORY.md`            | Input history file format and filtering              | 2.1.76   | landmark | `~/.claude/history.jsonl`, `sessionId`                        |
 | `BACKGROUND_SESSIONS_RESPAWN.md` | Background-session retire→wake flag/env preservation, respawn-state validation | 2.1.169  | landmark | `retireIfSettled`, `respawnFlags`, `stripped non-allowlisted`, `tengu_bg_retired` |
+
+## Memory
+
+| Doc                | Scope                                                    | Verified | Style    | Key landmarks                                                                   |
+| ------------------ | -------------------------------------------------------- | -------- | -------- | ------------------------------------------------------------------------------- |
+| `MEMORY_SYSTEM.md` | Hub: shared memory machinery, gates, stores comparison   | 2.1.186  | landmark | `pE = "MEMORY.md"`, `function Gc(`, `tengu_memdir_loaded`                       |
+| `AUTO_MEMORY.md`   | Per-project auto memory: dir resolution, load, `/memory` | 2.1.186  | landmark | `iid = "MEMORY.md"`, `autoMemoryDirectory`, `Open a memory file in your editor` |
+| `AGENT_MEMORY.md`  | Per-subagent memory: `memory:` field, dirs, permissions  | 2.1.186  | landmark | `Persistent Agent Memory`, `function met(e, t)`, `tengu_agent_memory_loaded`    |
+| `TEAM_MEMORY.md`   | Shared memory-service memory: mounts, sync, prompt shape | 2.1.186  | landmark | `CLAUDE_MEMORY_STORES`, `fetched from memory-service`, `function uI()`          |
+
+The durable memory family is auto / agent / team; start at `MEMORY_SYSTEM.md`. Session memory
+(`summary.md`, in `SESSION_MEMORY_AND_SUMMARY.md`) is a separate, removed compaction experiment —
+not part of this family despite the name.
 
 ## Config, settings, and frontmatter
 
