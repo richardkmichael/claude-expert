@@ -87,7 +87,7 @@ not part of this family despite the name.
 | ------------------------ | ------------------------------------------------------------- | ---------------- | -------- | ----------------------------------------------------------------- |
 | `ANTHROPIC_API_USAGE.md` | API call sites and request-construction pipeline              | 2.1.76           | landmark | `/v1/messages`, `CLAUDE_CONFIG_DIR`                               |
 | `API_REFERENCE.md`       | Config and prompt-management functions (line-indexed)         | 2.1.76           | legacy   | `CLAUDE_CONFIG_DIR`, `.claude/.config.json`, `compact_boundary`   |
-| `MCP.md`                 | MCP integration, tools/resources, `.mcp.json` approval gating | 2.1.76 / 2.1.169 | legacy   | `MCP-Protocol-Version`, `resources/list`, `enabledMcpjsonServers` |
+| `MCP.md`                 | MCP integration, tools/resources, `.mcp.json`/`mcp add` scope | 2.1.76 / 2.1.186 | legacy   | `resources/list`, `enabledMcpjsonServers`, `--scope <scope>`      |
 
 ## Observability
 

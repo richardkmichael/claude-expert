@@ -99,6 +99,36 @@ no config errors □ `IS_DEMO` / background `CLAUDE_CODE_SESSION_KIND` still ski
 □ MCP server errors excluded from the suppressor (`!mcpErrorMetadata`) □ `claude mcp
 reset-project-choices` subcommand present.
 
+## `claude mcp add` scope targets
+
+Verified against `cli.prettier.js` 2.1.186 (2026-07-02). `claude mcp add <name> <commandOrUrl>` takes
+`-s`/`--scope <local|user|project>`, defaulting to `local` when omitted. Relocate the command
+definition with `rg -n '"-s, --scope <scope>"'` (three `mcp` subcommands share the flag text; `add` is
+the one whose description starts "Add an MCP server to Claude Code") and the per-scope write switch
+with `rg -n 'Cannot add MCP server to scope: dynamic'` (a `switch (n)` a few lines above writes the
+server; the cases below it validate for a pre-existing name of the same key).
+
+Each scope writes a different file, and only one of the three lands inside the project directory:
+
+- `project` — the shared, git-committable file. Reads/writes `.mcp.json` in the current working
+  directory (not `.claude/.mcp.json` — there is no `.claude/` prefix) via a temp-file-then-rename
+  write, under the top-level `mcpServers` key. This is what a teammate cloning the repo also sees;
+  new entries here are `pending` until each clone's user approves them (see the approval section
+  above).
+- `user` — available in every project. Reads/writes the *top-level* `mcpServers` key of the global
+  config file (`~/.claude.json`, or `$CLAUDE_CONFIG_DIR/.claude<oauth-suffix>.json` if set; see
+  `SETTINGS.md`). Loads with no per-project approval prompt.
+- `local` (the default when `-s` is omitted) — private to you, scoped to one project, and not stored
+  in the project directory at all. Reads/writes `projects."<absolute-project-path>".mcpServers` inside
+  that same `~/.claude.json`, keyed by the project's absolute path. Also loads with no approval
+  prompt — this is the asymmetry the approval section above notes: `claude mcp add` servers (any
+  scope) skip the `.mcp.json` pending/approved/rejected gate entirely; only servers hand-written into
+  a project's `.mcp.json` file go through it.
+
+So to add a server that lands in a specific project's own `.mcp.json` (e.g. so it's committed and
+shared from that project), run `claude mcp add <name> ... -s project` with that project as the cwd —
+`-s user`/`-s local` never touch a project-local file.
+
 ## Executive Summary
 
 Claude Code uses the **TypeScript MCP SDK** (minified to JavaScript) for protocol implementation, while building application-specific configuration management, tool integration, and user interface components on top of it. The MCP implementation is production-grade with full protocol compliance and multiple transport options.
