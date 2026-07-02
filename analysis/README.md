@@ -40,6 +40,12 @@ Style legend:
 | `SKILLS_AND_SUBAGENTS.md`    | Skill `allowed-tools` and where grants do/don't apply | 2.1.76   | landmark | `allowed-tools`                                                          |
 | `SKILLIFY.md`                | Disabled skill-creation feature (prompt, dead setup)  | 2.1.76   | landmark | `tengu_skill_improvement_survey`                                         |
 
+## Permissions and safety
+
+| Doc                                 | Scope                                                        | Verified | Style    | Key landmarks                                                                    |
+| ----------------------------------- | ----------------------------------------------------------- | -------- | -------- | -------------------------------------------------------------------------------- |
+| `AUTO_MODE_AND_COMMAND_CLASSIFIER.md` | Regex destructive-command classifier + auto-mode LLM security classifier; why subagent `git commit --amend` is blocked | 2.1.198 | landmark | `security monitor for autonomous`, `git_commit_amend`, `tengu_auto_mode_config`, `isSubagentLoop`, `<block>` |
+
 ## Hooks
 
 | Doc        | Scope                                                 | Verified | Style    | Key landmarks                               |
