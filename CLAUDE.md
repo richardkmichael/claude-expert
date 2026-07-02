@@ -3,6 +3,10 @@ The official Anthropic docs lag the product, so the source is the ground truth. 
 down in `analysis/` so they don't have to be re-derived; Claude Code ships often, and nothing updates
 these docs automatically, so keeping them current is part of the work.
 
+This repo also runs as an MCP server other projects can consult instead of `/add-dir`-ing it in:
+`mcp/expert-server.mjs` exposes one tool, `ask_claude_code_expert`, backed by a nested headless
+Claude session rooted here. See `mcp/README.md` for registration and design.
+
 # The source
 
 - `cli.prettier.js` is Claude Code. For versions <= 2.1.116 it is a minified Node.js application
@@ -81,3 +85,5 @@ Full methodology, including the version-stamp and update procedure: `analysis/GU
 - `patches/README.md` — patch corpus index: the per-patch catalog (`PATCHES.md`) and the
   regeneration workflow (`METHODOLOGY.md`).
 - `work/<version>/package/cli.prettier.js` — the prettified sources, one dir per version.
+- `mcp/README.md` — this repo's own MCP server (`ask_claude_code_expert`): register it in another
+  project to query this repo's Claude Code knowledge without leaving that project's context.
