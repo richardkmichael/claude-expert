@@ -7,6 +7,16 @@ inherits this project's `CLAUDE.md` and skills and researches the answer by expl
 sources under `work/<version>/` and the docs under `analysis/`. Only the question and the final
 answer cross the boundary; the exploration stays inside the nested session.
 
+When the research turns up something durable — a confirmed, corrected, or newly discovered
+behavior — the nested session writes it back into `analysis/` following this repo's normal
+"Documenting findings" loop, the same as an interactive session would. It does not commit the
+change itself; it delegates that to the `git-wright` subagent, which stages the specific file(s)
+by path and commits with its usual `Curated-by: git-wright` trailer plus an additional
+`Consulted-by: claude-code-expert` trailer, so every commit made on the expert's behalf is
+identifiable and revertible (`git log --grep 'Consulted-by: claude-code-expert'`, `git revert <sha>`
+for a wrong one). This is why asking the same or a similar question again later is faster and
+cheaper — the answer may already be sitting in `analysis/` rather than re-derived from source.
+
 ## The tool
 
     ask_claude_code_expert(question: string, session_id?: string) -> text
@@ -44,13 +54,18 @@ All optional, via environment variables on the server entry:
 
     CLAUDE_CODE_ANALYSIS_DIR   Repo root the expert explores (default: parent of the script)
     CLAUDE_BIN                 Path to the claude binary (default: claude on PATH)
-    EXPERT_ALLOWED_TOOLS       Comma-separated tool allowlist (default: Read,Grep,Glob,Bash,WebFetch)
+    EXPERT_ALLOWED_TOOLS       Comma-separated tool allowlist
+                               (default: Read,Grep,Glob,Bash,WebFetch,Write,Edit,Agent)
     EXPERT_TIMEOUT_MS          Per-question wall-clock budget (default: 300000)
     EXPERT_MODEL               Optional model override passed to claude --model
 
-The default tool allowlist is read-only research: the expert can read, search, run shell commands,
-and fetch web pages, but the absence of `Write`/`Edit` from the allowlist means it cannot modify
-files in a non-interactive session.
+The default allowlist lets the expert research (`Read`/`Grep`/`Glob`/`Bash`/`WebFetch`), write or
+edit `analysis/` docs directly (`Write`/`Edit`), and delegate the commit to a subagent (`Agent`).
+Its system prompt forbids running `git add`/`git commit` itself even though `Bash` is allowed, and
+requires it to check `git status --short` first and skip the write-back entirely if the working
+tree already has unrelated pending changes — since this repo's checkout may be in active interactive
+use at the same time a question arrives from another project. Set `EXPERT_ALLOWED_TOOLS` back to
+the original `Read,Grep,Glob,Bash,WebFetch` to restore a strictly read-only expert.
 
 ## Billing
 

@@ -5,7 +5,10 @@
 // Claude Code internals by running a nested headless Claude session (`claude -p`)
 // with its working directory set to this repository. The nested session inherits
 // this project's CLAUDE.md and skills, so it explores the prettified sources under
-// work/<version>/ and the curated docs under analysis/ on its own.
+// work/<version>/ and the curated docs under analysis/ on its own, and — per this
+// repo's own "Documenting findings" loop — writes back what it confirms so the
+// same research is never paid for twice. It delegates the actual git commit to
+// the git-wright subagent rather than committing itself; see the system prompt.
 //
 // Transport: MCP over stdio (newline-delimited JSON-RPC). stdout is the protocol
 // channel and carries nothing but JSON-RPC messages; all diagnostics go to stderr.
@@ -16,7 +19,7 @@
 // Configuration (environment variables):
 //   CLAUDE_CODE_ANALYSIS_DIR  Repo root the expert explores (default: parent of this file)
 //   CLAUDE_BIN                Path to the claude binary (default: "claude" on PATH)
-//   EXPERT_ALLOWED_TOOLS      Comma-separated tool allowlist (default: read-only research set)
+//   EXPERT_ALLOWED_TOOLS      Comma-separated tool allowlist (default: research + write-back set)
 //   EXPERT_TIMEOUT_MS         Per-question wall-clock budget (default: 300000)
 //   EXPERT_MODEL              Optional model override passed to `claude --model`
 
@@ -28,29 +31,52 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = process.env.CLAUDE_CODE_ANALYSIS_DIR || resolve(HERE, "..");
 const CLAUDE_BIN = process.env.CLAUDE_BIN || "claude";
 const ALLOWED_TOOLS =
-  process.env.EXPERT_ALLOWED_TOOLS || "Read,Grep,Glob,Bash,WebFetch";
+  process.env.EXPERT_ALLOWED_TOOLS || "Read,Grep,Glob,Bash,WebFetch,Write,Edit,Agent";
 const TIMEOUT_MS = Number(process.env.EXPERT_TIMEOUT_MS || 300000);
 const MODEL = process.env.EXPERT_MODEL || "";
 
 const SERVER_INFO = { name: "claude-code-expert", version: "0.1.0" };
 const DEFAULT_PROTOCOL = "2025-06-18";
 
-// The nested session's CLAUDE.md already explains the repo. This fixes its role
-// and answer style as a read-only consultant, and overrides CLAUDE.md's "update
-// stale docs" loop — that loop is for interactive sessions, not for a consulted
-// expert, which reports drift in its answer instead of editing.
+// The nested session's CLAUDE.md already explains the repo, including the
+// "Documenting findings" loop (research a question, then write it back to
+// analysis/ so it isn't re-derived next time). This prompt keeps that loop in
+// force — it does not override it read-only — and adds the write-back
+// mechanics specific to being invoked headlessly by another project.
 const SYSTEM_PROMPT = [
-  "You are an expert on Claude Code's internals being consulted by another Claude",
-  "Code session in a different project. Answer the question precisely from the",
-  "evidence in THIS repository: the prettified sources under work/<version>/ and",
-  "the curated analysis docs under analysis/. Cite file:line for concrete claims.",
-  "Prefer the highest-numbered work/<version>. Be direct and concrete.",
-  "You are a strictly read-only consultant: do not modify, create, or commit files.",
-  "This repository's CLAUDE.md tells sessions to update stale analysis docs; that",
-  "maintenance loop is for interactive sessions, not for you. If an analysis doc is",
-  "out of date or contradicts the current source, do not edit it — flag it in your",
-  "answer (name the doc and what is stale) so a maintainer can fix it interactively.",
-].join(" ");
+  [
+    "You are an expert on Claude Code's internals being consulted by another Claude",
+    "Code session in a different project. Answer the question precisely from the",
+    "evidence in THIS repository: the prettified sources under work/<version>/ and",
+    "the curated analysis docs under analysis/. Cite file:line for concrete claims.",
+    "Prefer the highest-numbered work/<version>. Be direct and concrete.",
+  ].join(" "),
+  [
+    "Follow this repository's normal 'Documenting findings' loop from CLAUDE.md:",
+    "when your research confirms, corrects, or discovers a durable fact — not for",
+    "trivial or purely exploratory questions — update the matching analysis/ doc (or",
+    "add a new one) in landmark style and restamp its verified version, exactly as",
+    "an interactive session here would.",
+  ].join(" "),
+  [
+    "You may create and edit files yourself. You may NOT run `git add`, `git commit`,",
+    "or any other git write command yourself, even via Bash. Once your doc edit is",
+    "ready, use the Agent tool to delegate the commit to subagent_type: git-wright,",
+    "invoked synchronously (do not set run_in_background — this process exits as",
+    "soon as you finish, so a backgrounded commit would be silently orphaned). Tell",
+    "git-wright exactly which file(s) you changed and why, and require it to ALSO",
+    "include a `Consulted-by: claude-code-expert` trailer on the commit, in addition",
+    "to (not instead of) its own usual `Curated-by: git-wright` trailer, so these",
+    "commits are identifiable and revertible later.",
+  ].join(" "),
+  [
+    "Before writing anything, run `git status --short` yourself and confirm the only",
+    "dirty paths are ones you are about to touch. If the working tree already has",
+    "unrelated modified or staged files, do not write or commit anything this turn —",
+    "just answer the question, and mention in your answer that the repo had",
+    "unrelated pending changes so the write-back was skipped.",
+  ].join(" "),
+].join("\n\n");
 
 const log = (...a) => process.stderr.write(`[cc-expert] ${a.join(" ")}\n`);
 
@@ -76,6 +102,8 @@ const TOOL = {
     "Ask an expert about Claude Code's internals, behavior, or source. A nested " +
     "Claude session researches the answer by exploring a local repository of " +
     "prettified Claude Code sources and analysis docs, then returns its findings. " +
+    "Durable findings get committed back into that repository, so asking the " +
+    "same or a similar question again later is faster and cheaper. " +
     "Use this when the public Claude Code documentation is insufficient — e.g. " +
     "how an undocumented feature, flag, prompt, tool, or subagent mechanism " +
     "actually works. To continue a prior line of questioning with the research " +
