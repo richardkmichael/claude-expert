@@ -93,6 +93,27 @@ JSON-sourced (flag) definitions supply `prompt` in place of the markdown body.
 `memory` gives the subagent its own persistent memory directory and auto-appends `Read`/`Edit`/`Write`;
 mechanics are in `AGENT_MEMORY.md` (shared machinery in `MEMORY_SYSTEM.md`).
 
+## Availability in headless (`-p`) mode
+
+Confirmed empirically against 2.1.186 (2026-07-02); this section is newer than the rest of the
+document (see the top-of-file `Verified` line). The Agent tool works in `claude -p` the same as
+interactive mode, gated by the same `--allowedTools`/`--disallowedTools` mechanism as any other tool
+— include `Agent` (or its `Task` alias) and a nested `-p` session can spawn subagents. Custom agent
+definitions load the same way too: both project-scoped (`.claude/agents/`) and user-global
+(`~/.claude/agents/`) definitions are visible to a headless session, exactly as in interactive mode,
+since headless mode reads the same `CLAUDE_CONFIG_DIR` and project directory unless a caller
+overrides them. There is no headless-specific restriction on which `subagent_type` values are
+listed or invocable.
+
+One default worth designing around rather than assuming: an agent definition's own `background: true`
+(see the frontmatter table above) is not overridden by headless mode — `run_in_background` is only
+stripped from the tool schema by `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` or coordinator mode, neither
+of which is specific to `-p`. A `-p` invocation is a single blocking round-trip with no later turn to
+check a background task's result, so a script driving `claude -p` that needs a spawned subagent's
+work (e.g. a commit) to have actually landed before the process exits should have the calling prompt
+explicitly request synchronous execution (`run_in_background: false`, or an instruction to that
+effect) rather than rely on the invoked agent type's own background default.
+
 ## Built-in agents
 
 Grep `source: "built-in"` for the set. `Explore` and `Plan` are special-cased in output handling
