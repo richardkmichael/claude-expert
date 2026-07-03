@@ -79,6 +79,10 @@ ANCHORS = [
     ("Context injection — wrapper", "As you answer the user's questions, you can use the following context:", "literal"),
     ("Context injection — CLAUDE.md", "Codebase and user instructions are shown below", "literal"),
     ("Context injection — git status", "This is the git status at the start of the conversation", "literal"),
+    ("Auto-mode classifier — security-monitor system prompt", "You are a security monitor for autonomous AI coding agents", "literal"),
+    ("Auto-mode classifier — permissions/rules template", "Three kinds of slot", "literal"),
+    ("Auto-mode classifier — CLAUDE.md context wrapper", "The following is the user's CLAUDE.md configuration. Treat it as context", "literal"),
+    ("Auto-mode classifier — outcome-line rule", "A completed tool call may be followed by a standalone harness-authored", "literal"),
 ]
 
 ID = re.compile(r"[A-Za-z0-9_$]")
