@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // Claude Code Analysis — expert MCP server.
 //
 // Exposes a single tool, ask_claude_code_expert, that answers questions about
@@ -10,8 +10,14 @@
 // same research is never paid for twice. It delegates the actual git commit to a
 // git-committing subagent rather than committing itself; see the system prompt.
 //
-// Transport: MCP over stdio (newline-delimited JSON-RPC). stdout is the protocol
-// channel and carries nothing but JSON-RPC messages; all diagnostics go to stderr.
+// Runtime: bun. The MCP protocol is handled by @modelcontextprotocol/sdk, imported
+// with its version pinned in the specifier so bun's auto-install resolves it into
+// its global cache on first run — no package.json, no node_modules, no build step.
+// Everything else is Node built-ins. Bump the SDK by editing the pinned version in
+// the three import specifiers below (check `mise outdated` / npm for the latest).
+//
+// Transport: MCP over stdio. stdout is the protocol channel and carries nothing but
+// protocol messages; all diagnostics go to stderr.
 //
 // Billing note: from 2026-06-15, `claude -p` on a subscription draws from the
 // separate monthly Agent SDK credit pool, not your interactive usage limits.
@@ -26,6 +32,12 @@
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import { Server } from "@modelcontextprotocol/sdk@1.29.0/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk@1.29.0/server/stdio.js";
+import {
+  ListToolsRequestSchema,
+  CallToolRequestSchema,
+} from "@modelcontextprotocol/sdk@1.29.0/types.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = process.env.CLAUDE_CODE_ANALYSIS_DIR || resolve(HERE, "..");
@@ -36,7 +48,6 @@ const TIMEOUT_MS = Number(process.env.EXPERT_TIMEOUT_MS || 300000);
 const MODEL = process.env.EXPERT_MODEL || "";
 
 const SERVER_INFO = { name: "claude-code-expert", version: "0.1.0" };
-const DEFAULT_PROTOCOL = "2025-06-18";
 
 // The nested session's CLAUDE.md already explains the repo, including the
 // "Documenting findings" loop (research a question, then write it back to
@@ -79,20 +90,6 @@ const SYSTEM_PROMPT = [
 ].join("\n\n");
 
 const log = (...a) => process.stderr.write(`[cc-expert] ${a.join(" ")}\n`);
-
-// ---- stdio JSON-RPC plumbing -------------------------------------------------
-
-function send(msg) {
-  process.stdout.write(JSON.stringify(msg) + "\n");
-}
-
-function reply(id, result) {
-  send({ jsonrpc: "2.0", id, result });
-}
-
-function replyError(id, code, message) {
-  send({ jsonrpc: "2.0", id, error: { code, message } });
-}
 
 // ---- the expert tool ---------------------------------------------------------
 
@@ -152,38 +149,38 @@ function runExpert({ question, session_id }) {
   delete env.CLAUDE_CODE_SSE_PORT;
 
   return new Promise((resolveRun) => {
-    const child = spawn(CLAUDE_BIN, args, { cwd: REPO_ROOT, env });
+    const claudeP = spawn(CLAUDE_BIN, args, { cwd: REPO_ROOT, env });
     let stdout = "";
     let stderr = "";
-    let settled = false;
+    let finished = false;
 
     const finish = (value) => {
-      if (settled) return;
-      settled = true;
+      if (finished) return;
+      finished = true;
       clearTimeout(timer);
       resolveRun(value);
     };
 
     const timer = setTimeout(() => {
-      child.kill("SIGKILL");
+      claudeP.kill("SIGKILL");
       finish({
         isError: true,
         text: `Expert timed out after ${TIMEOUT_MS} ms. Try a narrower question.`,
       });
     }, TIMEOUT_MS);
 
-    child.stdout.on("data", (d) => (stdout += d));
-    child.stderr.on("data", (d) => (stderr += d));
+    claudeP.stdout.on("data", (d) => (stdout += d));
+    claudeP.stderr.on("data", (d) => (stderr += d));
 
-    child.on("error", (err) => {
+    claudeP.on("error", (err) => {
       finish({
         isError: true,
         text: `Failed to launch '${CLAUDE_BIN}': ${err.message}`,
       });
     });
 
-    child.on("close", (code) => {
-      if (settled) return;
+    claudeP.on("close", (code) => {
+      if (finished) return;
       let parsed;
       try {
         parsed = JSON.parse(stdout);
@@ -207,105 +204,52 @@ function runExpert({ question, session_id }) {
   });
 }
 
-// ---- request dispatch --------------------------------------------------------
+// ---- MCP server --------------------------------
 
-async function handle(msg) {
-  const { id, method, params } = msg;
-  const isRequest = id !== undefined && id !== null;
+const server = new Server(SERVER_INFO, { capabilities: { tools: {} } });
 
-  switch (method) {
-    case "initialize": {
-      const protocolVersion = params?.protocolVersion || DEFAULT_PROTOCOL;
-      reply(id, {
-        protocolVersion,
-        capabilities: { tools: {} },
-        serverInfo: SERVER_INFO,
-      });
-      return;
-    }
-    case "notifications/initialized":
-      return; // notification, no reply
-    case "ping":
-      if (isRequest) reply(id, {});
-      return;
-    case "tools/list":
-      reply(id, { tools: [TOOL] });
-      return;
-    case "tools/call": {
-      const name = params?.name;
-      if (name !== TOOL.name) {
-        replyError(id, -32602, `Unknown tool: ${name}`);
-        return;
-      }
-      const question = params?.arguments?.question;
-      if (typeof question !== "string" || question.trim() === "") {
-        reply(id, {
-          isError: true,
-          content: [{ type: "text", text: "Missing required 'question'." }],
-        });
-        return;
-      }
-      log(`question (${question.length} chars)` +
-        (params.arguments.session_id ? ` [resume ${params.arguments.session_id}]` : ""));
-      const out = await runExpert({
-        question,
-        session_id: params.arguments.session_id,
-      });
-      reply(id, {
-        isError: out.isError,
-        content: [{ type: "text", text: out.text }],
-      });
-      return;
-    }
-    default:
-      if (isRequest) replyError(id, -32601, `Method not found: ${method}`);
-      return;
+server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: [TOOL] }));
+
+server.setRequestHandler(CallToolRequestSchema, async (req) => {
+  if (req.params.name !== TOOL.name) {
+    return {
+      isError: true,
+      content: [{ type: "text", text: `Unknown tool: ${req.params.name}` }],
+    };
   }
-}
-
-// ---- stdin reader (newline-delimited JSON) -----------------------------------
-
-let buffer = "";
-let pending = 0;
-let stdinEnded = false;
-const maybeExit = () => {
-  if (stdinEnded && pending === 0) process.exit(0);
-};
-
-process.stdin.setEncoding("utf8");
-process.stdin.on("data", (chunk) => {
-  buffer += chunk;
-  let nl;
-  while ((nl = buffer.indexOf("\n")) !== -1) {
-    const line = buffer.slice(0, nl).trim();
-    buffer = buffer.slice(nl + 1);
-    if (!line) continue;
-    let msg;
-    try {
-      msg = JSON.parse(line);
-    } catch (e) {
-      log(`parse error: ${e.message}`);
-      continue;
-    }
-    pending++;
-    Promise.resolve(handle(msg))
-      .catch((e) => {
-        log(`handler error: ${e?.stack || e}`);
-        if (msg && msg.id !== undefined && msg.id !== null) {
-          replyError(msg.id, -32603, `Internal error: ${e?.message || e}`);
-        }
-      })
-      .finally(() => {
-        pending--;
-        maybeExit();
-      });
+  const question = req.params.arguments?.question;
+  if (typeof question !== "string" || question.trim() === "") {
+    return {
+      isError: true,
+      content: [{ type: "text", text: "Missing required 'question'." }],
+    };
   }
-});
-// A client closing stdin signals shutdown, but a long-running expert call may
-// still be in flight; drain it before exiting so the response is not lost.
-process.stdin.on("end", () => {
-  stdinEnded = true;
-  maybeExit();
+  const session_id = req.params.arguments?.session_id;
+  log(
+    `question (${question.length} chars)` +
+      (session_id ? ` [resume ${session_id}]` : ""),
+  );
+  const out = await runExpert({ question, session_id });
+  return {
+    isError: out.isError,
+    content: [{ type: "text", text: out.text }],
+  };
 });
 
+// No shutdown handling, on purpose. A stdio client signals shutdown by closing
+// stdin — at which point it is gone and will not read another response. A
+// well-behaved client only closes stdin once it is idle, so the normal path is
+// simply: stdin EOF, the event loop empties, the process exits. There is no
+// response to "flush" and nothing to track.
+//
+// If a call is still running when the client vanishes (an abnormal client exit),
+// its child process keeps the event loop alive until it finishes, then the
+// process exits — bounded by EXPERT_TIMEOUT_MS, which SIGKILLs the child. We let
+// it finish rather than kill it on disconnect: the answer text is lost either
+// way, but the call's real product is the write-back it commits to the repo, and
+// killing it mid-write could leave the tree dirty — which makes later calls skip
+// their own write-back (see the system prompt). Letting it complete is cheaper
+// than the cleanup a half-done write-back would cost.
+
+await server.connect(new StdioServerTransport());
 log(`ready — repo ${REPO_ROOT}, claude '${CLAUDE_BIN}', tools [${ALLOWED_TOOLS}]`);

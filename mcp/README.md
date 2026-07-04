@@ -26,19 +26,32 @@ The reply ends with a `Research session_id:` line. Pass that value back as `sess
 call to continue the same research conversation with its context retained — the calling Claude does
 this automatically when it wants a follow-up.
 
+## Runtime: bun
+
+The server runs under bun. It imports the MCP SDK with the SDK version pinned in the import
+specifiers, so bun auto-installs the SDK into its global cache on first run — no `package.json`,
+no `node_modules`, no build step. Everything else is Node built-ins. Bump the SDK by editing the
+pinned version in the three import specifiers at the top of `expert-server.mjs`.
+
+Install bun however you like and make sure `bun` is on PATH. One caveat if you manage bun with a
+per-directory version manager (mise, asdf, and the like): the server is launched from whatever
+project invokes it, not from this repo, so a bun version pinned only inside this repo does not apply
+there. Either set a global default (with mise, `mise use -g bun@latest`) or register with an
+absolute path to the bun binary (the path `mise which bun` prints) in place of the bare `bun` below.
+
 ## Register it
 
 User scope makes it available in every project (recommended):
 
     claude mcp add claude-code-expert -s user -- \
-      node /path/to/claude-code-analysis/mcp/expert-server.mjs
+      bun /path/to/claude-code-analysis/mcp/expert-server.mjs
 
 Or per project, in that project's `.mcp.json`:
 
     {
       "mcpServers": {
         "claude-code-expert": {
-          "command": "node",
+          "command": "bun",
           "args": [
             "/path/to/claude-code-analysis/mcp/expert-server.mjs"
           ]
