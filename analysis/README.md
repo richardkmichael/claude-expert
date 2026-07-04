@@ -62,6 +62,7 @@ Style legend:
 | `CLEAR_COMPACT_FORK_CONTEXT.md` | /compact, /clear, /fork, /rewind record mechanics    | 2.1.76   | landmark | `compact_boundary`, `microcompact_boundary`, `forkedFrom`     |
 | `CONTEXT_OPS_DIAGRAMS.md`       | Diagrams: context ops as append-only JSONL           | unstated | landmark | `parentUuid`, `logicalParentUuid`, `forkedFrom`               |
 | `COMMAND_HISTORY.md`            | Input history file format and filtering              | 2.1.76   | landmark | `~/.claude/history.jsonl`, `sessionId`                        |
+| `CD_COMMAND.md`                 | `/cd`: moves transcript + cwd, leaves memory behind  | 2.1.198  | landmark | `Move this session to a new working directory`, `tengu_cd_command`, `relocated` |
 | `BACKGROUND_SESSIONS_RESPAWN.md` | Background-session retire→wake flag/env preservation, respawn-state validation | 2.1.169  | landmark | `retireIfSettled`, `respawnFlags`, `stripped non-allowlisted`, `tengu_bg_retired` |
 
 ## Memory
