@@ -10,8 +10,9 @@ answer cross the boundary; the exploration stays inside the nested session.
 When the research turns up something durable — a confirmed, corrected, or newly discovered
 behavior — the nested session writes it back into `analysis/` following this repo's normal
 "Documenting findings" loop, the same as an interactive session would. It does not commit the
-change itself; it delegates that to the `git-wright` subagent, which stages the specific file(s)
-by path and commits with its usual `Curated-by: git-wright` trailer plus an additional
+change itself; it delegates that to a git-committing subagent — which subagent, and any trailer
+conventions it follows, are set in this repo's own memory (a `CLAUDE.md` / `CLAUDE.local.md` the
+nested session loads). The subagent stages the specific file(s) by path and adds a
 `Consulted-by: claude-code-expert` trailer, so every commit made on the expert's behalf is
 identifiable and revertible (`git log --grep 'Consulted-by: claude-code-expert'`, `git revert <sha>`
 for a wrong one). This is why asking the same or a similar question again later is faster and

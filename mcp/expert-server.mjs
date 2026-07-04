@@ -7,8 +7,8 @@
 // this project's CLAUDE.md and skills, so it explores the prettified sources under
 // work/<version>/ and the curated docs under analysis/ on its own, and — per this
 // repo's own "Documenting findings" loop — writes back what it confirms so the
-// same research is never paid for twice. It delegates the actual git commit to
-// the git-wright subagent rather than committing itself; see the system prompt.
+// same research is never paid for twice. It delegates the actual git commit to a
+// git-committing subagent rather than committing itself; see the system prompt.
 //
 // Transport: MCP over stdio (newline-delimited JSON-RPC). stdout is the protocol
 // channel and carries nothing but JSON-RPC messages; all diagnostics go to stderr.
@@ -61,13 +61,13 @@ const SYSTEM_PROMPT = [
   [
     "You may create and edit files yourself. You may NOT run `git add`, `git commit`,",
     "or any other git write command yourself, even via Bash. Once your doc edit is",
-    "ready, use the Agent tool to delegate the commit to subagent_type: git-wright,",
-    "invoked synchronously (do not set run_in_background — this process exits as",
-    "soon as you finish, so a backgrounded commit would be silently orphaned). Tell",
-    "git-wright exactly which file(s) you changed and why, and require it to ALSO",
-    "include a `Consulted-by: claude-code-expert` trailer on the commit, in addition",
-    "to (not instead of) its own usual `Curated-by: git-wright` trailer, so these",
-    "commits are identifiable and revertible later.",
+    "ready, use the Agent tool to delegate the commit to a git-committing subagent,",
+    "invoked synchronously (do not set run_in_background — this process exits as soon",
+    "as you finish, so a backgrounded commit would be silently orphaned). This",
+    "repository's memory names the specific subagent to use and any trailer",
+    "conventions it follows; consult it. Tell that subagent exactly which file(s) you",
+    "changed and why, and require it to include a `Consulted-by: claude-code-expert`",
+    "trailer on the commit so these commits are identifiable and revertible later.",
   ].join(" "),
   [
     "Before writing anything, run `git status --short` yourself and confirm the only",
