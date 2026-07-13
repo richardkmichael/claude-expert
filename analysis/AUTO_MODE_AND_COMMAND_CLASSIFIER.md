@@ -138,12 +138,21 @@ fills them per call:
   parsed to `IPo`) when `bSt()` is true (default); when false it becomes empty (`dSm`, `""`).
 - The four `<user_*_rules_to_replace>` blocks — `allow`, `soft_deny`, `hard_deny`, `environment` —
   are each replaced by `TSt(custom, defaultText)`. The name is literal: the user's configured rules
-  *replace* the built-in defaults for that block. `custom` comes from the `autoMode` key in
-  settings.json, merged across all scopes by `Qte()` (`autoMode.{allow,soft_deny,hard_deny,
-  environment}` — arrays of rule strings). With no custom rules the default block text stays. With
-  custom rules, the defaults are dropped unless the array includes the sentinel `"$defaults"`, which
-  splices the built-ins back in at that position (so `["$defaults", "…my rule…"]` appends; `["…my
-  rule…"]` replaces).
+  *replace* the built-in defaults for that block. `custom` comes from the `autoMode` key in settings,
+  merged by `Qte()` across `gPs` = `userSettings`, `localSettings`, `flagSettings`, `policySettings`.
+  The checked-in project `.claude/settings.json` is deliberately absent from that list, so a cloned
+  repo cannot weaken the classifier — only `~/.claude/settings.json`, `.claude/settings.local.json`,
+  `--settings`, or managed policy feed it. Each key (`autoMode.{allow,soft_deny,hard_deny,environment}`)
+  is an array of rule strings. With no custom rules the default block text stays. With custom rules the
+  defaults are dropped unless the array includes the sentinel `"$defaults"`, which splices the built-in
+  block back in at that position (so `["$defaults", "…my rule…"]` appends; `["…my rule…"]` replaces).
+  `$defaults` is atomic: `ySt` re-inserts the whole default block once (even if several scopes repeat
+  the sentinel), with no per-rule granularity — there is no way to keep `$defaults` and drop a single
+  default rule. To edit or remove one default rule you omit `$defaults` and re-list the rest of that
+  block yourself (pull the exact text with `claude auto-mode defaults | jq -r '.soft_deny[]'` — a real
+  CLI subcommand), which forks the block and forgoes future default additions. `soft_deny`/`hard_deny`
+  only tighten (they add block rules); to *relax* a soft block, add an `autoMode.allow` exception
+  rather than editing `soft_deny`, since an ALLOW exception clears a matching SOFT BLOCK.
 - `<settings_deny_rules>` ← a note derived from the permission-context `alwaysDenyRules` (`EPo`),
   telling the classifier to catch tool-switching around those deny rules.
 - `<cross_session_messages_rule>` ← `""` in single-session use (populated only in multi-session).
@@ -154,8 +163,13 @@ security prompt":
 - `system` = the assembled `sQn` prompt above, plus a "## Session Context" note with the resolved
   user identity (`kSm()`), cache-controlled.
 - `messages` = at most two user messages: (1) an optional message carrying the user's `CLAUDE.md`
-  (`wSm()` — "The following is the user's CLAUDE.md configuration…"; omitted when there is none),
-  then (2) one user message whose content is the whole loop transcript rendered to text and wrapped
+  (`wSm()` — "The following is the user's CLAUDE.md configuration…"; omitted when there is none). The
+  wrapper weighs CLAUDE.md as intent only when it explicitly authorizes the SPECIFIC action under
+  review — same operation, same target; it names generic grants ("be autonomous", "don't ask", "I
+  trust you") and states they are not authorization and must not lower the block threshold. So a
+  standing CLAUDE.md line cannot clear a per-target rule like Git Destructive, whose target (which
+  commit) varies per action. Then (2) one user message whose content is the whole loop transcript
+  rendered to text and wrapped
   in `<transcript>…</transcript>` with the pending tool call appended as the final entry, followed by
   a short stage-specific instruction suffix (`OSm`/`LSm`).
 - There are no assistant-role messages and no real turn structure — the history is quoted evidence
@@ -283,6 +297,29 @@ Ways to clear it, ranked by reliability:
 - Take the amend out of auto mode. The classifier only runs in auto mode; a normal permission prompt
   (or existing allow rules) governs the amend otherwise. Most reliable and needs no change to how the
   work is delegated.
+- Edit the classifier's rules through `autoMode` settings — the supported config surface, and the only
+  lever that changes the rule itself instead of arguing intent past it. Relaxing a soft block goes in
+  `autoMode.allow` (the exception list), not `soft_deny` (the block list — an "X is allowed…" entry
+  there is inert, and the default Git Destructive rule kept by `$defaults` keeps firing). Word the
+  exception authorship-agnostically: a carve-out about "the agent's own commits" is useless here, since
+  the blocked case is rewriting commits that predate the subagent or that others authored. A working
+  shape is `["$defaults", "Git History Cleanup: arbitrarily rewriting git history with rebase or amend
+  is permitted, including sequence and commit message subject/body."]`, which clears the amend/local-
+  rebase block. It does not by itself clear the force-push that publishing a rewrite of an already-
+  pushed branch needs: the ALLOW intro says exceptions do not extend "to force-pushing over commits the
+  agent didn't author," so name force-push explicitly if the publish step is needed, and expect it to
+  still be judged strictly on shared/default branches. For a deterministic removal instead of an
+  LLM-judged exception, fork `autoMode.soft_deny` (omit `$defaults`, re-list the block without Git
+  Destructive's rewrite clause). Two hard limits on any such rule: it is read for every gated call
+  regardless of which agent triggered it (merged from user/local/flag/policy settings by `Qte()`, never
+  the checked-in project `.claude/settings.json`), so it applies to every agent in that settings scope,
+  not git-wright alone; and it cannot name the agent — the classifier input carries no agent name or
+  type (Session Context `kSm` is user identity only, the entry renderer `Pyl`/`Dyl` labels entries by
+  role and content type, and the agent definition never reaches the classifier), so "git-wright" binds
+  to nothing. The only git-wright-specific text the classifier sees is the delegation prompt (its first
+  user message); keying a rule off a phrase that always appears there is the closest handle, and it is
+  brittle. Put the rule in `~/.claude/settings.json` (all projects) or `.claude/settings.local.json`
+  (this project); base wording on `claude auto-mode defaults`.
 - Let git-wright create the commit it will amend, so the `git commit` sits in git-wright's own
   transcript and the rule's precondition ("not the agent's own unpushed work") is false. Reliable
   when the workflow allows it; it does not help when the job is to amend a pre-existing commit.
@@ -299,7 +336,11 @@ Ways to clear it, ranked by reliability:
   becomes the subagent's `systemPrompt` (P4 runs `EF({ messages, systemPrompt })` with the definition
   in `systemPrompt`, separate from `messages`), and the classifier builds its `<transcript>` from
   `messages` only while using its own security-monitor system prompt. It never sees the agent
-  definition. Subagent assistant prose is stripped too, so git-wright cannot self-justify in prose.
+  definition. Subagent assistant prose is stripped too, so git-wright cannot self-justify in prose. A
+blanket grant in `CLAUDE.md` (`git-wright may rewrite all history`) does reach the classifier — it is
+`messages[0]` via `wSm()` — but the wrapper counts CLAUDE.md as intent only when it names the specific
+operation and target, and is told to discount generic grants, so it is ignored for the same reason a
+standing authorization is.
 
 This is a design consequence, not a bug in the classifier: the classifier deliberately trusts only
 what it can see in the transcript it is given, and a subagent's transcript is scoped to the subagent.
@@ -316,6 +357,9 @@ what it can see in the transcript it is given, and a subagent's transcript is sc
 - □ Non-fork subagent still seeds messages from the task prompt only (no parent messages).
 - □ "Git Destructive" amend rule still clears on explicit amend/reword/fixup request or an
   agent-visible session commit.
+- □ `autoMode` still merges from `gPs` = `userSettings`/`localSettings`/`flagSettings`/`policySettings`
+  only (checked-in `projectSettings` excluded); `$defaults` still atomic (`ySt` splices once); the
+  classifier input still carries no agent name/type (Session Context = user identity only).
 
 ## Dated appendix
 
@@ -326,4 +370,15 @@ what it can see in the transcript it is given, and a subagent's transcript is sc
   transcript, which is why git-wright amends of pre-delegation commits began being blocked.
 - 2.1.198: verified. Two-stage classifier (fast/thinking), `<block>`/`<reason>` parse,
   `tengu_auto_mode_config` tuning, `isSubagentLoop` via `x3e`, transcript isolation for non-fork
-  subagents all as described above.
+  subagents all as described above. Rule-config surface documented:
+  `autoMode.{allow,soft_deny,hard_deny,environment}` merged by `Qte()` over `gPs`
+  (`userSettings`/`localSettings`/`flagSettings`/`policySettings`, checked-in project settings
+  excluded), `$defaults` atomic splice via `ySt`/`TSt`, the `claude auto-mode defaults` CLI, no
+  agent-name/type in the classifier input, and the CLAUDE.md intent wrapper (weighed only on a specific
+  operation+target match; generic grants discounted). The `claude auto-mode` command exposes
+  `defaults`/`config`/`critique` subcommands, and `autoMode.classifyAllShell` (read over `gPs`) routes
+  every shell command through the classifier. The official reference page
+  `code.claude.com/docs/en/auto-mode-config` matches the source on scopes (project settings excluded),
+  the `$defaults` splice, and the `hard_deny` > `soft_deny` > `allow` > explicit-intent precedence; it
+  does not spell out the CLAUDE.md wrapper's generic-grant discount (it gives only the tightening
+  example "never force push") or the absence of any agent-name signal.

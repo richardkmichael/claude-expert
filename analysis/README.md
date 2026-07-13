@@ -44,7 +44,7 @@ Style legend:
 
 | Doc                                 | Scope                                                        | Verified | Style    | Key landmarks                                                                    |
 | ----------------------------------- | ----------------------------------------------------------- | -------- | -------- | -------------------------------------------------------------------------------- |
-| `AUTO_MODE_AND_COMMAND_CLASSIFIER.md` | Regex destructive-command classifier + auto-mode LLM security classifier; why subagent `git commit --amend` is blocked | 2.1.198 | landmark | `security monitor for autonomous`, `git_commit_amend`, `tengu_auto_mode_config`, `isSubagentLoop`, `<block>` |
+| `AUTO_MODE_AND_COMMAND_CLASSIFIER.md` | Regex destructive-command classifier + auto-mode LLM security classifier; `autoMode` rule-config surface; why subagent `git commit --amend` is blocked | 2.1.198 | landmark | `security monitor for autonomous`, `git_commit_amend`, `tengu_auto_mode_config`, `isSubagentLoop`, `<block>`, `autoMode.soft_deny`, `$defaults`, `auto-mode defaults` |
 
 ## Hooks
 
