@@ -19,8 +19,22 @@ Schema validation library (TypeScript-first).
 
 ### AJV (Another JSON Schema Validator)
 JSON schema validation.
-- Anchor: `"ajv implementation error"` string literal near line 24934; keywords like
-  `["maxLength", "minLength"]` at line ~28078
+- Anchor: `"ajv implementation error"` string literal (present ~9x). The `ajv-formats` plugin is
+  also inlined (`require("ajv-formats/dist/formats")` codegen string); `ajv-errors` is not (the
+  lone `ajvErrors` string is ajv core's own deprecated-options map, not the plugin).
+- Version: 8.18.0 (confirmed against 2.1.207). AJV embeds no version constant, so pin it by source
+  fingerprint, not a string. Each step is a grep against `cli.prettier.js`:
+  - Major 8, not 6: the `require("ajv/dist/runtime/{equal,ucs2length,uri,validation}")` codegen
+    strings — the v8 `dist/runtime/*` layout. v6 has no `dist/runtime/`.
+  - URI resolver is `fast-uri`, so >= 8.17.1 (8.17.0 was never published; 8.16 and earlier use
+    `uri-js`). Module specifiers don't survive bundling, so fingerprint by absence: the punycode
+    error strings that `uri-js` inlines (`"not-basic"`, `"invalid-input"`) are gone.
+  - >= 8.18.0: the `pattern` vocabulary wraps the `$data` regexp in a try/catch — grep the codegen
+    literal `code === "new RegExp"` (introduced with `gen.let("valid")` + `gen.try(...)` in 8.18.0;
+    8.17.1 used a plain ternary and has neither).
+  - < 8.20.0: the `Ajv` constructor initializes `this.formats = {}` (8.20.0 switched it to
+    `Object.create(null)`).
+  - Only 8.17.1 / 8.18.0 / 8.20.0 exist in that window, so `>= 8.18.0` and `< 8.20.0` pins 8.18.0.
 - Used: likely MCP/tool schema validation
 - https://github.com/ajv-validator/ajv
 
