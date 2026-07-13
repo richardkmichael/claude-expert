@@ -3,7 +3,7 @@
 set -euo pipefail
 
 # Check required dependencies
-for cmd in npm tar npx chmod uname mktemp; do
+for cmd in npm tar npx chmod uname mktemp wc; do
     command -v "$cmd" >/dev/null 2>&1 || {
         echo "Error: required command '$cmd' not found" >&2
         exit 1
@@ -121,7 +121,28 @@ if [[ ! -f "${CLI_JS}" ]]; then
     }
 fi
 
-npx --yes prettier --ignore-path /dev/null "${CLI_JS}" > "${CLI_PRETTIER_JS}" || {
+# Prettifying the bundle is memory-hungry: the ~20MB single-line cli.js blows through Node's
+# default heap (~2GB) and OOMs. Raise --max-old-space-size when cli.js is large, scaled to the
+# machine's RAM (capped below physical RAM, so smaller boxes stay safe). The flag only raises the
+# ceiling, so it is harmless when the extra headroom is not needed.
+readonly PRETTIER_HEAP_THRESHOLD_BYTES=$((8 * 1024 * 1024))
+CLI_JS_BYTES="$(wc -c < "${CLI_JS}")"
+PRETTIER_NODE_OPTIONS="${NODE_OPTIONS:-}"
+if (( CLI_JS_BYTES > PRETTIER_HEAP_THRESHOLD_BYTES )); then
+    case "$(uname -s)" in
+        Darwin) RAM_MB=$(( $(sysctl -n hw.memsize) / 1024 / 1024 )) ;;
+        Linux)  RAM_MB=$(awk '/^MemTotal:/ { print int($2 / 1024) }' /proc/meminfo) ;;
+        *)      RAM_MB=0 ;;
+    esac
+    HEAP_MB=4096
+    if (( RAM_MB * 3 / 4 > HEAP_MB )); then
+        HEAP_MB=$(( RAM_MB * 3 / 4 ))
+    fi
+    PRETTIER_NODE_OPTIONS="${PRETTIER_NODE_OPTIONS} --max-old-space-size=${HEAP_MB}"
+    echo "cli.js is $(( CLI_JS_BYTES / 1024 / 1024 )) MB; raising prettier heap to ${HEAP_MB} MB (physical RAM: ${RAM_MB} MB)"
+fi
+
+NODE_OPTIONS="${PRETTIER_NODE_OPTIONS}" npx --yes prettier --ignore-path /dev/null "${CLI_JS}" > "${CLI_PRETTIER_JS}" || {
     echo "Error: failed to prettify ${CLI_JS}" >&2
     exit 1
 }
