@@ -19,9 +19,19 @@ Schema validation library (TypeScript-first).
 
 ### AJV (Another JSON Schema Validator)
 JSON schema validation.
-- Anchor: `"ajv implementation error"` string literal (present ~9x). The `ajv-formats` plugin is
-  also inlined (`require("ajv-formats/dist/formats")` codegen string); `ajv-errors` is not (the
-  lone `ajvErrors` string is ajv core's own deprecated-options map, not the plugin).
+- Anchor: `"ajv implementation error"` string literal (present ~9x).
+- Plugins: `ajv-formats` is fully inlined (not merely referenced by its codegen
+  `require("ajv-formats/dist/formats")` string) — its `dist/formats.js` (the `fullFormats` /
+  `fastFormats` tables and `formatNames = Object.keys(fullFormats)`), `dist/limit.js` (the
+  `formatMaximum` / `formatMinimum` / `formatExclusiveMaximum` / `formatExclusiveMinimum` keywords),
+  and the plugin function that selects `fastFormats` vs `fullFormats` by `mode === "fast"`. Grep the
+  format names it adds: `"iso-date-time"`, `"iso-time"`, `"uri-template"`, `"relative-json-pointer"`.
+  Version 3.0.x, not pinnable further from the bundle: the compiled runtime (`dist/*.js`) is
+  byte-identical across `3.0.0-rc.0` (2021), `3.0.0`, and `3.0.1` (2024) — only the `.d.ts` files and
+  the version field differ, and neither reaches the bundle. No SHA/version string is embedded and the
+  code matches the published npm tarballs verbatim, so it is a normal semver install (npm `latest` =
+  `3.0.1`, the most likely resolved version). `ajv-errors` is not bundled (the lone `ajvErrors` string
+  is ajv core's own deprecated-options map).
 - Version: 8.18.0 (confirmed against 2.1.207). AJV embeds no version constant, so pin it by source
   fingerprint, not a string. Each step is a grep against `cli.prettier.js`:
   - Major 8, not 6: the `require("ajv/dist/runtime/{equal,ucs2length,uri,validation}")` codegen
