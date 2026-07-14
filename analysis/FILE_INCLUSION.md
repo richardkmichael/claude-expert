@@ -1,6 +1,6 @@
 # @ File Inclusion and Completion
 
-Behavioral model verified against 2.1.165. This document follows the landmark style in
+Behavioral model verified against 2.1.207. This document follows the landmark style in
 `GUIDELINES.md`: features are identified by version-stable anchors (literal strings, log messages,
 `tengu_*` telemetry names, config keys, behavioral logic) with grep re-location recipes, not by
 minified symbol names or line numbers, which churn every release. Per-release facts live in the
@@ -26,10 +26,14 @@ It appears twice — once for unquoted tokens and once for the quoted form `@"..
 (`rg -n '\\p\{L\}\\p\{N\}'`) to find the token extractor; it runs whenever the input changes while
 `@` mode is active.
 
-The completion entry dispatcher is the function that checks `fileSuggestion?.type === "command"` in
-the project settings. That check is the first branch; the empty-query case and the main fuzzy-search
-path follow. Grep `fileSuggestion?.type === "command"`. Near the top the dispatcher also checks a
-remote-mode predicate (see "Remote file-suggestions" below) before the hook short-circuit.
+The completion entry dispatcher is the function that checks whether the `fileSuggestion` setting
+resolves to `type === "command"`. That check is the first branch after the remote-mode predicate;
+the empty-query case and the main fuzzy-search path follow. Grep
+`.fileSuggestion)?.type === "command"` — the setting is read through a resolver helper that lets a
+managed `policySettings.fileSuggestion` override the local value (grep
+`policySettings")?.fileSuggestion`). The hook runner itself also refuses to run when the hook is on
+the disabled list or workspace trust has not been accepted (grep
+`Skipping FileSuggestion command execution - workspace trust not accepted`).
 
 ## File Index Build Pipeline
 
@@ -202,11 +206,16 @@ It is called just before the cursor-update function in both the TAB and ENTER ha
 
 ### Directory vs. file distinction
 
-The `"file"` mode branch unconditionally sets `isComplete: true` and calls the close-suggestions
-function — it does not check whether the selected item is a directory. The correct check is whether
-`displayText.endsWith(path.sep)`; directory entries (from the parent-directory adder) always carry a
-trailing separator. The `"directory"` mode handler (for slash-command argument completion) already
-does the analogous check via `metadata.type === "directory"`. See TAB_COMPLETION.md for the fix.
+The `"file"` mode branch first checks the selected suggestion's metadata for a typed
+`{ replacement, partial }` pair (grep `"partial" in e` for the extractor); a `partial: true`
+replacement is inserted with the cursor repositioned and suggestions left open. Only MCP resource
+templates and argument-style suggestions emit that metadata — internal file-index entries do not.
+For them the branch falls through to the original behavior: `isComplete: true` and the
+close-suggestions call, with no check whether the selected item is a directory. The correct check
+is whether `displayText.endsWith(path.sep)`; directory entries (from the parent-directory adder)
+always carry a trailing separator. The `"directory"` mode handler (for slash-command argument
+completion) already does the analogous check via `metadata.type === "directory"`. See
+TAB_COMPLETION.md for the fix.
 
 ### Common-prefix path (partial completion)
 
@@ -256,13 +265,18 @@ Recommended grep order:
    older Fuse.js `threshold: 0.5` anchor).
 6. `type: "addDirectories"` — anchors the workspace-directory update logic.
 7. `additionalDirectoriesForClaudeMd` — anchors the module-level extra-dirs getter.
-8. `fileSuggestion?.type === "command"` — anchors the completion entry dispatcher.
+8. `.fileSuggestion)?.type === "command"` — anchors the completion entry dispatcher.
 9. `@[\p{L}...]*` Unicode regex — anchors the token extractor.
 10. `["commands", "agents", "output-styles", "skills", "workflows", "routines"]` — anchors the
     `.claude/` subdirectory scanner.
 
 ## Per-release notes
 
+- 2.1.207: behavioral model above verified. Anchor drift since 2.1.165: the dispatcher's
+  `fileSuggestion` check is now wrapped in a policy-settings-aware resolver, and the hook runner
+  gained a workspace-trust gate; the ripgrep fallback args are unchanged but prettify one string
+  per line. The TAB `"file"` branch gained the metadata `{ replacement, partial }` path. The
+  "Ripgrep Binary Selection" section moved to `RIPGREP.md`.
 - 2.1.165: behavioral model above verified. The ripgrep fallback searches the absolute cwd (not the
   literal `"."`). The hook payload builder produces an `effort` field in addition to the fields
   listed above.
