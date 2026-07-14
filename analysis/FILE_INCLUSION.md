@@ -64,22 +64,30 @@ subdirectory names and calls a per-name reader for each. The array is
 the state object's cached-config-files field and merged into the searchable index alongside the
 project files — so these config files are `@`-completable file paths, not an internal-only list.
 
-Each subdir is scanned across four source roots, tagged `policySettings` / `userSettings` /
-`projectSettings` (grep those literals in the per-name reader):
+The per-name reader lists `*.md` files (grep the `--glob` `*.md` scan helper) under several source
+roots, each tagged `policySettings` / `userSettings` / `projectSettings`:
 
-- `userSettings` — `CLAUDE_CONFIG_DIR ?? ~/.claude` (grep the root helper that returns
-  `homedir()/.claude`). This is why global `~/.claude` config files appear in `@` completion.
-- `policySettings` — the OS-managed dir (`/Library/Application Support/ClaudeCode` on macOS,
-  `/etc/claude-code` on Linux, `C:\Program Files\ClaudeCode` on Windows).
-- `projectSettings` — the project `.claude/` dirs, plus a `fromAdditionalDirectory` variant for
-  each additional workspace directory's `.claude/`, plus the git-root `.claude/` when it differs
-  from the cwd.
+- `policySettings` — `<managed-dir>/.claude/<subdir>`, where the managed dir is OS-fixed
+  (`/Library/Application Support/ClaudeCode` on macOS, `/etc/claude-code` on Linux,
+  `C:\Program Files\ClaudeCode` on Windows). Scanned unconditionally — no enablement gate. Absent on
+  a normal machine, so it contributes nothing; it exists for enterprise-managed deployments.
+- `userSettings` — `CLAUDE_CONFIG_DIR ?? ~/.claude`, then the `<subdir>`. This is why global
+  `~/.claude` config files appear in `@` completion. Gated on the `userSettings` source being on.
+- `projectSettings` — every `.claude/<subdir>` on the ancestor chain from cwd up to (not including)
+  home (grep `getProjectDirsUpToHome` / the loop that stats `.claude` dirs up the tree), plus the
+  git-root `.claude/<subdir>` added when it differs from the cwd's. Gated on `projectSettings`.
 
-Results are deduplicated by inode (`Skipping duplicate file … same inode already loaded`), and each
-source is gated by a source-enablement check (`userSettings` / `projectSettings`). The `agents`
-subdir is skipped for `userSettings`/`projectSettings` when the agent feature is active, because
-agents are surfaced through the separate agent-suggestion source (see the assembler below), not as
-file paths.
+A fourth variant, tagged `projectSettings` with `fromAdditionalDirectory: true`, applies to the
+`agents` subdir only (`a = e === "agents" ? … : []`): it scans each additional working directory's
+`.claude/agents` (source `additionalDirectoriesForClaudeMd`) for agent definitions, minus paths
+already found in the ancestor chain. It is not general file search of additional directories —
+regular files in additional dirs are never indexed for `@` (that is the `search_all_dirs` patch's
+job). Results are deduplicated by inode (`Skipping duplicate file … same inode already loaded`).
+
+Agent gating: the `agents` subdir is skipped for the `userSettings` and `projectSettings` sources
+when `policySettings.strictPluginOnlyCustomization` is set (grep `strictPluginOnlyCustomization`),
+so a managed policy can force agents to come only from the plugin/agent-suggestion source rather
+than from user or project `.claude/agents` files.
 
 ### git ls-files runs first in a git repo; untracked files arrive by background fetch
 
