@@ -42,10 +42,13 @@ directory is not a git repo (`[FileIndex] not a git repo, returning null`), and 
 to ripgrep`). Telemetry on success: `tengu_file_suggestions_git_ls_files`.
 
 Layer 2 — ripgrep fallback. Reached after `[FileIndex] git ls-files returned null, falling back to
-ripgrep`. Grep `tengu_file_suggestions_ripgrep` or the args array starting
-`["--files", "--follow", "--hidden", "--glob", "!.git/", ...]`, which also excludes `.svn/`, `.hg/`,
-`.bzr/`, `.jj/`, and `.sl/`. The search directory passed to ripgrep is the absolute cwd, and results
-are made relative to it via `path.relative(cwd, absolutePath)`.
+ripgrep`. Grep `tengu_file_suggestions_ripgrep` or the enclosing function's entry log
+`[FileIndex] getProjectFiles called, respectGitignore=`. The args array is
+`--files --follow --hidden` plus a `--glob !<dir>/` pair for each of `.git/`, `.svn/`, `.hg/`,
+`.bzr/`, `.jj/`, `.sl/` (the prettifier emits one string per line, so grep a single element like
+`"!.svn/"`, not the whole array). The search directory passed to ripgrep is the absolute cwd, and
+results are made relative to it via `path.relative(cwd, absolutePath)`. Which ripgrep binary runs,
+and the `--no-config` it may carry, is decided by the resolver in `RIPGREP.md`.
 
 Layer 3 — index assembly. Grep `[FileIndex] cache refresh completed`. The assembly awaits both the
 project-files lister (layers 1/2) and the `.claude/` scanner in a `Promise.all`, then loads the
@@ -118,31 +121,13 @@ Use case: gitignored files. `fileSuggestion` is the recommended way to include g
 
 ## Ripgrep Binary Selection
 
-Claude Code resolves which ripgrep to run through a memoised resolver that returns
-`{ mode, command, args, argv0? }`. Two modes:
-
-1. System rg — `{ mode: "system", command: <resolved rg>, args: [] }`. Chosen when a real `rg` is
-   found on PATH and either `USE_BUILTIN_RIPGREP` parses as disabled (`0`/`false`/`no`/`off`) or the
-   build is not a packaged native binary. `args` is empty, so the user's `~/.ripgreprc` /
-   `RIPGREP_CONFIG_PATH` applies.
-
-2. Embedded rg — `{ mode: "embedded", command: process.execPath, args: ["--no-config"], argv0: "rg" }`.
-   The default on the packaged native build; it re-execs the host process as ripgrep. `--no-config`
-   suppresses the user's ripgrep config. If `process.execPath` is not a runnable packaged binary, it
-   prefers a system `rg` on PATH and only falls back to the embedded form when none is found.
-
-`--no-config` lives in the embedded mode's `args`. It reaches the internal consumers that invoke the
-resolved binary with those args (the Grep/Search tool; the `@`-file-suggestion ripgrep fallback
-above), but not the Bash-tool `rg` wrapper, which is generated from `argv0` alone and drops the args
-— see `BASH_TOOL_EXECUTION.md` ("Ripgrep config: Bash-tool rg vs the Search tool"). In system mode
-`args` is empty, so nothing suppresses config.
-
-The env var name `USE_BUILTIN_RIPGREP` is counter-intuitive: setting it to `0`/`false`/`no`/`off`
-disables Claude's bundled binary and switches to the system binary — and only takes effect when a
-system `rg` is actually found on PATH.
-
-Re-location: `rg -n 'no-config'`, `rg -n 'USE_BUILTIN_RIPGREP'`. Expect a memoised resolver returning
-the two shapes above, plus an "is disabled" helper that treats `0`/`false`/`no`/`off` as disabled.
+Which ripgrep binary the fallback runs (embedded vs system), the `USE_BUILTIN_RIPGREP` switch, the
+`--no-config` isolation, and the failure/timeout handling all live in `RIPGREP.md` — that doc is
+the canonical reference for ripgrep bundling and selection. The short version relevant here: the
+fallback invokes the resolved binary with the resolver's args prepended, so on the packaged native
+build it runs the embedded ripgrep with `--no-config` (the user's `~/.ripgreprc` /
+`RIPGREP_CONFIG_PATH` is ignored), and with `USE_BUILTIN_RIPGREP=0` plus a system `rg` on PATH it
+runs that binary with the user's config honoured.
 
 ## Workspace Directories
 
@@ -264,7 +249,8 @@ Recommended grep order:
 
 1. `[FileIndex]` — anchors the entire file-index subsystem.
 2. `tengu_file_suggestions_ripgrep` — anchors the ripgrep fallback call.
-3. `["--files", "--follow", "--hidden"]` — anchors the ripgrep argument build.
+3. `[FileIndex] getProjectFiles called` — anchors the ripgrep argument build (the args are emitted
+   one string per line; single-line array greps miss them).
 4. `autocomplete:accept` — anchors the TAB handler.
 5. `loadFromFileListAsync` together with a `charBits` field — anchors the index class (replaces the
    older Fuse.js `threshold: 0.5` anchor).

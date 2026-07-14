@@ -1,6 +1,6 @@
 # Claude Code Bash Tool Execution Analysis
 
-Behavioral model verified against 2.1.165. This document follows the landmark style in
+Behavioral model verified against 2.1.207. This document follows the landmark style in
 `GUIDELINES.md`: it anchors on version-stable strings (env vars, log/telemetry names, literal shell
 tokens, behavioral logic) and gives grep re-location recipes instead of minified names or line
 numbers, which churn every release. Per-release specifics live in the appendix.
@@ -9,9 +9,9 @@ For the Bash tool's `description` field — the prompt text the model sees, incl
 Protocol, commit instructions, and PR instructions — see `PROMPTS.md` (section "Tool-description
 channel") and `GIT_USAGE.md`. The verbatim rendered text is in `PROMPTS_RENDERED.md`.
 
-For ripgrep binary selection (the resolver, its modes, and `USE_BUILTIN_RIPGREP`), see
-`FILE_INCLUSION.md` (section "Ripgrep Binary Selection"). The Bash-tool-specific behaviour is under
-"Search-tool wrappers" below.
+For ripgrep binary selection (the resolver, its modes, `USE_BUILTIN_RIPGREP`, and failure
+handling), see `RIPGREP.md`. The Bash-tool-specific behaviour is under "Search-tool wrappers"
+below.
 
 ## Behavioral model
 
@@ -112,9 +112,12 @@ real tool. The three tools are compiled into the single claude executable — th
 
 Wrapper shape (inspect at runtime with `declare -f rg find grep` inside the Bash tool):
 
-- The wrapper resolves the claude binary via `CLAUDE_CODE_EXECPATH` and re-execs it with
-  `exec -a <name>` (bash) or `ARGV0=<name>` (zsh / Windows). If the binary is not executable it falls
-  back to `command <name>` (the real tool).
+- The wrapper resolves the claude binary via `CLAUDE_CODE_EXECPATH`, falling back to the native
+  install location (`~/.local/bin/claude`); if neither is executable it falls back to
+  `command <name>` (the real tool). It re-execs the binary with `exec -a <argv0>` (bash) or
+  `ARGV0=<argv0>` (zsh / Windows). The `argv[0]` values are the implementation names — `rg`,
+  `ugrep`, `bfs` — which are the multi-call binary's dispatch keys; invoking the binary with an
+  `argv[0]` of `grep` or `find` does not dispatch.
 - `grep` preset flags: `-G --ignore-files --hidden -I`, plus `--exclude-dir=` for each of
   `.git .svn .hg .bzr .jj .sl`. It also has a `case` guard that defers to system `grep` for
   ugrep-only / config-style flags (`-*-filter*`, `-*-pager*`, `-*-view*`, `-*-config*`, `---*`,
@@ -123,28 +126,36 @@ Wrapper shape (inspect at runtime with `declare -f rg find grep` inside the Bash
 - `rg` carries no preset flags.
 
 Gating and asymmetry:
-- `find`/`grep` shadowing is enabled only on the native build and not for the `local-agent`
-  entrypoint; the npm build does not bundle bfs/ugrep. They are shadowed unconditionally (each
-  preceded by `unalias find` / `unalias grep`), overriding the system tools. Installing a standalone
-  `bfs` or `ugrep` does not change `find`/`grep` here — the wrappers are hardwired to the embedded
-  ones; the installed copies are reachable only by their own names.
-- `rg` is a fallback, not a shadow: the snapshot defines the `rg` function only when no `rg` is on
-  PATH (`if ! command -v rg`). A user's own ripgrep wins. Rationale: system find/grep vary across
-  platforms (BSD vs GNU) so a consistent implementation is forced; ripgrep behaves the same
-  everywhere, so a user-installed copy is fine.
+- `find`/`grep` shadowing requires the native build, an entrypoint other than `local-agent`, and
+  the first-class search tools not being opted in: naming `Grep` or `Glob` in `--tools` /
+  `--allowedTools` sets a `searchToolsOptIn` flag (grep that name) that suppresses the shadowing.
+  When enabled, they shadow the system tools unconditionally (each preceded by `unalias find` /
+  `unalias grep`). Installing a standalone `bfs` or `ugrep` does not change `find`/`grep` here —
+  the wrappers are hardwired to the embedded ones; the installed copies are reachable only by
+  their own names. The npm build does not bundle bfs/ugrep.
+- `rg` is a fallback, not a shadow: the snapshot's guard writes the fallback only when no `rg` is
+  on PATH (the generated snapshot line is
+  `if ! (unalias rg 2>/dev/null; command -v rg) >/dev/null 2>&1; then`). A user's own ripgrep wins.
+  The fallback's shape follows the resolver mode (`RIPGREP.md`): embedded mode injects a wrapper
+  function (heredoc marker `RIPGREP_FUNC_END`); system mode injects `alias rg='<absolute path>'`
+  pointing at the rg the resolver found. Rationale: system find/grep vary across platforms (BSD vs
+  GNU) so a consistent implementation is forced; ripgrep behaves the same everywhere, so a
+  user-installed copy is fine.
 
-Re-location: `rg -n 'exec -a'`, `rg -n 'ignore-files'`, `rg -n 'regextype'`, `rg -n 'FIND_GREP_FUNC_END'`.
-Tripwire: □ rg/find/grep are functions in the Bash tool □ they re-exec via `CLAUDE_CODE_EXECPATH`
-□ grep excludes the six VCS dirs □ find uses bfs dfs □ rg defined only when absent on PATH
-□ `command grep` reaches the system tool.
+Re-location: `rg -n 'exec -a'`, `rg -n 'ignore-files'`, `rg -n 'regextype'`,
+`rg -n 'FIND_GREP_FUNC_END'`, `rg -n 'RIPGREP_FUNC_END'`, `rg -n 'searchToolsOptIn'`.
+Tripwire: □ find/grep are functions in the Bash tool (native build, no Grep/Glob opt-in)
+□ they re-exec via `CLAUDE_CODE_EXECPATH` with `~/.local/bin/claude` fallback □ grep excludes the
+six VCS dirs □ find uses bfs dfs □ rg fallback written only when absent on PATH (function or alias
+by resolver mode) □ `command grep` reaches the system tool.
 
 ## Ripgrep config: Bash-tool rg vs the Search tool
 
-On the native build the resolver (see `FILE_INCLUSION.md`, "Ripgrep Binary Selection") yields
-embedded ripgrep invoked with `--no-config`, which suppresses the user's `~/.ripgreprc` /
-`RIPGREP_CONFIG_PATH`. That `--no-config` reaches the internal Search/Glob tool and the `@`-file
-suggestion fallback, but not the Bash-tool `rg` wrapper, which is built from the binary's `argv0`
-alone and carries no extra args. Consequences:
+On the native build the resolver (see `RIPGREP.md`) yields embedded ripgrep invoked with
+`--no-config`, which suppresses the user's `~/.ripgreprc` / `RIPGREP_CONFIG_PATH`. That
+`--no-config` reaches the internal Grep/Glob tools and the `@`-file suggestion fallback, but not
+the Bash-tool `rg` wrapper, which is built from the binary's `argv0` alone and carries no extra
+args. Consequences:
 
 - Claude's Search tool ignores the user's ripgrep config — an intentional isolation of internal
   search from arbitrary user config.
@@ -164,12 +175,14 @@ tool to confirm the wrapper carries no `--no-config`.
 | Snapshot filename    | `snapshot-`                              | `snapshot-<shell>-<ts>-<rand>.sh`                        |
 | Snapshot telemetry   | `shell_snapshot_create`                  | emitted after generation                                 |
 | Search wrappers      | `CLAUDE_CODE_EXECPATH`, `FIND_GREP_FUNC_END` | function templates re-execing the claude binary       |
+| rg fallback          | `RIPGREP_FUNC_END`                       | function (embedded) or alias (system), PATH-guarded      |
+| shadowing opt-out    | `searchToolsOptIn`                       | Grep/Glob CLI opt-in disables find/grep shadowing        |
 | grep presets         | `ignore-files`                           | `-G --ignore-files --hidden -I --exclude-dir=…`          |
 | find presets         | `regextype`                              | `-S dfs -regextype findutils-default`                    |
 | stdin redirect       | `< /dev/null`                            | appended at eval level for safe commands                 |
 | extglob disable      | `extglob` / `NO_EXTENDED_GLOB`           | prepended before eval                                    |
 | env additions        | `CLAUDECODE`, `GIT_EDITOR`               | added on the command spawn                               |
-| ripgrep config       | `no-config`, `USE_BUILTIN_RIPGREP`       | embedded mode passes `--no-config`; see FILE_INCLUSION   |
+| ripgrep config       | `no-config`, `USE_BUILTIN_RIPGREP`       | embedded mode passes `--no-config`; see RIPGREP.md       |
 
 ## Tripwire checklist (re-verify on a new version)
 
@@ -178,11 +191,15 @@ tool to confirm the wrapper carries no `--no-config`.
 □ stdin `< /dev/null` for safe commands; skipped for heredocs / existing `<`
 □ full env inheritance; `GIT_EDITOR=true`, `CLAUDECODE=1`, `CLAUDE_CODE_EXECPATH` set
 □ rg/find/grep wrappers present (native build); grep excludes six VCS dirs; find uses bfs dfs
-□ rg shadow only when absent on PATH; find/grep shadowed unconditionally
+□ rg fallback only when absent on PATH; find/grep shadowed unless Grep/Glob opted in via CLI
 □ embedded ripgrep gets `--no-config`; Bash-tool `rg` does not
 
 ## Per-release notes
 
+- 2.1.207: behavioral model above verified. The `searchToolsOptIn` gate is present since at least
+  2.1.165; the alias-form rg fallback and the `~/.local/bin/claude` wrapper fallback since at
+  least 2.1.119 (earliest local version). The earlier revision of this doc predates documenting
+  them.
 - 2.1.165: behavioral model above verified.
 - ≤ 2.1.76: piped commands used a token-level `< /dev/null` insertion before the first pipe, which
   mis-redirected the pipeline; superseded by the current eval-level redirect.

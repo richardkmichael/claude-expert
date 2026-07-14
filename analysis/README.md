@@ -34,8 +34,9 @@ Style legend:
 | ---------------------------- | ----------------------------------------------------- | -------- | -------- | ------------------------------------------------------------------------ |
 | `TOOLS_AND_EXECUTION.md`     | Built-in tool registration and availability gating    | 2.1.76   | landmark | `EMBEDDED_SEARCH_TOOLS`, `CLAUDE_CODE_ENABLE_TASKS`                      |
 | `TOOL_VALIDATION.md`         | Zod-then-business-logic validation, per-tool errors   | 2.1.165  | landmark | `InputValidationError`, `Shell command failed`                           |
-| `BASH_TOOL_EXECUTION.md`     | Bash tool, shell snapshots, search-tool wrappers      | 2.1.165  | landmark | `shell-snapshots`, `SNAPSHOT_FILE=`, `USE_BUILTIN_RIPGREP`               |
-| `FILE_INCLUSION.md`          | `@`-file completion via git/ripgrep, result capping   | 2.1.165  | landmark | `[FileIndex]`, `respectGitignore`, `tengu_file_suggestions_git_ls_files` |
+| `BASH_TOOL_EXECUTION.md`     | Bash tool, shell snapshots, search-tool wrappers      | 2.1.207  | landmark | `shell-snapshots`, `SNAPSHOT_FILE=`, `RIPGREP_FUNC_END`                  |
+| `RIPGREP.md`                 | Ripgrep bundling, embedded/system selection, config   | 2.1.207  | landmark | `USE_BUILTIN_RIPGREP`, `tengu_ripgrep_availability`, `no-config`         |
+| `FILE_INCLUSION.md`          | `@`-file completion via git/ripgrep, result capping   | 2.1.207  | landmark | `[FileIndex]`, `respectGitignore`, `tengu_file_suggestions_git_ls_files` |
 | `TASK_TOOL_AND_SUBAGENTS.md` | Agent/Task tool: schema, launch, output, isolation    | 2.1.165  | landmark | `tengu_agent_tool_completed`, `delegate work to a subagent`, headless    |
 | `SKILLS_AND_SUBAGENTS.md`    | Skill `allowed-tools` and where grants do/don't apply | 2.1.76   | landmark | `allowed-tools`                                                          |
 | `SKILLIFY.md`                | Disabled skill-creation feature (prompt, dead setup)  | 2.1.76   | landmark | `tengu_skill_improvement_survey`                                         |
