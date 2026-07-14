@@ -63,27 +63,46 @@ subdirectory names and calls a per-name reader for each. The array is
 `["commands", "agents", "output-styles", "skills", "workflows", "routines"]`. Results are stored on
 the state object's cached-config-files field.
 
-### git ls-files always runs first in a git repo
+### git ls-files runs first in a git repo; untracked files arrive by background fetch
 
-`git ls-files` is invoked unconditionally whenever the cwd is inside a git repository, with
-`--recurse-submodules` and no way to include gitignored files. Because it returns a non-null value
-(even an empty array) on success, the ripgrep fallback is never reached inside a git repo. Setting
-`respectGitignore: false` therefore has no effect on `git ls-files` — it only affects the ripgrep
-fallback path.
+`git ls-files` (with `--recurse-submodules`) is invoked unconditionally whenever the cwd is inside
+a git repository and lists tracked files only. Because it returns a non-null value (even an empty
+array) on success, the ripgrep fallback is never reached inside a git repo.
 
-Consequence: gitignored files do not appear in `@` completion when working inside a git repo,
-regardless of `respectGitignore`. The `fileSuggestion` hook (below) is the only override without
-patching.
+Untracked files enter the index through a second, background git call fired after the tracked list
+lands: `git ls-files --others` with `--exclude-standard` appended when `respectGitignore` is true
+(grep `background untracked fetch`; 10-second timeout). Its results are merged into the index as
+the "untracked" component of `[FileIndex] rebuilt index with N tracked + M untracked files`.
+Because the fetch is asynchronous, suggestions immediately after a cache refresh can briefly show
+tracked files only.
+
+Consequences:
+
+- Untracked-but-not-ignored files do appear in `@` completion inside a git repo (via git, not
+  ripgrep).
+- With `respectGitignore: false`, `--exclude-standard` is dropped, so gitignored files (including
+  those ignored via `core.excludesFile`) appear too. The earlier claim that gitignored files can
+  never surface inside a git repo is wrong for any version with the background untracked fetch.
+- The `fileSuggestion` hook (below) remains the override for full control of `@` results.
+
+### `.ignore` / `.rgignore` post-filter
+
+Independent of git, patterns from `.ignore` and `.rgignore` files in the repo root and the cwd are
+parsed and applied as an exclusion filter to both the tracked and untracked lists (grep
+`[FileIndex] loaded ignore patterns from` and `applied ignore patterns`). This runs on the git
+path, not just the ripgrep fallback — so dropping a `.rgignore` in the repo trims `@` completion
+even when `respectGitignore` is false.
 
 ## `respectGitignore` Setting
 
-`respectGitignore` is a Claude Code setting (in `settings.json`, project or user config), not a
-ripgrep flag. Its only effect is to conditionally append `--no-ignore-vcs` to the ripgrep argument
-array when it is false. Default is `true` (respect `.gitignore`). Because ripgrep is only the
-fallback, this setting has no practical effect inside a git repo.
+`respectGitignore` is a Claude Code setting, not a ripgrep flag. It is read from merged settings
+first, then the global `~/.claude.json` config object, defaulting to `true` (grep
+`respectGitignore ??`). Two effects when false:
 
-Note: ripgrep also respects `.ignore` and `.rgignore` independently of this setting; `--no-ignore-vcs`
-disables only VCS-managed ignore files (`.gitignore`).
+- The background untracked fetch drops `--exclude-standard`, so gitignored files enter the index
+  inside git repos (the practically significant effect).
+- The ripgrep fallback (non-git directories) appends `--no-ignore-vcs`, which disables only
+  VCS-managed ignore files; ripgrep still honours `.ignore` and `.rgignore` on its own.
 
 ## Result Limit
 
@@ -119,9 +138,9 @@ same formatter used by the internal paths.
 Hook environment — the command inherits the same environment as other hooks, including
 `CLAUDE_PROJECT_DIR`.
 
-Use case: gitignored files. `fileSuggestion` is the recommended way to include gitignored files in
-`@` completion, since `respectGitignore: false` does not help inside a git repo. A script running
-`rg --files --no-ignore-vcs` (or `find`) can return any files regardless of gitignore status.
+Use case: full control of `@` results. For merely including gitignored files,
+`respectGitignore: false` suffices (it reaches the untracked fetch inside git repos — see above);
+the hook is for anything beyond that, e.g. custom ranking, filtering, or non-file sources.
 
 ## Ripgrep Binary Selection
 
@@ -229,8 +248,10 @@ specific-item block (where the directory bug lives) follows in the same `else if
 The file index is cached in module-level variables (not React state). A generation counter is
 incremented on invalidation, and async refreshes check it to discard stale results — find the pattern
 `let generation = counter; ... async work ... if (generation !== counter) return;`. Cache is cleared
-on session start/reset. Refresh is lazy: kicked off the first time suggestions are generated without
-a warm cache, and on file-system watch events (untracked files added).
+on session start/reset. Refresh is lazy: each suggestion generation calls a refresh gate that
+re-scans when the `.git/index` mtime changed or more than 5 seconds passed since the last refresh,
+and skips when the previous scan was slow (>1s) and no git mtime is available. There is no
+filesystem watcher feeding the index.
 
 ### Signature-based rebuild skip
 
@@ -259,7 +280,8 @@ Recommended grep order:
 1. `[FileIndex]` — anchors the entire file-index subsystem.
 2. `tengu_file_suggestions_ripgrep` — anchors the ripgrep fallback call.
 3. `[FileIndex] getProjectFiles called` — anchors the ripgrep argument build (the args are emitted
-   one string per line; single-line array greps miss them).
+   one string per line; single-line array greps miss them). `background untracked fetch` — anchors
+   the `git ls-files --others` merge and its `--exclude-standard` gating.
 4. `autocomplete:accept` — anchors the TAB handler.
 5. `loadFromFileListAsync` together with a `charBits` field — anchors the index class (replaces the
    older Fuse.js `threshold: 0.5` anchor).
@@ -277,6 +299,12 @@ Recommended grep order:
   gained a workspace-trust gate; the ripgrep fallback args are unchanged but prettify one string
   per line. The TAB `"file"` branch gained the metadata `{ replacement, partial }` path. The
   "Ripgrep Binary Selection" section moved to `RIPGREP.md`.
+- 2.1.207: corrected two claims that were already wrong at 2.1.165 (present since at least
+  2.1.119): untracked files reach the index via the background `git ls-files --others` fetch, with
+  `respectGitignore` gating `--exclude-standard` — so `respectGitignore: false` does surface
+  gitignored files inside git repos (confirmed empirically against a repo using
+  `core.excludesFile`); and the refresh trigger is the `.git/index` mtime / 5-second gate, not a
+  filesystem watcher.
 - 2.1.165: behavioral model above verified. The ripgrep fallback searches the absolute cwd (not the
   literal `"."`). The hook payload builder produces an `effort` field in addition to the fields
   listed above.
