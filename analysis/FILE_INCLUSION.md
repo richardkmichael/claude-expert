@@ -83,6 +83,12 @@ Consequences:
 - With `respectGitignore: false`, `--exclude-standard` is dropped, so gitignored files (including
   those ignored via `core.excludesFile`) appear too. The earlier claim that gitignored files can
   never surface inside a git repo is wrong for any version with the background untracked fetch.
+  This is uniform: the value is read once from global config (see below), so it applies to every
+  repo, not to a single worktree.
+- Side effect of `false`: the untracked list balloons to include everything git normally ignores —
+  `node_modules`, build output, dotfiles — not just the files a user wanted. Since `@` search
+  returns only the top 15 fuzzy matches, a wanted ignored file can surface immediately in a small
+  repo yet be crowded out by `node_modules` noise in a large one, even though both indexed it.
 - The `fileSuggestion` hook (below) remains the override for full control of `@` results.
 
 ### `.ignore` / `.rgignore` post-filter
