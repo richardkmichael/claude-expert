@@ -120,6 +120,23 @@ makes it untracked-visible to `git status`), set `respectGitignore: false` in th
 on both the tracked and untracked lists regardless of `respectGitignore`, so this keeps the index
 lean while `false` pulls the wanted directory in, and git's view of the repo is unchanged.
 
+## Symlinked directories
+
+`git ls-files` never traverses a symlink: it records the link as a single entry and does not
+enumerate the target's files. Both git invocations behave this way, so a symlinked directory's
+contents never appear in `@` completion inside a git repo, under any `respectGitignore` value (the
+untracked path is still `git ls-files --others`, equally symlink-blind). Verified against a
+worktree with an `s -> ../shared` link: `git ls-files` and `--others` yield zero `s/…` paths while
+`rg --files --follow` and `find -L` enumerate the target.
+
+The non-git ripgrep fallback carries `--follow`, so outside a git repo `@` does descend symlinks
+(subject to the same ignore rules — a globally-ignored link name is skipped unless VCS-ignore is
+off). Inside a git repo the fallback never runs, so the only way to surface a symlinked directory's
+files as `<link>/…` paths is the `fileSuggestion` hook running a link-following lister
+(`rg --files --follow`, `find -L`); its output is shown directly, bypassing both git and the
+internal index. Adding the link target as a workspace directory does not help — those files index
+under the target's own path, not the `<link>/` prefix.
+
 ## Result Limit
 
 All search paths cap results at 15. The same constant is applied across every branch of the search
