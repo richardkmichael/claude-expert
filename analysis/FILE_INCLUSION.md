@@ -101,14 +101,24 @@ even when `respectGitignore` is false.
 
 ## `respectGitignore` Setting
 
-`respectGitignore` is a Claude Code setting, not a ripgrep flag. It is read from merged settings
-first, then the global `~/.claude.json` config object, defaulting to `true` (grep
-`respectGitignore ??`). Two effects when false:
+`respectGitignore` is a Claude Code setting, not a ripgrep flag, and not a git config — setting it
+changes nothing about the repo (files stay ignored, untracked, and absent from `git status`); it
+only alters how Claude lists files internally. It is read from merged settings first, then the
+global `~/.claude.json` config object, defaulting to `true` (grep `respectGitignore ??`). Because
+the merged-settings layer wins, a project `.claude/settings.json` (or `settings.local.json`) can
+scope `false` to one repo even when the global config sets the opposite. Two effects when false:
 
 - The background untracked fetch drops `--exclude-standard`, so gitignored files enter the index
   inside git repos (the practically significant effect).
 - The ripgrep fallback (non-git directories) appends `--no-ignore-vcs`, which disables only
   VCS-managed ignore files; ripgrep still honours `.ignore` and `.rgignore` on its own.
+
+Getting one ignored directory into `@` without touching git: rather than un-ignoring it (which
+makes it untracked-visible to `git status`), set `respectGitignore: false` in that repo's
+`.claude/settings.json` and add a `.rgignore` (or `.ignore`) listing the bulk ignored dirs —
+`node_modules/`, build output — to exclude them again. The `.ignore`/`.rgignore` post-filter runs
+on both the tracked and untracked lists regardless of `respectGitignore`, so this keeps the index
+lean while `false` pulls the wanted directory in, and git's view of the repo is unchanged.
 
 ## Result Limit
 
