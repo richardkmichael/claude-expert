@@ -191,6 +191,32 @@ Identify the class by:
 budget is exceeded, via a cooperative-yield helper that resolves a `setImmediate` promise. This keeps
 large-repo index builds non-blocking for the UI.
 
+### Result ranking (`search`)
+
+`search(query, limit)` is a fuzzy subsequence matcher, not a substring match. Locate it by the
+`fuzzScore` field and the `charBits` prefilter. An empty query returns the top-level directory
+cache (`topLevelCache`, ≤100 first-path-segment names, shortest-then-alphabetical). Otherwise a
+path is a candidate only if the query's a-z letters are all present (bitmap prefilter) and the
+query is an in-order subsequence of the lowercased path (case-sensitive only when the query has an
+uppercase letter). `fuzzScore` (higher ranks higher) sums:
+
+- Base `queryLen * 16`.
+- Contiguity: `+4` for each query char immediately after the previous match (no gap).
+- Gap penalty: `-(3 + gapLen)` for each gap between matched chars.
+- Boundary bonus per matched char (grep the helper returning `8`/`6`/`0`): `+8` at a word
+  boundary — the char is preceded by `/ \ - _ . ` or space, or is at position 0 — and `+6` at a
+  camelCase boundary (lowercase then uppercase).
+- Short-path bonus: `+max(0, 32 - floor(pathLen / 4))`, so shorter paths score much higher and the
+  bonus reaches 0 near length 128.
+
+Candidates are kept in a size-`limit` min-heap, sorted descending, then normalized to
+`score = rank / count` (lower is better) — with a small penalty that pushes any path containing
+`test` down (`× 1.05`). Consequences for `@` completion: a query that is a path prefix scores near
+the ceiling (position-0 + boundary + full contiguity), shorter paths beat deeper ones, and adding
+a separator to the query (`@tmp/` vs `@tmp`) collapses fuzzy noise because `/` only matches the
+real separator. A bloated index (e.g. `respectGitignore: false` pulling in `node_modules`) hurts
+ranking only by adding competitors, not by changing the formula.
+
 ## External Libraries
 
 ### Ink `useInput`
@@ -259,6 +285,15 @@ re-scans when the `.git/index` mtime changed or more than 5 seconds passed since
 and skips when the previous scan was slow (>1s) and no git mtime is available. There is no
 filesystem watcher feeding the index.
 
+New-file latency (why `@` does not see a just-created file immediately): the mtime trigger reads
+`.git/index`, which only moves on git operations (stage/commit/checkout), not on creating an
+untracked file. So a new untracked file has no mtime signal and surfaces only once the 5-second
+staleness window elapses and `@` is reopened. Two further delays stack on top: the untracked list
+comes from the background `git ls-files --others` fetch that fires after the tracked scan (see the
+untracked-fetch section), and the signature skip suppresses a rebuild until the merged path set
+actually changes. A git operation that rewrites `.git/index`, or waiting out the 5-second window,
+forces the refresh sooner.
+
 ### Signature-based rebuild skip
 
 The cache state carries `loadedTrackedSignature` and `loadedMergedSignature` hashes (an FNV-1a-style
@@ -290,7 +325,7 @@ Recommended grep order:
    the `git ls-files --others` merge and its `--exclude-standard` gating.
 4. `autocomplete:accept` — anchors the TAB handler.
 5. `loadFromFileListAsync` together with a `charBits` field — anchors the index class (replaces the
-   older Fuse.js `threshold: 0.5` anchor).
+   older Fuse.js `threshold: 0.5` anchor); `fuzzScore` anchors its `search` ranking.
 6. `type: "addDirectories"` — anchors the workspace-directory update logic.
 7. `additionalDirectoriesForClaudeMd` — anchors the module-level extra-dirs getter.
 8. `.fileSuggestion)?.type === "command"` — anchors the completion entry dispatcher.
@@ -311,6 +346,11 @@ Recommended grep order:
   gitignored files inside git repos (confirmed empirically against a repo using
   `core.excludesFile`); and the refresh trigger is the `.git/index` mtime / 5-second gate, not a
   filesystem watcher.
+- 2.1.207: documented the `search` ranking formula (`fuzzScore`) and the new-untracked-file
+  latency. A repo-local un-ignore (`!tmp/` in `.gitignore` or `.git/info/exclude`) re-includes a
+  globally-ignored directory under `--exclude-standard`, so its files enter `@` completion with
+  `respectGitignore` left at the default `true` and without the `node_modules` index bloat — both
+  verified empirically.
 - 2.1.165: behavioral model above verified. The ripgrep fallback searches the absolute cwd (not the
   literal `"."`). The hook payload builder produces an `effort` field in addition to the fields
   listed above.
