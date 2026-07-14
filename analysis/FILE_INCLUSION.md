@@ -61,7 +61,25 @@ merged paths into the in-process index via `loadFromFileListAsync`.
 The `.claude/` scanner (separate from the file-tree scanner) iterates a module-level array of
 subdirectory names and calls a per-name reader for each. The array is
 `["commands", "agents", "output-styles", "skills", "workflows", "routines"]`. Results are stored on
-the state object's cached-config-files field.
+the state object's cached-config-files field and merged into the searchable index alongside the
+project files — so these config files are `@`-completable file paths, not an internal-only list.
+
+Each subdir is scanned across four source roots, tagged `policySettings` / `userSettings` /
+`projectSettings` (grep those literals in the per-name reader):
+
+- `userSettings` — `CLAUDE_CONFIG_DIR ?? ~/.claude` (grep the root helper that returns
+  `homedir()/.claude`). This is why global `~/.claude` config files appear in `@` completion.
+- `policySettings` — the OS-managed dir (`/Library/Application Support/ClaudeCode` on macOS,
+  `/etc/claude-code` on Linux, `C:\Program Files\ClaudeCode` on Windows).
+- `projectSettings` — the project `.claude/` dirs, plus a `fromAdditionalDirectory` variant for
+  each additional workspace directory's `.claude/`, plus the git-root `.claude/` when it differs
+  from the cwd.
+
+Results are deduplicated by inode (`Skipping duplicate file … same inode already loaded`), and each
+source is gated by a source-enablement check (`userSettings` / `projectSettings`). The `agents`
+subdir is skipped for `userSettings`/`projectSettings` when the agent feature is active, because
+agents are surfaced through the separate agent-suggestion source (see the assembler below), not as
+file paths.
 
 ### git ls-files runs first in a git repo; untracked files arrive by background fetch
 
