@@ -158,6 +158,17 @@ Configuration:
 The hook short-circuits: when `fileSuggestion.type === "command"` is present, the entire internal
 index system (git ls-files, ripgrep, the in-process index) is bypassed.
 
+Scope of the replacement — only the file source. The `@` suggestion list is assembled from several
+independent sources: file suggestions (this hook or the internal index), agent suggestions (built
+from the loaded agent list, `type: "agent"`), and MCP resource / resource-template suggestions
+(from connected servers). The assembler runs the file source and the agent source concurrently and
+merges all of them, so the hook replaces only the files — agent (`@agent-…`) and MCP-resource
+completions are produced elsewhere and still appear. What the hook does remove is everything the
+internal file index contributed, which includes the `.claude/**` config files the dedicated
+scanner injects — project `.claude/`, git-root, additional workspace dirs, global `~/.claude/`, and
+policy settings. A repo-rooted lister in the hook re-lists the project's `.claude/` files but not
+the global `~/.claude/` ones, so those drop out unless the hook emits them.
+
 Stdin payload — the command receives a JSON object whose fields are: `session_id`, `transcript_path`,
 `cwd`, `agent_id`, `agent_type`, and `query` (the typed text after `@`). The base payload builder
 also produces `permission_mode` and `effort`; the `fileSuggestion` dispatcher calls the builder with
