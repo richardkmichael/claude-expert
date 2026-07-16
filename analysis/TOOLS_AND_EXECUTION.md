@@ -8,7 +8,11 @@
 
 # Claude Code Tools and Execution Architecture
 
-Source: `cli.prettier.js` 2.1.76 (`work/2.1.76/package/cli.prettier.js`)
+Verified against: cli.prettier.js 2.1.207 (2026-07-16)
+
+Scope note: the Built-in Tools section below is verified against 2.1.207. Sections from
+"Example Tool Description: Read" onward still carry 2.1.76-era line numbers and pasted code and
+have not been re-checked — treat their specifics as suspect until retrofitted.
 
 ## Overview
 
@@ -23,119 +27,233 @@ https://code.claude.com/docs/en/settings.md#tools-available-to-claude
 
 ## Built-in Tools
 
-Tool registration function: `xg()` at cli.prettier.js:439329.
+A single registry function returns the built-in tool array. Entries fall into three shapes:
 
-Tools are returned as an array.  Some are always present; others are gated by condition functions
-(see [Condition Functions](#condition-functions) below).
+- Unconditional — listed in the array literal directly.
+- Additive-gated — spread behind a predicate, e.g. the task tools.
+- Subtractive — built unconditionally, then filtered out by an omit-set. Only `Glob` and `Grep`
+  work this way, and only embedded search populates that set.
+
+Registry membership is necessary but not sufficient. A second layer filters the constructed array
+by each tool's own `isEnabled()`, so a tool can be in the registry and still absent from a session.
+MCP tools (`mcp__<server>__<tool>`) and skill tools (`skill__…`) are added by separate paths,
+not by this function.
+
+Re-location: start from a tool-name literal, which survives minification, and walk outward to the
+registry.
+
+    rg -n 'var [A-Za-z_$0-9]+ = "Glob"[;,]'   # -> the name const for Glob
+    rg -n '\b<that const>\b'                  # -> the registry (the array with the omit-set filter)
+
+Expected shape: an array literal mixing bare identifiers, `...(pred() ? [x] : [])` spreads, and one
+`...[glob, grep].filter((t) => !omitSet().has(t.name))`.
+
+□ the array contains a subtractive filter for exactly Glob and Grep □ every other conditional
+entry is an additive spread.
 
 ### File Operations
 
-| Tool           | Var   | Def line | Condition               |
-| -------------- | ----- | -------- | ----------------------- |
-| `Read`         | `$4`  | 239985   | Always                  |
-| `Write`        | `tK`  | 413889   | Always                  |
-| `Edit`         | `o4`  | 514895   | Always                  |
-| `Glob`         | `rY`  | 414782   | `!l$()` (not embedded search) |
-| `Grep`         | `W9`  | 414416   | `!l$()` (not embedded search) |
-| `NotebookEdit` | `RJ`  | 415134   | Always                  |
+| Tool           | Condition                              |
+| -------------- | -------------------------------------- |
+| `Read`         | Always                                 |
+| `Write`        | Always                                 |
+| `Edit`         | Always                                 |
+| `NotebookEdit` | Always                                 |
+| `Glob`         | Omitted under embedded search          |
+| `Grep`         | Omitted under embedded search          |
 
 ### Execution
 
-| Tool   | Var  | Def line | Condition |
-| ------ | ---- | -------- | --------- |
-| `Bash` | `U7` | 518603   | Always    |
+| Tool         | Condition                                                |
+| ------------ | -------------------------------------------------------- |
+| `Bash`       | Shell is bash-capable                                    |
+| `PowerShell` | `CLAUDE_CODE_USE_POWERSHELL_TOOL`, or Windows without git-bash |
 
 ### Web
 
-| Tool        | Var   | Def line | Condition |
-| ----------- | ----- | -------- | --------- |
-| `WebFetch`  | `aO`  | 431458   | Always    |
-| `WebSearch` | `sT`  | 432598   | Always    |
+| Tool        | Condition |
+| ----------- | --------- |
+| `WebFetch`  | Always    |
+| `WebSearch` | Always    |
 
 ### Agent and Task Management
 
-| Tool         | Var   | Def line | Condition | Aliases                              |
-| ------------ | ----- | -------- | --------- | ------------------------------------ |
-| `Agent`      | `d4`  | 406209   | Always    | `Task`                               |
-| `Skill`      | `oH`  | 407430   | Always    |                                      |
-| `TaskCreate` | `rL`  | 436359   | `i$()`    |                                      |
-| `TaskGet`    | `Bt`  | 436490   | `i$()`    |                                      |
-| `TaskUpdate` | `Rk`  | 436711   | `i$()`    |                                      |
-| `TaskList`   | `gt`  | 436994   | `i$()`    |                                      |
-| `TaskStop`   | `lS`  | 431765   | Always    | `KillShell`                          |
-| `TaskOutput` | `iS`  | 432266   | Always    | `AgentOutputTool`, `BashOutputTool`  |
+| Tool         | Condition     | Aliases                 |
+| ------------ | ------------- | ----------------------- |
+| `Agent`      | Always        | `Task`                  |
+| `Skill`      | Always        |                         |
+| `TaskCreate` | Tasks enabled |                         |
+| `TaskGet`    | Tasks enabled |                         |
+| `TaskUpdate` | Tasks enabled |                         |
+| `TaskList`   | Tasks enabled |                         |
+| `TaskStop`   | Always        | `KillShell`, `KillBash` |
+| `TaskOutput` | Always        | see below               |
 
-`Agent` is the primary name; `Task` is retained as an alias.
-`TaskStop` and `TaskOutput` replace the former `KillShell` and `BashOutput` tools (aliases kept).
+`Agent` is the primary name; `Task` is retained as an alias. `TaskStop` and `TaskOutput` replace
+the former `KillShell` and `BashOutput` tools, keeping the old names as aliases. `TaskOutput`
+carries four: `AgentOutputTool`, `BashOutputTool`, `AgentOutput`, `BashOutput`. It renders to the
+user as "Task Output".
 
 ### Planning
 
-| Tool            | Var   | Def line | Condition |
-| --------------- | ----- | -------- | --------- |
-| `EnterPlanMode` | `ut`  | 435181   | Always    |
-| `ExitPlanMode`  | `Lk`  | 433038   | Always    |
+| Tool            | Condition |
+| --------------- | --------- |
+| `EnterPlanMode` | Always    |
+| `ExitPlanMode`  | Always    |
 
 ### Worktree
 
-| Tool            | Var    | Def line | Condition                   |
-| --------------- | ------ | -------- | --------------------------- |
-| `EnterWorktree` | `F01`  | 435326   | `XT6()` (always true) |
-| `ExitWorktree`  | `p01`  | 435550   | `XT6()` (always true) |
+| Tool            | Condition                    |
+| --------------- | ---------------------------- |
+| `EnterWorktree` | Worktree mode (always true)  |
+| `ExitWorktree`  | Worktree mode (always true)  |
 
 ### Collaboration
 
-| Tool          | Var    | Def line | Condition        |
-| ------------- | ------ | -------- | ---------------- |
-| `SendMessage` | `_I`   | 439222   | `eA()` (teams)   |
-| `TeamCreate`  | `EI`   | 438375   | `eA()` (teams)   |
-| `TeamDelete`  | `q96`  | 438551   | `eA()` (teams)   |
+| Tool              | Condition | Aliases |
+| ----------------- | --------- | ------- |
+| `SendMessage`     | Always    |         |
+| `SendUserMessage` | Always    | `Brief` |
+| `SendUserFile`    | Always    |         |
+| `EndConversation` | Always    |         |
+
+`SendMessage` is no longer gated on a teams/swarm flag.
 
 ### Scheduling
 
-| Tool         | Var    | Def line | Condition |
-| ------------ | ------ | -------- | --------- |
-| `CronCreate` | `NR`   | 437508   | Always    |
-| `CronDelete` | `nd`   | 437615   | Always    |
-| `CronList`   | `UW6`  | 437713   | Always    |
+| Tool             | Condition |
+| ---------------- | --------- |
+| `CronCreate`     | Always    |
+| `CronDelete`     | Always    |
+| `CronList`       | Always    |
+| `ScheduleWakeup` | Always    |
 
 ### User Interaction
 
-| Tool              | Var   | Def line | Condition |
-| ----------------- | ----- | -------- | --------- |
-| `AskUserQuestion` | `bw`  | 433414   | Always    |
+| Tool              | Condition |
+| ----------------- | --------- |
+| `AskUserQuestion` | Always    |
 
 ### MCP Integration
 
-| Tool                   | Var    | Def line | Condition |
-| ---------------------- | ------ | -------- | --------- |
-| `ListMcpResourcesTool` | `gl6`  | 434774   | Always    |
-| `ReadMcpResourceTool`  | —      | 434934   | Always    |
+| Tool                      | Condition | Aliases                |
+| ------------------------- | --------- | ---------------------- |
+| `ListMcpResourcesTool`    | Always    | `ListMcpResources`     |
+| `ReadMcpResourceTool`     | Always    | `ReadMcpResource`      |
+| `ReadMcpResourceDirTool`  | Always    | `ReadMcpResourceDir`   |
+| `WaitForMcpServers`       | Always    |                        |
+| `SearchMcpRegistry`       | Always    |                        |
+| `SuggestConnectors`       | Always    |                        |
+| `ListConnectors`          | Always    |                        |
 
-MCP servers can also provide additional tools dynamically, with names like
-`mcp__servername__toolname`.
+MCP servers also provide tools dynamically, named `mcp__<servername>__<toolname>`.
 
 ### Special Purpose
 
-| Tool               | Var   | Def line | Condition              |
-| ------------------ | ----- | -------- | ---------------------- |
-| `TodoWrite`        | `Fm`  | 221915   | Always                 |
-| `LSP`              | `Bl6` | 434489   | Always                 |
-| `StructuredOutput` | `oM`  | 280460   | Always                 |
-| `ToolSearch`       | `Ev`  | 240425   | `YI()` (tier/flag)     |
+| Tool                       | Condition                                       |
+| -------------------------- | ----------------------------------------------- |
+| `TodoWrite`                | Always                                          |
+| `LSP`                      | Always (gate is a literal — see Condition gates) |
+| `ReportFindings`           | Always                                          |
+| `REPL`                     | Always                                          |
+| `Workflow`                 | Always (alias `RunWorkflow`)                    |
+| `Monitor`                  | Always                                          |
+| `Artifact`                 | Always                                          |
+| `Projects`                 | Always                                          |
+| `DesignSync`               | Always                                          |
+| `ClaudeDesign`             | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` unset |
+| `PushNotification`         | Always                                          |
+| `RemoteTrigger`            | Always                                          |
+| `ShareOnboardingGuide`     | Always                                          |
+| `ShowOnboardingRolePicker` | Always                                          |
+| `ToolSearch`               | Tool search enabled                             |
 
-### Condition Functions
+Plugin and skill tools (`SearchPlugins`, `SearchSkills`, `SuggestPluginInstall`, `SuggestSkills`,
+`ListPlugins`, `ListSkills`) are spread in as a group from a plugin-skill tool list.
 
-| Function | Variable / env var                          | Meaning                               |
-| -------- | ------------------------------------------- | ------------------------------------- |
-| `l$()`   | `EMBEDDED_SEARCH_TOOLS` + non-SDK entrypoint | Embedded search mode (omits Glob/Grep) |
-| `i$()`   | `CLAUDE_CODE_ENABLE_TASKS` or non-simple    | Tasks enabled                         |
-| `eA()`   | `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` + flag | Teams/swarm enabled                  |
-| `XT6()`  | (none — always `true`)                      | Worktree mode enabled                 |
-| `YI()`   | `ENABLE_TOOL_SEARCH` + subscription tier    | ToolSearch available                  |
+`StructuredOutput` is not a registry entry. It is attached per-request when a caller forces
+schema-constrained output, which is why the tool-lookup path treats it as expected-absent alongside
+`mcp__`-prefixed names.
 
-The `xg()` array also includes several `null`-initialized slots (`z4q`, `_4q`, `w4q`, `Bk1`,
-`gk1`, `Fk1`, `pk1`, etc.) that are never assigned in static code — these are plugin extension
-points for dynamically registered tools.
+The registry array carries several permanently-`null` slots, each referenced only by its own `null`
+assignment and its guarded spread. They contribute nothing in shipped builds.
+
+### Condition gates
+
+Gates are described by what drives them. Minified predicate names churn every release, so each gate
+below names the env-var literal or behavioral string to relocate it by.
+
+Embedded search — on unless the session opts out via the CLI, and the entrypoint is not
+`local-agent` (the SDK carve-out). Anchor: `CLAUDE_CODE_ENTRYPOINT !== "local-agent"`.
+
+Search-tools opt-in — true when `Glob` or `Grep` is named in `--tools` or `--allowedTools`. Turning
+it on turns embedded search off. Anchor: `setSearchToolsOptIn`.
+
+Bash-capable shell — true on any non-Windows platform; on Windows, only if git-bash is found, via
+`CLAUDE_CODE_GIT_BASH_PATH` or the standard install locations. Anchor: `CLAUDE_CODE_GIT_BASH_PATH`.
+
+Tasks enabled — default on. Only `CLAUDE_CODE_ENABLE_TASKS` set to a false-y value disables it.
+Anchor: `CLAUDE_CODE_ENABLE_TASKS`.
+
+Worktree mode — hardcoded true. Anchor: `isWorktreeModeEnabled`.
+
+Tool search enabled — driven by `ENABLE_TOOL_SEARCH`, default on for first-party
+`api.anthropic.com`. Vetoed by a non-first-party provider (Bedrock, Vertex, Foundry), by
+`CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS`, or by a `hipaa` compliance taint delivered in the server
+policy response — the last is org-side and not user-settable. Anchor: `ENABLE_TOOL_SEARCH`.
+
+PowerShell tool — `CLAUDE_CODE_USE_POWERSHELL_TOOL` on non-Windows; on Windows, true unless
+explicitly disabled or git-bash is present, with a Statsig gate as the fallback. Anchors:
+`CLAUDE_CODE_USE_POWERSHELL_TOOL`, `tengu_cobalt_ridge`.
+
+Two gates read as conditional but are not. The `LSP` gate and the first check of the embedded-search
+gate both parse the literal string `"true"` through the env-truthiness helper, so they always pass.
+Worktree mode returns true unconditionally. Treat all three as always-on until the literal changes.
+
+The env-truthiness helper accepts `1`/`true`/`yes`/`on`; its false-y twin accepts `0`/`false`/`no`/
+`off`. Both return false for unset, so they are not complements — that is how tri-state defaults are
+expressed.
+
+### Embedded search (Glob and Grep removal)
+
+On a native build, Claude Code drops the `Glob` and `Grep` tools from the registry and routes file
+search through the Bash tool instead. The shell snapshot injects `find`, `grep`, and `rg` functions
+that re-exec the `claude` binary with a forced `argv[0]`, so one multi-call binary acts as bfs,
+ugrep, or ripgrep. See `BASH_TOOL_EXECUTION.md` ("Search-tool wrappers") for the wrapper mechanics
+and the pinned flag sets.
+
+The omit-set is `{Glob, Grep}` when embedded search is on and the shell is bash-capable; otherwise
+it is empty. Consequences worth knowing:
+
+- The gate is consulted wherever tool lists are built, including subagent tool lists. A subagent
+  whose definition names `Grep` or `Glob` still does not receive them — the frontmatter is not
+  consulted for this. Built-in agent prompts branch on the same gate, telling the agent to use
+  `` `find` ``/`` `grep` `` via Bash rather than the tools.
+- The only way back is naming `Glob` or `Grep` in `--tools` or `--allowedTools` on the CLI. That
+  sets the opt-in flag as a side effect, which turns embedded search off and restores both tools.
+  There is no dedicated switch, no settings.json key, and no env var that reaches it — the sole
+  writer is the CLI-flag parser.
+- `EMBEDDED_SEARCH_TOOLS` does not control this. The name survives as an env-schema entry and is
+  still parsed off `process.env`, but nothing reads the parsed value; the gate's own check is the
+  folded literal `"true"`. Setting it has no effect.
+- Windows without git-bash keeps `Glob` and `Grep`, because the omit-set also requires a
+  bash-capable shell.
+
+Re-location: `rg -n 'CLAUDE_CODE_ENTRYPOINT !== "local-agent"'` lands in the embedded-search gate;
+`rg -n 'setSearchToolsOptIn'` lands on the opt-in setter, whose single call site is the
+`--allowedTools` / `--tools` parser.
+
+□ omit-set is exactly `{Glob, Grep}` □ opt-in has exactly one writer □ `EMBEDDED_SEARCH_TOOLS` has
+exactly one occurrence (its schema declaration).
+
+### Build-artifact caveat
+
+The prettified bundle is extracted from a platform-specific native binary, and the build
+constant-folds the platform accessor — in the darwin-arm64 artifact it returns the literal
+`"macos"`. Every `=== "windows"` and `=== "wsl"` branch is therefore dead code in that artifact,
+including the Windows halves of the bash-capable and PowerShell gates. Read those branches for
+source semantics, but do not conclude from one artifact that a platform check is live or dead in
+general; per-platform bundles differ.
 
 
 ## Example Tool Description: Read
@@ -224,3 +342,30 @@ Bash commands can be approved with patterns:
 - `Bash(git:)` — all git commands
 - `Bash(cat:)` — all cat commands
 - `Bash(npm --silent pack:)` — specific npm commands
+
+## Per-release facts
+
+Verified against the local bundle named on each line.
+
+- 2.1.207: `EMBEDDED_SEARCH_TOOLS` is vestigial. It remains an env-schema entry and is still parsed
+  off `process.env`, but no code reads the parsed value; the gate's own flag check is the folded
+  literal `"true"`. Setting the variable has no effect.
+- 2.1.207: the only opt-out from embedded search is naming `Glob` or `Grep` in `--tools` or
+  `--allowedTools`; the opt-in flag has exactly one writer, the CLI-flag parser.
+- 2.1.207: `SendMessage` is unconditional — no longer gated on a teams/swarm flag. `TeamCreate` and
+  `TeamDelete` name consts still exist but the registry does not return them.
+- 2.1.207: `StructuredOutput` is not a registry entry; it is attached per-request for
+  schema-constrained output.
+- 2.1.207: registry additions since the 2.1.76 pass — `ReportFindings`, `REPL`, `Workflow`,
+  `Monitor`, `Artifact`, `Projects`, `DesignSync`, `ClaudeDesign`, `PushNotification`,
+  `RemoteTrigger`, `ScheduleWakeup`, `SendUserMessage`, `SendUserFile`, `EndConversation`,
+  `WaitForMcpServers`, `ReadMcpResourceDirTool`, `SearchMcpRegistry`, `SuggestConnectors`,
+  `ListConnectors`, `ShareOnboardingGuide`, `ShowOnboardingRolePicker`, `PowerShell`, and the
+  plugin/skill tool group.
+
+Attributed to release notes, not verified against a local bundle (earliest local version is 2.1.168,
+which already has the behavior, so these introduction points cannot be bisected locally):
+
+- 2.1.117: native builds moved file search into the Bash tool and dropped `Glob`/`Grep` from the
+  registry.
+- 2.1.162: naming `Glob`/`Grep` in `--tools` / `--allowedTools` restores the dedicated tools.
