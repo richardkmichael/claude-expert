@@ -1,6 +1,8 @@
 # Clear, Compact, Fork, and Rewind: How Context Operations Work
 
-Source: `cli.prettier.js` 2.1.76 (`work/2.1.76/package/cli.prettier.js`)
+Source: `cli.prettier.js` 2.1.76 (`work/2.1.76/package/cli.prettier.js`) for the
+record mechanics; the "When auto-compaction fires" section was verified against
+2.1.207.
 
 Four mechanisms manipulate conversation context. They differ in what the model
 sees going forward, whether the session continues or a new one is created, and
@@ -48,6 +50,66 @@ active context begins. Everything before the last boundary is "lost" history.
 
 A lighter variant exists: `"subtype": "microcompact_boundary"`. Same mechanism,
 smaller scope. Both are `system` records.
+
+### When auto-compaction fires: the trigger threshold
+
+Verified against 2.1.207.
+
+Auto-compaction (`trigger: "auto"`) fires when live context reaches a computed
+threshold. The threshold is a percentage of a *usable* window, not the raw model
+context window, and the percentage is user-configurable.
+
+Relocation: `rg -n 'CLAUDE_AUTOCOMPACT_PCT_OVERRIDE'`. Two hits — the env-var
+accessor table and the config reader. The config reader maps the env var to a
+`testPctOverride` field (`parseFloat`, accepted only when `> 0 && <= 100`).
+That field feeds the threshold function, which sits beside the constant `13000`;
+find it with `rg -n '\- 13000'` (the enclosing function returns
+`min(floor(window * pct/100), window - 13000)`).
+
+The computation, in order:
+
+```
+usable    = context_window − min(max_output_tokens, 20000)
+threshold = min( floor(usable × pct/100),  usable − 13000 )     # pct valid → this
+          = usable − 13000                                       # pct absent/invalid → this
+```
+
+- The output-token reserve is `min(max_output_tokens, 20000)`; grep the reserve
+  via the `20000` constant (a `uMd`-style var) next to the usable-window helper.
+  `max_output_tokens` honors `CLAUDE_CODE_MAX_OUTPUT_TOKENS`. For current
+  large-output models the reserve caps at 20,000.
+- The operator is `min`, so `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` can only *lower* the
+  threshold — never raise it above the `usable − 13000` floor.
+- Firing requires `autoCompactEnabled` (default `true`). With it off, no
+  auto-compaction runs; instead a hard "blocked" state is reached at
+  `usable − 3000`. `CLAUDE_CODE_BLOCKING_LIMIT_OVERRIDE` overrides that blocking
+  limit. A "warn" level precedes compaction at `threshold − 20000`.
+
+Worked example — a 1M-token model (`claude-opus-4-8[1m]`), which advertises a 1M
+window and needs no `CLAUDE_CODE_AUTO_COMPACT_WINDOW`:
+
+| `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` | usable  | threshold (compaction fires at) |
+| --------------------------------- | ------- | ------------------------------- |
+| unset (default)                   | 980,000 | 967,000  (`usable − 13000`)     |
+| 75                                | 980,000 | 735,000  (`floor(0.75×980000)`) |
+| 76.5                              | 980,000 | 749,700                         |
+
+Because the percentage multiplies the 980K usable window (not the raw 1,000,000),
+`75` lands at 735,000, not 750,000. To cap a session just under 750K tokens, `75`
+is the clean choice (leaving headroom for the crossing turn's own tokens);
+`76.5` hugs 750K.
+
+Related env var: `CLAUDE_CODE_AUTO_COMPACT_WINDOW` sets the window size for the
+math directly (accepts `auto`, `<n>k`, `<n>m`, or a raw token count), taking
+precedence over model defaults and the `autoCompactEnabled`-adjacent settings
+window. Unneeded when the model already reports the desired window.
+
+Tripwire checklist for a new version:
+`□ env var CLAUDE_AUTOCOMPACT_PCT_OVERRIDE present  □ maps to a testPctOverride
+field via parseFloat, guarded 0<pct≤100  □ threshold = min(floor(usable*pct/100),
+usable−13000)  □ usable = window − min(maxOutput, 20000)  □ operator is min (only
+lowers)  □ warn at threshold−20000, blocked at usable−3000  □ gated on
+autoCompactEnabled`
 
 ## `/clear` (Clear Context) -- Start a New Session File
 
