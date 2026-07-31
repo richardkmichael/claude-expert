@@ -70,6 +70,12 @@ Full methodology, including the version-stamp and update procedure: `analysis/GU
   bisect versions without prettifying) — match for presence, not lines: `grep -aqF` (true/false via exit
   code), `-ac` (count), or `-ao` (just the matched substring). Bare line output dumps a multi-KB line or
   binary bytes; `-a` treats the file as text so the match isn't skipped.
+- A zero-hit grep does not prove absence. Strings the product renders are often assembled from parts,
+  so the rendered text never appears as one literal — a heading built as `` `## ${CONST}` `` will not
+  match a search for the full heading, and neither will text interpolated from a hoisted variable or
+  split across a concatenation. Before concluding a feature was removed, search a distinctive
+  substring that cannot span an interpolation boundary, then follow the constant or variable to its
+  use site. Reserve "absent" for when that shorter search also comes back empty.
 - `code-intel` MCP — structure-aware navigation of the bundle (configured in `.mcp.json`).
 - `anthropic-docs` / `claude-code-docs` MCP — the published docs, for the "is this still current?"
   check.
