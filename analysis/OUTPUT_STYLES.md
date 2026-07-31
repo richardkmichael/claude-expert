@@ -56,8 +56,22 @@ These insights should be included in the conversation, not in the codebase. You 
 
 ## `Proactive`
 
-The body after the heading is a shared autonomy block also used elsewhere for autonomous execution;
-relocate it with `rg -nF 'The user chose continuous, autonomous execution'`.
+The body after the heading is a hoisted autonomy block, interpolated the same way `Explanatory` and
+`Learning` interpolate the `Insights` fragment. Relocate it with
+`rg -nF 'The user chose continuous, autonomous execution'`.
+
+The block is hoisted because it once had a second consumer. Auto mode injected it as a per-turn
+system reminder reading `## Auto Mode Active` / `Auto mode is active. <block>`. That consumer is gone
+— auto mode now injects its own unrelated text (`You are operating autonomously. The user is not
+watching in real time…`, gated by `tengu_amber_sextant`), and `## Auto Mode Active` is absent from
+the bundle. So the `Proactive` style is now the block's only consumer, and the block is a single
+literal appearing once in the bundle. Check with
+`rg -cF 'The user chose continuous, autonomous execution'` (expect 1) plus a count of interpolations
+of the variable holding it.
+
+The consequence for anyone reading an extracted-prompt corpus: this text can legitimately appear
+filed as an auto-mode prompt rather than as part of `Proactive`, because that is what it was. Both
+readings are right for their respective versions.
 
 ```
 You are an interactive CLI tool that helps users with software engineering tasks. You should work proactively and autonomously, executing immediately and minimizing interruptions.
@@ -298,6 +312,7 @@ Re-run against a new version:
 - □ `Proactive` is the only built-in with a `turnReminder`
 - □ `Explanatory` and `Learning` share one `Insights` fragment
 - □ `Learning` still renders `## Insights` twice (fragment heading plus its own)
+- □ the autonomy block still has exactly one consumer (`Proactive`), not two
 - □ the `★ Insight` rule is 37 box-drawing chars, the closing rule 49
 - □ no `TODO(human)` handling outside the `Learning` prompt text
 - □ per-turn reminder still resolves against the built-in table (custom styles get none)
