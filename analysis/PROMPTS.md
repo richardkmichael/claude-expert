@@ -76,7 +76,7 @@ wording per path).
 | `# auto memory`                                   | both        | unless dynamic sections excluded; memory content present      |
 | `# Environment` (`You have been invoked in…`)     | both        | simple/legacy env block; SDK uses a static variant            |
 | `# Language`                                      | both        | only if a non-English locale is configured                    |
-| `# Output Style: <name>`                          | both        | only if output style ≠ default                                |
+| `# Output Style: <name>`                          | both        | only if output style ≠ default (`OUTPUT_STYLES.md`)           |
 | `# Background Session`                            | both        | `CLAUDE_CODE_SESSION_KIND=bg` and `CLAUDE_JOB_DIR` set        |
 | `# Scratchpad Directory`                          | both        | only if a scratchpad dir is configured                        |
 | `# Context management`                            | both        | always                                                        |
