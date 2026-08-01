@@ -147,3 +147,9 @@ python3 bin/render-prompts.py <version>
 
 Anchors live in the `ANCHORS` list at the top of `render-prompts.py`; a `NOT FOUND` report means a
 section moved or was reworded and the anchor (and the inventory above) needs updating.
+
+## Per-release changes
+
+One line per per-release fact, so the behavioral model above can stay version-agnostic.
+
+- 2.1.220: the three built-in output-style bodies and their two shared fragments are emitted by
