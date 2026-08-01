@@ -81,7 +81,7 @@ wording per path).
 | `# Scratchpad Directory`                          | both        | only if a scratchpad dir is configured                        |
 | `# Context management`                            | both        | always                                                        |
 | `# Focus mode`                                    | both        | only in focus view mode; wording varies by path               |
-| reproduce/verify (`Work step by step:`)           | both        | `CLAUDE_CODE_VERIFY_PROMPT` or `tengu_sparrow_ledger`         |
+| ~~reproduce/verify (`Work step by step:`)~~        | —           | removed in 2.1.207 (see Per-release changes)                   |
 | investigate-first (`Asking the user a clarifying…`)| both       | only on `claude-opus-4-7` with `CLAUDE_CODE_INVESTIGATE_FIRST`/`tengu_slate_harrier` |
 | heron-brook (arbitrary)                            | both        | server/`tengu_heron_brook`-provided string, else absent       |
 
@@ -102,7 +102,7 @@ Toggles that add, remove, or reshape prompt content. Re-locate each with `rg -n 
 | `CLAUDE_CODE_REMOTE`                     | env     | suppresses git-status injection on remote sessions              |
 | `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS`   | env     | drops `run_in_background` guidance from tool descriptions       |
 | `CLAUDE_CODE_SESSION_KIND` / `CLAUDE_JOB_DIR` | env | enables the `# Background Session` block                        |
-| `CLAUDE_CODE_VERIFY_PROMPT`              | env     | enables the reproduce/verify workflow section                   |
+| ~~`CLAUDE_CODE_VERIFY_PROMPT`~~          | env     | gone in 2.1.207 with the section it gated                       |
 | `CLAUDE_CODE_INVESTIGATE_FIRST`          | env     | enables investigate-first (Opus 4.7 only)                       |
 | `CLAUDE_CODE_PERFORCE_MODE`              | env     | adds a Perforce note to the injected context                    |
 | truthy/falsy token sets                  | parsing | truthy `{1,true,yes,on}`, falsy `{0,false,no,off}` (shared)     |
@@ -146,10 +146,16 @@ python3 bin/render-prompts.py <version>
 ```
 
 Anchors live in the `ANCHORS` list at the top of `render-prompts.py`; a `NOT FOUND` report means a
-section moved or was reworded and the anchor (and the inventory above) needs updating.
+section moved or was reworded and the anchor (and the inventory above) needs updating. Before treating
+a missing anchor as a removal, check whether the string is now assembled from parts — see the grep
+guidance in the root `CLAUDE.md`.
 
 ## Per-release changes
 
 One line per per-release fact, so the behavioral model above can stay version-agnostic.
 
+- 2.1.207: the reproduce/verify workflow section was removed, along with its `CLAUDE_CODE_VERIFY_PROMPT`
+  env var and `tengu_sparrow_ledger` flag. Present at 2.1.198, all three absent at 2.1.207 and 2.1.220;
+  no reworded successor in the bundle.
 - 2.1.220: the three built-in output-style bodies and their two shared fragments are emitted by
+  `render-prompts.py`. Resolved text and mechanics: `OUTPUT_STYLES.md`.

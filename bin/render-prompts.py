@@ -68,7 +68,6 @@ ANCHORS = [
     ("Dynamic — Scratchpad", "# Scratchpad Directory", "literal"),
     ("Dynamic — Context management", "# Context management", "literal"),
     ("Dynamic — Focus mode", "# Focus mode", "literal"),
-    ("Dynamic — Reproduce/verify workflow", "Work step by step:", "literal"),
     ("Subagent — Explore", "You are a file search specialist for Claude Code", "literal"),
     ("Subagent — general-purpose", "You are an agent for Claude Code, Anthropic's official CLI for Claude.", "literal"),
     ("Subagent — Plan", "You are a software architect and planning specialist for Claude Code", "literal"),
