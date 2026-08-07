@@ -46,7 +46,7 @@ argv. It imports the server module in-process, then hijacks stdout/stderr/stdin 
 the parent over an Electron `MessagePort` (`{type:"stdout"|"stderr"}` out, `{type:"stdin"}` in). It
 is the stdio backend for first-party / bundled Node servers, with no real OS pipes.
 
-`directMcpHost.js` — a ~690 KB utility process that bundles the full MCP SDK and acts as the
+`directMcpHost.js` — a ~651 KB utility process that bundles the full MCP SDK and acts as the
 client for remote MCP servers. It receives `addServer` messages over `parentPort`, each carrying a
 per-server `MessagePort`, and builds a transport per server. Its MCP client identity is
 `claude-desktop-3p`, and it adds OAuth bearer (`Authorization: Bearer …`) and mutual-TLS
@@ -93,6 +93,10 @@ The app ships several MCP servers in-box, in addition to user-configured ones:
 | Server                          | Source                                             |
 |---------------------------------|----------------------------------------------------|
 | Office 365                      | `resources/office365-mcp/` (`msal-node-runtime.node`) |
+| GitHub                          | `resources/github-mcp/github-mcp-server` — a ~40 MB Go binary, new in this build |
 | Electron DevTools               | `@anthropic-ai/electron-devtools-mcp`              |
 | Claude for Chrome               | `@ant/claude-for-chrome-mcp`                       |
 | Computer Use                    | `@ant/computer-use-mcp`                            |
+
+The GitHub server is a compiled Go binary rather than a Node module, so unlike the others it is not
+inlined into the JS bundle and appears as a standalone executable in the archive.
