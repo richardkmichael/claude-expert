@@ -36,9 +36,10 @@ Every file in the set was re-verified against the banner build.
 Re-run the extraction and the [re-verification recipes](./EXTRACTION.md) against the fresh build,
 then update the banner and any drifted facts. Key things that move between builds:
 
-- The bundle is code-split (`index.pre.js` is the entry point, plus `index.js` and ~347
-  `index.chunk-*.js`), so search the whole `.vite/build/` directory, not one file. The chunk count
-  keeps growing — it was ~90 two builds ago.
+- The bundle is code-split: `index.pre.js` is the entry point, alongside 203 `index.chunk-*.js`,
+  130 `index2.chunk-*.js` and 14 entry-point files. Search the whole `.vite/build/` directory
+  rather than one file or one chunk family. The count keeps growing — it was ~90 chunks two builds
+  ago.
 - Minified identifiers and single-letter names change every build. Anchor on string literals and
   behavior instead; treat any identifier quoted in these notes as a snapshot illustration.
 - The main app UI is the remotely-served `https://claude.ai` frontend loaded in a `WebContentsView`.

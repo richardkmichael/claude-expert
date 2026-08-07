@@ -32,7 +32,8 @@ The main-process code is minified and split by Vite:
 | File                        | Size    | Role                                                 |
 |-----------------------------|---------|-------------------------------------------------------|
 | `index.pre.js`              | ~4.6 MB | Main entry (`package.json` `main`); largest bundle    |
-| `index.chunk-*.js`          | ~347    | Code-split modules (deployment, env handling, UI IPC) |
+| `index.chunk-*.js`          | 203     | Code-split modules (deployment, env handling, UI IPC) |
+| `index2.chunk-*.js`         | 130     | Second chunk family — Cowork/VM, OAuth, preferences   |
 | `index.js`                  | ~236 KB | Aggregating module — `require`s ~100 chunks and re-exports |
 | `mainView.js`               | ~233 KB | `WebContentsView` context bridge                      |
 | `mainWindow.js`             | ~166 KB | Title bar and window chrome                           |
@@ -46,6 +47,11 @@ The main-process code is minified and split by Vite:
 | `coworkArtifact.js`         | ~2.3 KB | Cowork artifact preview window                        |
 | `localExecConsent.js`       | ~1.4 KB | Local-execution consent prompt                        |
 | `claudePagePreview.js`      | ~725 B  | Page-preview window                                   |
+
+That is 347 `.js` files directly under `.vite/build/`: 203 `index.chunk-*`, 130 `index2.chunk-*`,
+and 14 entry points. Both chunk families matter — the Cowork VM code lives in `index.chunk-*` but
+its warm-bundle and manifest helpers are `index2.chunk-*`, so a search restricted to one family
+will miss things.
 
 The single-`index.js`-holds-everything layout from older builds is gone; the bulk now lives in
 `index.pre.js` plus the chunk set. `index.js` is no longer the ~800 B Sentry stub it was in
