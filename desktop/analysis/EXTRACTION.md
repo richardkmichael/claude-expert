@@ -100,18 +100,22 @@ find "$EX" -name "*.js" -not -path "*/node_modules/*" \
 grep -rhoE '(CLAUDE|ANTHROPIC|COWORK|OFFICE|OAUTH|API)_[A-Z0-9_]+:\(\)=>' "$EX/.vite/build/"*.js \
   | sed -E 's/:\(\)=>.*//' | sort -u
 
-# MCP core protocol negotiation list (latest first)
-grep -rhoE '\["?2025-11-25"?[^]]*\]' "$EX/.vite/build/"*.js | head
+# MCP core protocol negotiation list (latest first). The latest version is hoisted into a variable
+# and the array's first element is that identifier, not a literal — so anchor on the OLDEST version
+# and read leftward. Literals are backtick-quoted; a double-quote pattern finds nothing.
+grep -rhoE '.{110}`2024-10-07`' "$EX/.vite/build/"*.js | sort -u
 
 # MCP Apps (ui/*) method vocabulary referenced anywhere
 grep -rhoE '"ui/[a-z/-]+"' "$EX/.vite/build/"*.js "$EX/.vite/renderer/"**/*.js 2>/dev/null | sort -u
 
-# Preference schema keys (find the object holding menuBarEnabled)
-grep -rhoE '.{200}menuBarEnabled.{4000}' "$EX/.vite/build/"*.js | head -1 \
-  | grep -oE '[a-zA-Z_][a-zA-Z0-9_]*:(Wt|Ce|[a-zA-Z]+)\(' | sed -E 's/:.*//' | sort -u
+# Preference schema keys. The zod object and the defaults object live in different chunks; the
+# defaults object is the easier read. Brace-match rather than using a fixed-width window — the
+# schema outgrew any constant .{N}, and the zod helper names are re-minified every build.
+grep -rl 'menuBarEnabled' "$EX/.vite/build/"*.js        # then brace-match in Python
 
-# -3p suffix logic (Claude-3p directory mechanism)
-grep -rn -- '"-3p"' "$EX/.vite/build/"*.js
+# -3p suffix logic (Claude-3p directory mechanism). Backtick-quoted since the minifier switched
+# to template literals; the '"-3p"' form matches nothing.
+grep -rn -- '`-3p`' "$EX/.vite/build/"*.js
 
 # Remote managed-settings / org-policy fetcher
 grep -rn 'loadRemoteManagedSettings\|/api/claude_code/settings' "$EX/.vite/build/"*.js
@@ -120,9 +124,15 @@ grep -rn 'loadRemoteManagedSettings\|/api/claude_code/settings' "$EX/.vite/build
 grep -rhoE '.{45}NAME_HERE.{55}' "$EX/.vite/build/"*.js | head -1
 ```
 
-Minified identifiers (`Dm()`-style function names, single-letter vars) change every build — treat
+Minified identifiers (`_9()`-style function names, single-letter vars) change every build — treat
 any that appear in this doc set as snapshot illustrations, not stable names. The behaviors and
 string literals they anchor to are the durable facts.
+
+String quoting is not durable either. This build's minifier emits template literals, so `` `-3p` ``
+and `` `2025-11-25` `` rather than `"-3p"` and `"2025-11-25"`. A recipe that pins the quote
+character will silently return nothing after a toolchain change, which reads identically to the
+feature having been removed. When a recipe comes back empty, re-check the quoting before concluding
+anything is gone.
 
 
 ## A search trap: bounded repetition on minified lines
