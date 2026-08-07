@@ -1,6 +1,6 @@
 # Hooks
 
-Behavioral model verified against 2.1.165. This document follows the landmark style in
+Behavioral model verified against 2.1.220. This document follows the landmark style in
 `GUIDELINES.md`: it anchors on version-stable strings (hook event names, config keys, the Zod
 `.describe(...)` strings shipped in the schema, `tengu_*` names, env vars, behavioral logic) with
 grep re-location recipes, not on minified symbol names or line numbers, which churn every release.
@@ -11,7 +11,7 @@ embedded in the bundle. Per-release changes are in the appendix.
 
 | Target                        | Grep anchor                                               |
 |-------------------------------|-----------------------------------------------------------|
-| All event input schemas       | `hook_event_name: v.literal(`                             |
+| All event input schemas       | `hook_event_name: ` (the Zod alias before `.literal(` is minified and churns) |
 | Base/common input fields      | `Subagent identifier. Present only when the hook fires`   |
 | Hook type config schemas      | `MCP tool hook type`                                      |
 | Output schema                 | `terminalSequence` and `hookSpecificOutput`               |
@@ -19,12 +19,13 @@ embedded in the bundle. Per-release changes are in the appendix.
 | Missing-script downgrade      | `Hook script appears to be missing`                       |
 | Pipeline dispatch             | `[Stall] tool_dispatch_start`                             |
 | Stop→SubagentStop conversion  | `Converting Stop hook to SubagentStop`                    |
+| additionalContext delivery    | `hook_additional_context` (the message type both Pre and Post build) |
 
 ## Event inventory
 
-The current set is 30 events, up from 21 in earlier releases. Each is defined as a shared base
-schema `.and(v.object({ hook_event_name: v.literal("X"), ... }))`, so every event extends the
-base/common fields. Grouped by purpose:
+The current set is 31 events, up from 21 in earlier releases. Each is defined as a shared base
+schema `.and(...object({ hook_event_name: ...literal("X"), ... }))` — the Zod alias is minified,
+so grep `hook_event_name: ` — and every event extends the base/common fields. Grouped by purpose:
 
 | Group              | Events                                                                      |
 |--------------------|-----------------------------------------------------------------------------|
@@ -36,12 +37,19 @@ base/common fields. Grouped by purpose:
 | Teams / tasks      | TeammateIdle, TaskCreated, TaskCompleted                                    |
 | MCP elicitation    | Elicitation, ElicitationResult                                             |
 | Config / memory    | ConfigChange, InstructionsLoaded                                           |
-| Filesystem / cwd   | CwdChanged, FileChanged                                                     |
+| Filesystem / cwd   | CwdChanged, FileChanged, DirectoryAdded                                     |
 | Worktree           | WorktreeCreate, WorktreeRemove                                             |
 | Display            | MessageDisplay                                                             |
+| Notification       | Notification                                                               |
 
 Net new since the 21-event era: PostToolBatch, PermissionDenied, MessageDisplay,
-UserPromptExpansion, StopFailure, PostCompact, TaskCreated, CwdChanged, FileChanged.
+UserPromptExpansion, StopFailure, PostCompact, TaskCreated, CwdChanged, FileChanged,
+DirectoryAdded.
+
+DirectoryAdded carries `directory` ("Absolute path of the directory that was added.") and `source`,
+an enum of `slash_command` / `register_repo_root` — 'How the directory was added: "slash_command"
+for /add-dir, "register_repo_root" for the SDK control_request.' A directory already registered
+(including a duplicate request) is denied, and the DirectoryAdded hooks do not re-run.
 
 ## Base / common input fields
 
@@ -249,6 +257,32 @@ The PreToolUse `permissionDecision` enum gained `defer`, which is print-mode-onl
 (grep `defer is print-mode only` / `defer is solo-only`): it warns and is ignored in interactive
 mode or inside a multi-tool batch.
 
+### additionalContext cannot steer the call that triggered it
+
+A PreToolUse `additionalContext` string does not reach the model before the tool runs. PreToolUse
+fires after the model has already emitted the `tool_use` block, and no inference turn happens
+between the hook and tool execution — the model's next read of the conversation is the turn that
+processes the tool result. So Pre and Post `additionalContext` are consumed at the same inference
+turn. Both handlers build the same `hook_additional_context` message (grep that string) and push it
+onto the same per-tool-call message array, differing only in `hookName` / `hookEvent`.
+
+The two are not fully interchangeable, on three axes:
+
+| Axis                          | PreToolUse                        | PostToolUse                  |
+|-------------------------------|-----------------------------------|------------------------------|
+| Position in the message array | Before the tool result            | After the tool result        |
+| Emitted when the call is blocked | Yes                            | No — the event never fires   |
+| Rest of the payload           | `permissionDecision`, `permissionDecisionReason`, `updatedInput` | `updatedToolOutput`, `updatedMCPToolOutput` |
+
+The blocked-call row is the load-bearing one. In the PreToolUse handler the `additionalContext`
+emission is not guarded by the permission decision — it is emitted on allow, ask, and deny alike,
+so PreToolUse is the only hook that can attach context to a tool call that never executed.
+
+Consequence for hook authors: to influence *how* a tool gets called, the information has to exist
+before the model's turn (tool description, CLAUDE.md, skill body, or `additionalContext` from
+`SessionStart` / `UserPromptSubmit`), or the hook has to force another turn by denying with
+`permissionDecisionReason`, or skip the model entirely and rewrite the call with `updatedInput`.
+
 ## Exit-code behavior (command hooks)
 
 If stdout parses as a JSON output object, that path wins. Otherwise exit code governs:
@@ -266,7 +300,7 @@ as non-blocking." plus a reinstall hint. This keeps a missing plugin script from
 
 ## Tool-execution pipeline
 
-The order verified for 2.1.165 (re-locate via `[Stall] tool_dispatch_start`):
+The order verified for 2.1.220 (re-locate via `[Stall] tool_dispatch_start`):
 
 ```
 1. Input schema validation (Zod)        -> on fail: <tool_use_error>InputValidationError...
@@ -323,6 +357,13 @@ that file. The full attribution story — trailers, OTEL, the SubagentStop recip
 
 ## Per-release appendix
 
+- 2.1.220: verified. 31 event input schemas (was 30): `DirectoryAdded` added, carrying `directory`
+  and a `source` enum (`slash_command` / `register_repo_root`). The event inventory table also
+  gained `Notification`, which the 2.1.165 pass listed in the output-schema table but omitted from
+  the inventory. All relocation anchors still resolve, except that the event-schema anchor was
+  alias-specific (`v.literal`) and has been neutralized to `hook_event_name: `. Recorded the
+  PreToolUse-vs-PostToolUse `additionalContext` delivery semantics: same consuming inference turn,
+  differing only in message-array position, blocked-call emission, and sibling payload fields.
 - 2.1.165: verified. 30 event input schemas (was 21). New events: PostToolBatch, PermissionDenied,
   MessageDisplay, UserPromptExpansion, StopFailure, PostCompact, TaskCreated, CwdChanged,
   FileChanged. Five hook types (was four): `mcp_tool` added. New command-hook fields: `args` (exec
