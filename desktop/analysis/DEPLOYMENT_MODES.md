@@ -77,6 +77,38 @@ bundle, since `vm_bundles/` resolves off `userData`. The bundle cannot be shared
 both disk images are read-write, and the machine identity files are per-VM — so each profile costs
 another several GB. See [COWORK_VM](./COWORK_VM.md).
 
+### Setting it per-bundle via LSEnvironment
+
+The variable has to be in the environment at launch, which a Finder or Dock click does not provide.
+Two ways around that: a wrapper that exports it and calls `open -n -a Claude`, or baking it into a
+copy of the bundle via `LSEnvironment`.
+
+`LSEnvironment` is a documented `Info.plist` dict that LaunchServices injects on every launch it
+mediates. Claude Desktop already ships one:
+
+```
+LSEnvironment = { MallocNanoZone = 0 }
+```
+
+That single entry is Chromium's and must be preserved — a clone recipe that removes the dict and
+re-inserts a fresh one drops it. Merge into the existing dict instead of replacing it.
+
+Properties worth knowing, from a peer session's testing on a 1.25927.0 clone (not re-verified here
+beyond the shipped plist above):
+
+- Per-bundle, not per-process; applied by LaunchServices only, so it does not apply when the binary
+  is exec'd directly.
+- Values are literal — no `~` or `$VAR` expansion — so paths must be absolute and fixed at build
+  time, making the resulting bundle machine-specific.
+- It overrides the inherited environment rather than defaulting beneath it.
+- `lsregister -f <bundle>` is required after editing; LaunchServices caches `Info.plist`.
+- A `DYLD_*` key makes the launch fail outright under hardened runtime.
+
+Cloning the bundle to carry this has costs beyond the scope of these notes — a new
+`CFBundleIdentifier` resets TCC state, the auto-updater stops working, and the team-scoped
+`keychain-access-groups` cannot be re-claimed ad-hoc, which disables passkey, hardware-key and Entra
+sign-in. See [COWORK_VM](./COWORK_VM.md#entitlements) for the signing constraints.
+
 
 ## Enterprise config sources
 
