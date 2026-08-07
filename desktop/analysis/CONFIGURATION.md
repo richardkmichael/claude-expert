@@ -35,16 +35,24 @@ User-facing configuration. Top-level fields in the schema:
 
 Feature toggles and UI settings, nested under `preferences` in `claude_desktop_config.json`. All
 entries are optional; defaults apply at read time. The schema is a zod object in the main-process
-bundle. Keys observed in build 1.22209.3, grouped by area (use the
-[re-verification recipe](./EXTRACTION.md) for the authoritative set of a given build):
+bundle, with a parallel defaults object in a different chunk. 68 top-level keys in build 1.26832.0,
+grouped by area (use the [re-verification recipe](./EXTRACTION.md) for the authoritative set of a
+given build):
 
 Entry points and shortcuts:
 
 ```
 menuBarEnabled, legacyQuickEntryEnabled,
-chromeExtensionEnabled, chromeExtension, chromeExtensionInstallDialogDismissed,
-quickEntryShortcut, quickEntryDictationShortcut, dockBounceEnabled
+chromeExtensionEnabled, chromeExtension,
+quickEntryShortcut, quickEntryDictationShortcut, dockBounceEnabled,
+notificationLevels, notificationSound
 ```
+
+`chromeExtension` is now a nested object holding `pairedDeviceId`, `pairedDeviceName` and
+`pairedFromDeviceIds`, which were top-level keys in 1.22209.3.
+`chromeExtensionInstallDialogDismissed` is gone. `notificationLevels` is
+`{permission, idle, question}`, each `off | badge | banner`; `notificationSound` is
+`system | none`.
 
 Companion / appearance codenames (see [FEATURES](./FEATURES.md)):
 
@@ -80,7 +88,7 @@ launchEnabled, launchPreviewPersistedWorkspaces, launchPreviewAllowedOrigins,
 launchPreviewAllowedDomainTransitions, launchPreviewSessionScopedSessions, launchPreviewStorage,
 keepAwakeEnabled, wakeSchedulerEnabled, wakeSchedulerApprovedThisCycle,
 wakeSchedulerRegisteredAtVersion, wakeSchedulerCourtesyFlippedKeepAwake, wakeSchedulerDisableEmitted,
-remoteToolsDeviceName, pairedDeviceId, pairedDeviceName, pairedFromDeviceIds,
+remoteToolsDeviceName,
 remoteFolderConsentMemory, remoteSessionFolderGrants, folderTccProbeResults
 ```
 
@@ -88,9 +96,11 @@ Computer Use, simulators, and surfaces:
 
 ```
 chicagoEnabled, chicagoAutoUnhide, chicagoPreferredMode, chicagoUserDeniedBundleIds,
-claudeAndroidEmulatorAccessEnabled, claudeIosSimulatorAccessEnabled,
+claudeAndroidEmulatorAccessEnabled, claudeIosSimulatorAccessEnabled, simulatorDeviceConsent,
 sidebarMode, epitaxyPrefs, installSourceLanding, previewJitlessKillSwitchEngaged
 ```
+
+`simulatorDeviceConsent` is a map of device id to `{label, grantedAt}`.
 
 `sidebarMode` is one of `chat | code | task | epitaxy`. The former `operon` value is migrated away
 at read time, and the older `sparkleHedgehog*` and `operon*` preference keys are gone.
