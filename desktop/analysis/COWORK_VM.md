@@ -6,8 +6,8 @@ updated, and what that means for relocating or profiling the user data directory
 For the gating that decides whether the bundle is downloaded at all (`yukonSilver`,
 `secureVmFeaturesEnabled`, `autoDownloadInBackground`), see [FEATURES](./FEATURES.md).
 
-Verified against app version 1.26832.0 (`app.asar` dated 2026-08-06), which is newer than the
-[README](./README.md) banner build. VM bundle manifest sha `6d1538ba…`, published 2026-06-10.
+VM bundle manifest sha `6d1538ba…`, published 2026-06-10 — independent of the app build in the
+[README](./README.md) banner, which pins which manifest sha is wanted.
 
 
 ## Bundle layout

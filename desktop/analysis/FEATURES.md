@@ -1,7 +1,7 @@
 # Features, Codenames, and Cowork/VM
 
 Feature codenames, how they resolve, and the Cowork VM-download control. Codenames rename and shift
-between releases — treat this as a snapshot of build 1.22209.3, not a contract. Gating for most
+between releases — treat this as a snapshot of build 1.26832.0, not a contract. Gating for most
 runs through three parallel structures in the main-process chunk: a zod preference schema, a
 defaults object, and a feature-support factory.
 

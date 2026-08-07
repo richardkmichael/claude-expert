@@ -6,9 +6,9 @@ update the banner and any drifted details when re-extracting a newer build.
 
 | Field             | Value                                      |
 |-------------------|--------------------------------------------|
-| App version       | 1.22209.3                                  |
-| Build commit      | babe11577dfefe3e209c06bd674628d862f0dbae   |
-| Build timestamp   | 2026-07-19                                 |
+| App version       | 1.26832.0                                  |
+| Build commit      | 056ee2be623b207f6a4d24dfb1b2fb5a82db0ecf   |
+| Build timestamp   | 2026-08-06T05:43:05Z                       |
 | Build type        | prod                                       |
 | Platform observed | darwin (macOS)                             |
 
@@ -28,8 +28,7 @@ update the banner and any drifted details when re-extracting a newer build.
 | [COWORK_VM](./COWORK_VM.md)                          | `vm_bundles/` on disk: sparse images, guest filesystems, VM versioning and updates |
 | [DEBUGGING](./DEBUGGING.md)                          | Main-process, renderer, and native debugging; CDP auth        |
 
-[COWORK_VM](./COWORK_VM.md) was verified against a newer build (1.26832.0) than the banner above;
-it carries its own build note. The rest of the set still tracks 1.22209.3.
+Every file in the set was re-verified against the banner build.
 
 
 ## Refreshing after an update
@@ -37,8 +36,9 @@ it carries its own build note. The rest of the set still tracks 1.22209.3.
 Re-run the extraction and the [re-verification recipes](./EXTRACTION.md) against the fresh build,
 then update the banner and any drifted facts. Key things that move between builds:
 
-- The bundle is code-split (a small `index.js` stub, a large `index.pre.js`, and ~90
-  `index.chunk-*.js`), so search the whole `.vite/build/` directory, not one file.
+- The bundle is code-split (`index.pre.js` is the entry point, plus `index.js` and ~347
+  `index.chunk-*.js`), so search the whole `.vite/build/` directory, not one file. The chunk count
+  keeps growing — it was ~90 two builds ago.
 - Minified identifiers and single-letter names change every build. Anchor on string literals and
   behavior instead; treat any identifier quoted in these notes as a snapshot illustration.
 - The main app UI is the remotely-served `https://claude.ai` frontend loaded in a `WebContentsView`.

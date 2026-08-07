@@ -64,8 +64,8 @@ link opening, host-theme application, and inline elicitation forms.
 | Built-in MCP server  | internal name `visualize` (UI-resource namespace codename `imagine`)         |
 | Tools                | `show_widget` (render the code); `read_me` (returns host styling context — CSS variables, colors, typography, layout rules — so the widget matches the app theme) |
 | UI resource          | `ui://imagine/show-widget.html`, mimeType `text/html;profile=mcp-app` (the `profile=mcp-app` marker tells the host to render it as an MCP App) |
-| Server registration  | `.vite/build/index.chunk-DN5DouTV.js`                                        |
-| Client-side view code| `.vite/build/index.chunk-DAjdI9gO.js`; `appInfo` = `{ name: "visualize widget", version: "1.0.0" }` |
+| Server registration  | `.vite/build/index.chunk-kL89Rghb.js`                                        |
+| Client-side view code| `.vite/build/index.chunk-K3_ox-k2.js`; `appInfo` = `{ name: "visualize widget", version: "1.0.0" }` |
 
 The view chunk is built from source modules visible as `// src/scripts/...` banners:
 `widget-main.ts` (entry), `mcp-app-helper.ts` (the `postMessage` JSON-RPC bridge),
@@ -144,7 +144,7 @@ in a source comment in the widget):
 
 ## Bottom line
 
-For build 1.22209.3, an MCP App cannot use `updateModelContext` to feed context back to the model.
+For build 1.26832.0, an MCP App cannot use `updateModelContext` to feed context back to the model.
 The desktop offers `ui/message` (a full follow-up message) as the closest capability, and the MCP
 Apps host it pairs with is the remote claude.ai frontend running the `2025-11-21` extension
 revision, which is older than the revision that introduced `updateModelContext`.
