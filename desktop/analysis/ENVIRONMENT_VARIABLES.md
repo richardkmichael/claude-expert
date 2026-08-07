@@ -5,6 +5,18 @@ cloud-detection variables are omitted. Use the [re-verification recipes](./EXTRA
 enumerate everything a given build honors — note that many variables are reached through a
 lazy-getter accessor map (`NAME:()=>...`), which a plain `process.env.NAME` grep misses.
 
+The two enumeration methods err in opposite directions, so cross-check before documenting anything:
+
+- `process.env.NAME` under-collects, missing everything behind the accessor map.
+- The accessor-map pattern over-collects. That map also carries ordinary module constants in
+  SCREAMING_CASE, so it yields non-variables — `DEFAULT_ARTIFACT_MCP_CALLS_PER_MINUTE:()=>30` is a
+  literal, and `COWORK_MCP_SERVER`, `COWORK_CLI_EXPOSED_COMMANDS`, `COWORK_FORCE_ASK_TOOLS`,
+  `COWORK_WIN32_LOG_DIR` and `COWORK_WIN32_DAEMON_LOG_SUBDIR` are exported constants, not
+  environment variables, despite looking exactly like them.
+
+A third category is variables Desktop *writes* into a child process rather than reads. Those are
+noted where relevant rather than listed as inputs.
+
 Two families dominate the raw enumeration but are not Desktop's own surface:
 
 - `CLAUDE_CODE_*` (several hundred) and the provider/model `ANTHROPIC_*` set belong to the bundled
@@ -21,8 +33,8 @@ Two families dominate the raw enumeration but are not Desktop's own surface:
 |---------------------------------------------|----------------------------------------------------------------------------------------------|
 | `CLAUDE_USER_DATA_DIR`                      | Sets `userData` and `logs` (`$VAL/Logs`). Bypasses the `-3p` suffix mechanism entirely. See [DEPLOYMENT_MODES](./DEPLOYMENT_MODES.md). |
 | `CLAUDE_CDP_AUTH`                           | Required when launching with `--remote-debugging-port` / `--remote-debugging-pipe`. See [DEBUGGING](./DEBUGGING.md). |
-| `CLAUDE_AI_URL`                             | Enables the dev URL override if host ends in `.ant.dev` and CDP auth passes.                 |
-| `CLAUDE_AVOID_READING_LOGING_ITEM_SETTINGS` | (sic — a `LOGIN_ITEM` typo in the source) Skips `getLoginItemSettings().wasOpenedAtLogin` detection on macOS. Exact-string lookup, so the misspelling must be used as-is. |
+| `CLAUDE_AI_URL`                             | Overrides the `https://claude.ai` frontend base URL. Honored unconditionally in `dev` builds; in prod only when the host ends in `.ant.dev` or is `localhost` and CDP auth passes. |
+| `CLAUDE_DESKTOP_BACKGROUND_LAUNCH`          | Launches without taking focus. `"1"` or `"behind"` starts behind other windows; `"hidden"` starts with no window shown ("stealth relaunch"). |
 | `CLAUDE_FORCE_HOST_LOOP`                    | `"1"` forces the agent loop to run on the host (only when the dev URL override is on).        |
 | `CLAUDE_EXTRA_HEADERS_TOKEN`                | Signed token used to inject extra HTTP headers — internal dev/QA.                            |
 | `CLAUDE_UPDATER_TOKEN`                      | Signed token consumed by the auto-updater path — internal dev/QA.                            |
@@ -71,7 +83,12 @@ var — see [FEATURES](./FEATURES.md).
 | `TRACING_DUMP`             | Dumps transformed module bytecode to disk for tracing.                  |
 | `TRACING_DUMP_DIR`         | Directory for `TRACING_DUMP` output. Defaults to the OS temp dir.       |
 | `SENTRY_NAME`              | Sentry server-name override.                                            |
+| `CLAUDE_E2E_PKCE_LOG`      | `"1"` enables the E2E PKCE logging harness. Also requires CDP auth to pass. |
+| `CLAUDE_HARNESS_RESIZE`    | `"1"` selects test-harness window-resize behavior. Internal E2E use.    |
 | `ELECTRON_ENABLE_LOGGING`  | Generic Electron switch — routes Chromium and main-process console to stdout. |
+
+`CLAUDE_AVOID_READING_LOGING_ITEM_SETTINGS` (which carried a `LOGIN_ITEM` typo) is gone in this
+build. The `getLoginItemSettings().wasOpenedAtLogin` probe it guarded is now unconditional.
 
 
 ## Office add-in
@@ -97,3 +114,9 @@ set are honored by that subprocess and the Agent SDK it embeds — including pro
 A few are set by Desktop when it spawns the subprocess rather than read from the environment, e.g.
 `CLAUDE_CODE_ENTRYPOINT="local-agent"` and `CLAUDE_AGENT_SDK_VERSION`. Refer to Claude Code's own
 settings documentation for that surface rather than treating it as Desktop configuration.
+
+Others in the same write-only category: `CLAUDE_IMPORT_CONVERSATIONS="1"` (with a scratch
+`CLAUDE_CONFIG_DIR`) when spawning the conversation importer, and
+`CLAUDE_COWORK_MEMORY_PATH_OVERRIDE` / `CLAUDE_COWORK_MEMORY_GUIDELINES`, injected into the guest
+environment pointing at `/sessions/<name>/mnt/…` — see [COWORK_VM](./COWORK_VM.md) for that
+filesystem.
