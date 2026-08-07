@@ -192,11 +192,11 @@ always want the identical rootfs and each will independently pull ~1.3 GB on eve
 
 ## Relocating vm_bundles with a symlink
 
-Supported in practice. The path is never `realpath`'d, and the app is not sandboxed — `codesign -d
---entitlements -` shows only `com.apple.security.virtualization`, no App Sandbox, so there is no
-container boundary. Everything downstream is ordinary `fs` (`mkdir` recursive, `createWriteStream`,
-`rename`, `statfs`, `readdir`) plus the Virtualization.framework attachment, all of which follow
-symlinks.
+Supported in practice. The path is never `realpath`'d, and the app is not sandboxed: it declares 12
+entitlements and `com.apple.security.app-sandbox` is not among them, so there is no container
+boundary. (`com.apple.security.virtualization` is present — see [entitlements](#entitlements).)
+Everything downstream is ordinary `fs` (`mkdir` recursive, `createWriteStream`, `rename`, `statfs`,
+`readdir`) plus the Virtualization.framework attachment, all of which follow symlinks.
 
 The bundle's private-file module does contain symlink hardening, but none of it reaches here:
 
@@ -222,6 +222,38 @@ Practical notes:
   copy.
 - No recursive delete of the `vm_bundles` root appears anywhere in the bundle — only per-file
   `unlink` and per-entry cleanup inside `warm/`.
+
+
+## Entitlements
+
+Cowork needs `com.apple.security.virtualization`. The shipped app declares 12 entitlements under
+hardened runtime (`flags=0x10000(runtime)`), signed by Anthropic PBC, Team ID `Q6L2SF6YDW`:
+
+```
+com.apple.application-identifier              com.apple.security.device.print
+com.apple.developer.team-identifier           com.apple.security.device.usb
+com.apple.security.cs.allow-jit               com.apple.security.personal-information.location
+com.apple.security.device.audio-input         com.apple.security.personal-information.photos-library
+com.apple.security.device.bluetooth           com.apple.security.virtualization
+com.apple.security.device.camera              keychain-access-groups
+```
+
+Notable absences: no `com.apple.security.app-sandbox` (hence no container boundary on file paths),
+and no `com.apple.security.cs.disable-library-validation` — so library validation is enforced.
+
+Three are scoped to the Team ID and cannot be claimed by an ad-hoc signature:
+`com.apple.application-identifier`, `com.apple.developer.team-identifier`, and
+`keychain-access-groups` (whose five groups — `…claude.webauthn`, `…claude.hwkey`, and three
+`…microsoft.identity`/`workplacejoin` groups — back passkey, hardware-key, and Entra sign-in).
+
+`com.apple.security.virtualization` is not team-scoped, so a re-signed or cloned bundle can keep it.
+That matters if you relocate profiles by cloning the app rather than by setting the env var: a clone
+is not categorically barred from Cowork the way it is from passkey sign-in. Whether the VM actually
+boots in a clone is untested here — the entitlement is only the first gate, with
+`secureVmFeaturesEnabled` and the server-side flags still ahead of it (see
+[FEATURES](./FEATURES.md)). Note also that library validation being enforced means an ad-hoc outer
+signature needs `com.apple.security.cs.disable-library-validation` added, or it cannot load the
+team-signed `Electron Framework.framework`.
 
 
 ## Reclaiming space
