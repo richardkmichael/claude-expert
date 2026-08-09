@@ -1,6 +1,6 @@
 # Monitoring Token Usage and Cost
 
-Behavioral model verified against 2.1.165. This document follows the landmark style in
+Behavioral model verified against 2.1.220. This document follows the landmark style in
 `GUIDELINES.md`: it anchors on version-stable strings (slash-command names, `tengu_*` event names,
 env var names, OTEL metric/attribute names, literal UI strings, JSONL field names, behavioral logic)
 with grep re-location recipes, not on minified symbol names or line numbers, which churn every
@@ -11,20 +11,25 @@ The short version is that there are four observation surfaces, each with a diffe
 a different honesty caveat. Per-subagent attribution is possible; exact per-tool-call token cost is
 not, because a tool call does not itself consume tokens — the assistant turns around it do.
 
+A separate question this doc also answers: how much of a *plan's* rate limit has been consumed — the
+5-hour session window and the 7-day weekly window that `/usage` renders. That number does not exist
+anywhere in OpenTelemetry. The only programmatic surface carrying it is the statusLine command
+input (Surface 1); see "Plan rate limits are not in telemetry" under Surface 4.
+
 ## What this doc owns vs. cross-references
 
 This doc owns the observation/attribution story: the OpenTelemetry surface, the `/usage` command
 family, the per-subagent `<usage>` trailers and their snapshot semantics, and the SubagentStop
 attribution recipe. It cross-references the field-level references that already live elsewhere:
 
-| Topic                                              | Lives in                          |
-|----------------------------------------------------|-----------------------------------|
-| `message.usage` field reference (per-message)      | `SESSION_TRANSCRIPT.md`      |
-| statusLine `context_window` input object           | `PROMPTS_RENDERED.md`             |
-| `compactMetadata.preTokens`, microcompact tokens   | `CLEAR_COMPACT_FORK_CONTEXT.md`   |
-| Session-memory background billing                  | `SESSION_MEMORY_AND_SUMMARY.md`   |
-| Subagent output pipeline, the `Done (…)` summary    | `TASK_TOOL_AND_SUBAGENTS.md`      |
-| SubagentStop hook input schema                     | `HOOKS.md`                        |
+| Topic                                            | Lives in                        |
+| ------------------------------------------------ | ------------------------------- |
+| `message.usage` field reference (per-message)    | `SESSION_TRANSCRIPT.md`         |
+| statusLine `context_window` input object         | `PROMPTS_RENDERED.md`           |
+| `compactMetadata.preTokens`, microcompact tokens | `CLEAR_COMPACT_FORK_CONTEXT.md` |
+| Session-memory background billing                | `SESSION_MEMORY_AND_SUMMARY.md` |
+| Subagent output pipeline, the `Done (…)` summary | `TASK_TOOL_AND_SUBAGENTS.md`    |
+| SubagentStop hook input schema                   | `HOOKS.md`                      |
 
 ## The ground-truth token figure
 
@@ -58,6 +63,43 @@ null), `used_percentage`, `remaining_percentage`. `total_input_tokens` is the la
 `input_tokens + cache_creation_input_tokens + cache_read_input_tokens`. This is session-level, last
 API call, exposed to statusLine authors. Full field doc: `PROMPTS_RENDERED.md`. Re-locate the
 builder by grepping `total_input_tokens` near `remaining_percentage`.
+
+The same input also carries a `cost` object (`total_cost_usd`, `total_duration_ms`,
+`total_api_duration_ms`, `total_lines_added`, `total_lines_removed`) and, for claude.ai
+subscribers, a `rate_limits` object — the only programmatic exposure of plan-limit utilization
+in the product:
+
+```jsonc
+"rate_limits": {          // Optional. Only present for subscribers after the first API response.
+  "five_hour": { "used_percentage": number,   // 0-100
+                 "resets_at": number },       // Unix epoch seconds
+  "seven_day": { "used_percentage": number,
+                 "resets_at": number }
+}
+```
+
+Re-locate the documented shape by grepping the statusLine setup prompt for
+`Claude.ai subscription usage limits`; re-locate the builder by grepping for a spread guarded on
+`five_hour ||` alongside `seven_day` (the builder multiplies a server `utilization` fraction by
+100 to produce `used_percentage`, so telemetry consumers get percent, not a 0-1 fraction). Both
+sub-objects are individually optional. Underlying source: the `anthropic-ratelimit-unified-5h-*`
+/ `-7d-*` response headers (grep `anthropic-ratelimit-unified-`), parsed per API response, so the
+value is as fresh as the last request.
+
+Because the statusLine command is an arbitrary shell command receiving this JSON on stdin, it is
+the practical hook for exporting plan-limit utilization to an external system: read stdin, emit the
+numbers somewhere, print the status line. The input also carries `prompt_id`, documented as "same
+as OTel prompt.id" — the join key between a statusLine sample and the OTel event stream.
+
+Invocation cadence matters when treating it as a sampler. The command is not run per render. It is
+run on a 300 ms debounce, triggered when the message id changes or when one of a fixed dependency
+set changes — token usage, permission mode, vim mode, main-loop model, fast mode, effort, thinking,
+PR status. `rate_limits` is not itself in that set, but token usage changes on every API response,
+which is also when the rate-limit headers refresh, so samples track responses closely. The
+`statusLine.refreshInterval` setting (seconds, minimum 1, described as "Re-run the status line
+command every N seconds in addition to event-driven updates") adds time-based polling and is the
+lever for a steady sampling rate. A previous still-running invocation is aborted when a new one
+starts, so a slow exporter drops samples rather than queueing them.
 
 The `/usage` slash command (aliases `/cost` and `/stats`, grep `aliases: ["cost", "stats"]`) reports
 session and plan usage. It has two forms:
@@ -173,22 +215,29 @@ OTEL is the only surface with built-in per-subagent and per-tool attribution. En
 OpenTelemetry by unsetting CLAUDE_CODE_ENABLE_TELEMETRY env var"). The bundle ships the
 OpenTelemetry SDK and exports over OTLP; see `DEPENDENCIES.md`.
 
-Metric instruments (grep `claude_code.token.usage`):
+Metric instruments — all eight are registered in one function; grep `claude_code.session.count` and
+read the adjacent registrations. Every name carries the `claude_code.` prefix:
 
-| Instrument                  | Unit     | Meaning                                   |
-|-----------------------------|----------|-------------------------------------------|
-| `claude_code.token.usage`   | tokens   | "Number of tokens used"                   |
-| `claude_code.cost.usage`    | USD      | "Cost of the Claude Code session"         |
-| `claude_code.session.count` | —        | session count                             |
-| `lines_of_code.count`       | —        | lines added/removed                       |
-| `commit.count`              | —        | git commits                               |
-| `pull_request.count`        | —        | PRs                                       |
-| `code_edit_tool.decision`   | —        | edit-tool permission decisions            |
-| `active_time.total`         | —        | active time                               |
+| Instrument                            | Unit     | Registered description                       |
+|---------------------------------------|----------|----------------------------------------------|
+| `claude_code.token.usage`             | tokens   | "Number of tokens used"                      |
+| `claude_code.cost.usage`              | USD      | "Cost of the Claude Code session"            |
+| `claude_code.session.count`           | —        | "Count of CLI sessions started"              |
+| `claude_code.lines_of_code.count`     | —        | lines modified, `type` = added/removed       |
+| `claude_code.commit.count`            | —        | "Number of git commits created"              |
+| `claude_code.pull_request.count`      | —        | "Number of pull requests created"            |
+| `claude_code.code_edit_tool.decision` | —        | accept/reject for Edit, Write, NotebookEdit  |
+| `claude_code.active_time.total`       | s        | "Total active time in seconds"               |
+
+The registration helper takes an `omitUnits` flag that suppresses the `unit` field, so the `USD`,
+`tokens`, and `s` units are not guaranteed to reach every exporter.
 
 `claude_code.token.usage` is emitted four times per request, once per `type` attribute: `input`,
 `output`, `cacheRead`, `cacheCreation` (grep `type: "cacheRead"`). Note these differ from the JSONL
 field names. `claude_code.cost.usage` is added alongside.
+
+There is no gauge or counter for plan-limit utilization, quota, or seat consumption. The eight
+above are the complete set.
 
 Per-source attribution attributes are attached to each data point (grep `mcp_server.name`):
 `agent.name`, `skill.name`, `plugin.name`, `marketplace.name`, `mcp_server.name`, `mcp_tool.name`.
@@ -203,18 +252,176 @@ A `claude_code.subagent.spawn` span carries `agent_id`, `agent_type`, `parent_ag
 spans: `claude_code.hook`, `claude_code.tool`, `claude_code.interaction`,
 `claude_code.bash.subprocess`, `claude_code.mcp.rpc`, `claude_code.compaction`.
 
-Resource attributes are gated by env vars (grep `OTEL_METRICS_INCLUDE_`): `user.id` always present;
-`session.id` (`OTEL_METRICS_INCLUDE_SESSION_ID`), `app.version` (`OTEL_METRICS_INCLUDE_VERSION`),
-`app.entrypoint` (`OTEL_METRICS_INCLUDE_ENTRYPOINT`), account UUID
-(`OTEL_METRICS_INCLUDE_ACCOUNT_UUID`, also reads `CLAUDE_CODE_ACCOUNT_TAGGED_ID`), and
-`OTEL_METRICS_INCLUDE_RESOURCE_ATTRIBUTES`. Standard OTLP env vars are honored
-(`OTEL_EXPORTER_OTLP_*`, `OTEL_METRICS_EXPORTER`, `OTEL_LOGS_EXPORTER`,
-`OTEL_METRIC_EXPORT_INTERVAL`), plus a `CLAUDE_CODE_OTEL_SHUTDOWN_TIMEOUT_MS` flush timeout.
+### Log events
 
-Honesty boundary: the metric names, the `type` attribute values, the per-source attribution
-attribute names, and the span `agent_id`/`parent_agent_id` attributes are all verifiable in the
-2.1.165 source. Default OTLP endpoints and export intervals beyond the env-var fallbacks, and the
-server-side billing treatment of background traffic, are not source-determinable.
+Events are emitted through one helper that stamps `event.name`, `event.timestamp`, an incrementing
+`event.sequence`, and (when a prompt is in flight) `prompt.id`, then emits a log record whose body
+is the literal `` `claude_code.${name}` ``. Because the body is interpolated, the full event name
+never appears in the bundle — searching for `claude_code.user_prompt` returns nothing. Grep instead
+for the body template `` body: `claude_code. `` to find the helper, then enumerate its call sites;
+several are formatted across lines, so an `rg -U` multiline match is required to catch them all.
+
+The complete 2.1.220 set, 25 names (prefix each with `claude_code.`):
+
+- Prompt and API: `user_prompt`, `assistant_response`, `system_prompt`, `api_request`, `api_error`,
+  `api_refusal`, `api_retries_exhausted`, `api_request_body`, `api_response_body`
+- Tools: `tool`, `tool_result`, `tool_decision`
+- Extensions: `skill_activated`, `subagent_completed`, `plugin_installed`, `plugin_loaded`,
+  `mcp_server_connection`, `hook_registered`, `hook_execution_start`, `hook_execution_complete`,
+  `hook_plugin_metrics`
+- Session: `auth`, `permission_mode_changed`, `compaction`, `at_mention`, `feedback_survey`,
+  `internal_error`
+
+`api_request` attributes (grep the helper call with `cost_usd_micros`): `model`, `input_tokens`,
+`output_tokens`, `cache_read_tokens`, `cache_creation_tokens`, `cost_usd`, `cost_usd_micros`,
+`duration_ms`, `request_id`, `client_request_id`, `speed` (`fast`/`normal`), `query_source`, and
+optional `effort`. This is the per-request billing record and the highest-fidelity usage event.
+
+`api_error` attributes: `model`, `error`, `status_code`, `duration_ms`, `attempt`, `request_id`,
+`client_request_id`, `speed`, optional `query_source` / `effort`. When more than one attempt was
+made, `api_retries_exhausted` follows with `total_attempts` and `total_retry_duration_ms`.
+
+### Identity attributes
+
+Attached to every metric data point and every event by the same attribute builder (grep
+`"user.account_uuid"` and read the enclosing function):
+
+| Attribute           | Gate                                                                               |
+| ------------------- | ---------------------------------------------------------------------------------- |
+| `user.id`           | always                                                                             |
+| `organization.id`   | always, when an OAuth profile is present                                           |
+| `user.email`        | always, when an OAuth profile is present                                           |
+| `terminal.type`     | always, when the terminal is detected                                              |
+| `session.id`        | `OTEL_METRICS_INCLUDE_SESSION_ID`                                                  |
+| `ccr.session.id`    | with `session.id`, when `CLAUDE_CODE_REMOTE_SESSION_ID` is set                     |
+| `app.version`       | `OTEL_METRICS_INCLUDE_VERSION`                                                     |
+| `app.entrypoint`    | `OTEL_METRICS_INCLUDE_ENTRYPOINT`                                                  |
+| `user.account_uuid` | `OTEL_METRICS_INCLUDE_ACCOUNT_UUID`                                                |
+| `user.account_id`   | with `user.account_uuid`; `CLAUDE_CODE_ACCOUNT_TAGGED_ID` overrides                |
+| custom attrs        | `OTEL_METRICS_INCLUDE_RESOURCE_ATTRIBUTES`, parsed from `OTEL_RESOURCE_ATTRIBUTES` |
+
+`organization.id` and `user.email` are ungated by any `OTEL_METRICS_INCLUDE_*` flag — an OAuth
+session always labels its telemetry with the operator's email address. That is what makes per-person
+fleet attribution work without extra configuration, and it is also the privacy fact to disclose
+before turning telemetry on for a team. Operator-supplied `OTEL_RESOURCE_ATTRIBUTES` keys beginning
+`user.` or `identity.` are dropped when the profile already supplies identity attributes, so a
+custom `user.*` label cannot shadow the real one.
+
+### Configuration env vars
+
+Standard OTLP env vars are honored (`OTEL_EXPORTER_OTLP_ENDPOINT` / `_HEADERS` / `_PROTOCOL` and
+their per-signal `_METRICS_` / `_LOGS_` / `_TRACES_` variants, `OTEL_METRICS_EXPORTER`,
+`OTEL_LOGS_EXPORTER`, `OTEL_TRACES_EXPORTER`, `OTEL_METRIC_EXPORT_INTERVAL`,
+`OTEL_LOGS_EXPORT_INTERVAL`, `OTEL_TRACES_EXPORT_INTERVAL`, mTLS via
+`OTEL_EXPORTER_OTLP_CLIENT_KEY` / `_CLIENT_CERTIFICATE` / `_CERTIFICATE`, and a Prometheus exporter
+via `OTEL_EXPORTER_PROMETHEUS_HOST` / `_PORT`).
+
+Claude Code adds its own (grep each name):
+
+| Env var                                       | Effect                                                        |
+| --------------------------------------------- | ------------------------------------------------------------- |
+| `CLAUDE_CODE_ENABLE_TELEMETRY`                | master switch                                                 |
+| `CLAUDE_CODE_ENHANCED_TELEMETRY_BETA`         | detailed tracing; also reads `ENABLE_ENHANCED_TELEMETRY_BETA` |
+| `CLAUDE_CODE_PROPAGATE_TRACEPARENT`           | force W3C traceparent propagation                             |
+| `CLAUDE_CODE_OTEL_SHUTDOWN_TIMEOUT_MS`        | shutdown flush timeout                                        |
+| `CLAUDE_CODE_OTEL_FLUSH_TIMEOUT_MS`           | flush timeout                                                 |
+| `CLAUDE_CODE_OTEL_CONTENT_MAX_LENGTH`         | truncation limit for logged content                           |
+| `CLAUDE_CODE_OTEL_DIAG_STDERR`                | SDK diagnostics to stderr                                     |
+| `CLAUDE_CODE_OTEL_HEADERS_HELPER_DEBOUNCE_MS` | refresh interval for the `otelHeadersHelper`                  |
+| `CLAUDE_CODE_ENABLE_FEEDBACK_SURVEY_FOR_OTEL` | enables the `feedback_survey` event                           |
+| `CLAUDE_CODE_ACCOUNT_TAGGED_ID`               | overrides the derived `user.account_id`                       |
+
+Content capture is opt-in per class: `OTEL_LOG_USER_PROMPTS`, `OTEL_LOG_ASSISTANT_RESPONSES`,
+`OTEL_LOG_TOOL_DETAILS`, `OTEL_LOG_TOOL_CONTENT`, `OTEL_LOG_RAW_API_BODIES`. With them unset the
+corresponding fields carry the literal `<REDACTED>` (grep `"<REDACTED>"` near the
+`assistant_response` emission).
+
+`otelHeadersHelper` is a settings key, not an env var, and appears in the list of settings whose
+values are command strings (grep `otelHeadersHelper` adjacent to `statusLine` and
+`subagentStatusLine`) — the same list that managed policy can pin.
+
+### Plan rate limits are not in telemetry
+
+No metric, no event, and no span attribute carries 5-hour or weekly limit utilization, quota state,
+or seat consumption. Verified three ways against 2.1.220: the eight metric registrations contain no
+limit instrument; the 25 event names contain no limit event; and the `api_request` event's attribute
+list carries tokens, cost, and duration but nothing derived from the
+`anthropic-ratelimit-unified-*` response headers that populate `/usage`.
+
+The available substitutes, in descending fidelity:
+
+1. The statusLine `rate_limits` object (Surface 1). Real utilization percentages and reset
+   timestamps, on every render, per machine. Requires shipping a statusLine command.
+2. `claude_code.api_error` with `status_code` = 429. A cap is being enforced right now. Detects the
+   hit, not the approach — no percentage, and it fires only once the wall is reached.
+3. `claude_code.token.usage` and `claude_code.cost.usage` summed per `user.email` over a rolling
+   5-hour or 7-day window. A proxy for load, not for utilization: the server's limit accounting is
+   not a token count and is not published, so this cannot be calibrated against the real percentage.
+
+The `/usage` command itself computes a richer structured payload than it prints — session cost
+totals, `subscription_type`, `rate_limits_available`, a `rate_limits` object with `five_hour`,
+`seven_day`, `seven_day_oauth_apps`, `seven_day_opus`, `seven_day_sonnet`, `model_scoped[]` and
+`extra_usage`, plus a `behaviors` breakdown attributing local usage to `cache_miss`,
+`long_context`, `subagent_heavy`, `high_parallel`, `cron` and to individual agents, skills,
+plugins, and MCP servers. Grep `rate_limits_available` for the schema, whose own describe string
+marks it "Experimental — the shape may change". This payload is not written to any file and is not
+exported over OTLP; it is built for the dialog and the command's own output.
+
+Honesty boundary: the metric names, the event names and their attributes, the identity attribute
+gates, the statusLine `rate_limits` shape, and the absence of any limit-bearing telemetry are all
+verifiable in the 2.1.220 source. Default OTLP endpoints and export intervals beyond the env-var
+fallbacks, the server-side definition of limit utilization, and the server-side billing treatment
+of background traffic are not source-determinable.
+
+## Fleet plan-limit tracking
+
+For the "how close is each team member to their cap" question, the source supports exactly one
+first-party path, and it is not OpenTelemetry.
+
+Ship a statusLine command to every seat and have it forward `rate_limits` alongside `session_id`,
+`prompt_id`, and the identity you already know for that machine. The command receives the full JSON
+on stdin and its stdout becomes the status line, so the export has to be a side effect:
+
+```bash
+# statusLine command. Reads the documented statusLine JSON on stdin.
+input=$(cat)
+jq -c '{
+  ts: now, session: .session_id, prompt: .prompt_id,
+  five_hour: .rate_limits.five_hour, seven_day: .rate_limits.seven_day,
+  cost_usd: .cost.total_cost_usd
+} | select(.five_hour != null or .seven_day != null)' <<<"$input" \
+  >> ~/.claude/rate-limit-samples.jsonl
+jq -r '"5h:\(.rate_limits.five_hour.used_percentage // 0 | floor)%"' <<<"$input"
+```
+
+Three properties to design around. `rate_limits` is absent until the first API response of a
+session and absent entirely for API-key, Bedrock, and Vertex sessions, so a missing sample is not a
+zero — the `/usage` payload's `rate_limits_available` flag names those cases explicitly ("False
+when plan rate limits do not apply (API key, Bedrock, Vertex, or missing profile scope)"). The
+command fires on a 300 ms debounce off token-usage changes, so an idle session stops emitting;
+use `statusLine.refreshInterval` if the dashboard needs a heartbeat. And the numbers are per
+machine: a seat used from two machines produces two independent sample streams for one server-side
+limit, so deduplicate on identity and take the maximum rather than summing.
+
+Distribution follows the normal settings precedence — `statusLine` is a policy-pinnable setting, so
+managed settings can install it centrally (grep for the `policySettings` lookup of `statusLine`
+guarded by the customization-lock predicate).
+
+A plugin cannot do this job. Plugins are not a settings source: the resolution order is the array
+`userSettings`, `projectSettings`, `localSettings`, `flagSettings`, `policySettings` (grep that
+literal array), with no plugin tier. And the plugin manifest's contribution surface is a fixed list
+— `commands`, `agents`, `skills`, `hooks`, `mcpServers`, `lspServers` (grep those keys as a schema
+object) — which contains no `env` block, no `statusLine`, and no settings of any kind. The one
+plugin-scoped configuration mechanism is `user_config`, described as "User-configurable values this
+plugin needs. Prompted at enable time… Available as `${user_config.KEY}` in MCP/LSP server config,
+hook commands, and (non-sensitive only) skill/agent content" — interpolation into a plugin's own
+components, not into the process environment. So enabling OpenTelemetry, or installing a statusLine,
+has to come from a settings file (`env` block) or the real process environment; a plugin can ship
+the collector-side hook scripts but cannot switch telemetry on.
+
+Hooks do not help either: no hook input carries `rate_limits`. Grep `rate_limits` across the bundle
+and every hit is the statusLine setup prompt, the statusLine input builder, or the `/usage` payload
+schemas.
 
 ## Anthropic-internal analytics events
 
@@ -242,9 +449,28 @@ with `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation
 | Per-subagent / per-MCP-tool split across sessions | OpenTelemetry metrics with the per-source attributes      |
 | Session totals, by model                          | `/usage` (`/cost`, `/stats`)                              |
 | Live in-turn budget                               | statusLine `context_window`                               |
+| Plan limit utilization, per person                | statusLine `rate_limits` (nothing in OTel carries it)     |
+| Detecting a cap actually being hit                | OTel `claude_code.api_error` with `status_code` 429       |
 
 ## Per-release appendix
 
+- 2.1.220: verified, with the OpenTelemetry surface re-derived rather than spot-checked. Confirmed
+  unchanged from 2.1.165: the eight metric instruments, the `input`/`output`/`cacheRead`/
+  `cacheCreation` token `type` split, the per-source attribution attributes, and the span set with
+  `agent_id`/`parent_agent_id`. Newly documented here: the complete 25-name log-event set (the
+  event body is interpolated as `` `claude_code.${name}` ``, so full names are ungreppable and an
+  `rg -U` multiline scan of the emitter's call sites is required); `api_request` / `api_error`
+  attribute lists; the identity attribute table, in which `organization.id` and `user.email` are
+  ungated by any `OTEL_METRICS_INCLUDE_*` flag; the `CLAUDE_CODE_ENHANCED_TELEMETRY_BETA`,
+  `CLAUDE_CODE_OTEL_*`, and `OTEL_LOG_*` env var families; the statusLine `rate_limits` object
+  (`five_hour` / `seven_day`, each `used_percentage` + `resets_at`), sourced from
+  `anthropic-ratelimit-unified-*` response headers; and the statusLine invocation cadence (300 ms
+  debounce over a fixed dependency set, plus optional `statusLine.refreshInterval` polling).
+  Established as a negative result: no metric,
+  event, or span attribute carries plan-limit utilization, and plugins cannot contribute `env` or
+  `statusLine` settings. Version-specific: the `/usage` structured payload
+  (`rate_limits_available`, `model_scoped[]`, `extra_usage`, `behaviors`) is marked experimental in
+  its own schema and should be re-checked each release.
 - 2.1.165: verified. `/usage` carries aliases `cost`, `stats`. OTEL token metric splits on a `type`
   attribute (`input`/`output`/`cacheRead`/`cacheCreation`); per-source attribution attrs include
   `agent.name`, `skill.name`, `plugin.name`, `mcp_server.name`, `mcp_tool.name`; spans carry
