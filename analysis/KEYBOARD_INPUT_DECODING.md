@@ -9,10 +9,11 @@ patterns in `keybindings.json` are matched against decoded events, and why `voic
 
 ## Summary
 
-- The decoder is hand-rolled Claude Code code, not a library dependency. Its skeleton is a fork of
-  Node's `readline` keypress parser (same two regexes, same function-key lookup table), extended
-  in-tree with bracketed paste, SGR/X10 mouse, UTF-8 continuation reassembly, CSI-u, and xterm
-  `modifyOtherKeys`.
+- The decoder is hand-rolled Claude Code code, not a runtime facility and not a live dependency. Its
+  skeleton is a fork of the `parse-keypress` lineage (the shape ink vendors, itself descended from
+  Node's `readline` keypress internals), extended in-tree with bracketed paste, SGR/X10 mouse, UTF-8
+  continuation reassembly, CSI-u, and xterm `modifyOtherKeys`. See Provenance below — the bun-compiled
+  distribution does not change this.
 - Claude Code does push the Kitty progressive-enhancement flags on raw-mode entry, but only
   `flags = 1` (disambiguate escape codes). It never requests `2` (report event types), `4` (report
   alternate keys), `8` (report all keys as escape codes), or `16` (report associated text).
@@ -86,6 +87,44 @@ modifier-only case:
 
 Step 5 is what makes an unrecognized CSI sequence inert rather than garbage-inserting.
 
+## Provenance: forked `parse-keypress`, not the runtime's readline
+
+Worth being precise about, because from 2.1.117 the bundle is bun-compiled and it is tempting to
+assume the runtime supplies this. It does not. The parser is inlined app code, and nothing in the TUI
+input path reaches for the runtime's keypress machinery:
+
+- `emitKeypressEvents` — readline's keypress entrypoint in both Node and Bun — appears nowhere in the
+  bundle.
+- `require("readline")` does appear, many times, but every hit is bundled third-party library code.
+  The TUI path instead wires `stdin.on("readable")` to its own decode entrypoint; grep
+  `handleReadable` and `pendingByteEvents` to confirm the two never meet.
+
+So Bun vs Node is not the axis here. What the code actually descends from is the `parse-keypress`
+package shape (what ink vendors as its own `parse-keypress`), which in turn descends from Node's
+`readline` keypress internals. The markers that distinguish those two ancestors:
+
+| Marker                                                                | Node `readline` | `parse-keypress` lineage |
+| --------------------------------------------------------------------- | --------------- | ------------------------ |
+| `fn` and `option` fields on the key object                            | absent          | present                  |
+| `raw` field alongside `sequence`                                      | absent          | present                  |
+| Field order `name, fn, ctrl, meta, shift, option`                     | different       | exact match              |
+| Shift/ctrl-implying codes as array-membership helpers                 | inline switch   | exact match              |
+
+The two array helpers are the cleanest fingerprint — the bundle carries both lists verbatim:
+
+```
+shift: ["[a","[b","[c","[d","[e","[2$","[3$","[5$","[6$","[7$","[8$","[Z"]
+ctrl:  ["Oa","Ob","Oc","Od","Oe","[2^","[3^","[5^","[6^","[7^","[8^"]
+```
+
+Shared with both ancestors, so not discriminating on their own but useful for relocation: the two
+regexes in the table below, the `"[[A": "f1" … "[Z": "tab"` lookup table, the code assembly
+`[p1,p2,p4,p6].filter(Boolean).join("")`, and the modifier extraction `(p3 || p5 || 1) - 1`.
+
+One tell that this is a fork rather than a reimplementation: `fn` is initialized to `false` on every
+construction path and never assigned `true` anywhere in the bundle. It is a dead field carried along
+from upstream. `option`, by contrast, is live — set for double-ESC-prefixed sequences.
+
 ## Dialects the decoder accepts
 
 Relocate these by grepping the regex bodies — they are literal and stable:
@@ -98,10 +137,6 @@ Relocate these by grepping the regex bodies — they are literal and stable:
 | Function/cursor keys          | `/^(?:\x1b+)(O\|N\|\[\|\[\[)(?:(\d+)(?:;(\d+))?([~^$])\|(?:1;)?(\d+)?([a-zA-Z]))/` |
 | SGR mouse                     | `/^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/`                                          |
 | X10 mouse                     | `/^\x1b\[M[\x20-\x7f][\x20-￿]{2}$/`                                      |
-
-The last two rows of the meta/function-key pair are Node's `readline` `metaKeyCodeRe` and
-`functionKeyCodeRe` verbatim, alongside the same `"[[A": "f1" … "[Z": "tab"` lookup table. That is the
-library lineage; everything else in the module is Claude Code's own.
 
 Modifier bitmask decode is the standard `param - 1` bitfield: `1 = shift`, `2 = meta`, `4 = ctrl`,
 `8 = super`. Hyper and meta (Kitty bits `16` and `32`) are not broken out.
