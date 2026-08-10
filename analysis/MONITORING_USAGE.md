@@ -7,14 +7,16 @@ with grep re-location recipes, not on minified symbol names or line numbers, whi
 release. Per-release changes are in the appendix.
 
 This doc answers: how much usage is a given subagent or tool consuming, and where can that be read?
-The short version is that there are four observation surfaces, each with a different granularity and
+The short version is that there are five observation surfaces, each with a different granularity and
 a different honesty caveat. Per-subagent attribution is possible; exact per-tool-call token cost is
 not, because a tool call does not itself consume tokens — the assistant turns around it do.
 
 A separate question this doc also answers: how much of a *plan's* rate limit has been consumed — the
 5-hour session window and the 7-day weekly window that `/usage` renders. That number does not exist
-anywhere in OpenTelemetry. The only programmatic surface carrying it is the statusLine command
-input (Surface 1); see "Plan rate limits are not in telemetry" under Surface 4.
+anywhere in OpenTelemetry. Live utilization is exposed only to the statusLine command (Surface 1);
+caps already hit are recoverable from the transcript (Surface 5). See "Plan rate limits are not in
+telemetry" under Surface 4 for why the obvious place to look is empty, and "Org-level visibility is
+not a product surface" for why there is no server-side alternative on most plans.
 
 ## What this doc owns vs. cross-references
 
@@ -351,10 +353,12 @@ list carries tokens, cost, and duration but nothing derived from the
 The available substitutes, in descending fidelity:
 
 1. The statusLine `rate_limits` object (Surface 1). Real utilization percentages and reset
-   timestamps, on every render, per machine. Requires shipping a statusLine command.
-2. `claude_code.api_error` with `status_code` = 429. A cap is being enforced right now. Detects the
-   hit, not the approach — no percentage, and it fires only once the wall is reached.
-3. `claude_code.token.usage` and `claude_code.cost.usage` summed per `user.email` over a rolling
+   timestamps, sampled per API response, per machine. Requires shipping a statusLine command.
+2. Cap-hit records in the transcript JSONL (Surface 5). Retroactive and exact about *when* a cap was
+   hit and which window it was, with no configuration at all — but nothing about the approach.
+3. `claude_code.api_error` with `status_code` = 429. The same event, live over OTLP, but see the
+   discrimination warning in Surface 5: this status code alone does not mean a plan cap.
+4. `claude_code.token.usage` and `claude_code.cost.usage` summed per `user.email` over a rolling
    5-hour or 7-day window. A proxy for load, not for utilization: the server's limit accounting is
    not a token count and is not published, so this cannot be calibrated against the real percentage.
 
@@ -372,6 +376,51 @@ gates, the statusLine `rate_limits` shape, and the absence of any limit-bearing 
 verifiable in the 2.1.220 source. Default OTLP endpoints and export intervals beyond the env-var
 fallbacks, the server-side definition of limit utilization, and the server-side billing treatment
 of background traffic are not source-determinable.
+
+## Surface 5: cap hits recorded in the transcript
+
+Every API error is persisted as an `assistant` record in the session JSONL with
+`isApiErrorMessage: true`, and a rate-limit rejection carries `error: "rate_limit"` plus
+`apiErrorStatus: 429`, a `requestId`, and the usual `sessionId` / `timestamp` / `cwd` /
+`gitBranch` / `version` context. Field reference: `SESSION_TRANSCRIPT.md`. This makes the local
+transcript corpus a complete, zero-configuration, retroactive history of every time a cap was hit —
+available without OTel, without a statusLine, and for sessions that already happened.
+
+The message text is the discriminator, and getting it wrong is the trap. `apiErrorStatus: 429` with
+`error: "rate_limit"` covers two unrelated conditions:
+
+| Message text                                                     | Meaning                         |
+| ---------------------------------------------------------------- | ------------------------------- |
+| `You've hit your session limit · resets …`                       | 5-hour window exhausted         |
+| `You've hit your weekly limit · resets …`                        | 7-day window exhausted          |
+| `You've hit your Opus limit` / `Sonnet limit` / `Fable 5 limit`  | model-scoped weekly window      |
+| `You've hit your usage credit limit`                             | overage credits exhausted       |
+| `Server is temporarily limiting requests (not your usage limit)` | server-side throttle, NOT a cap |
+
+Counting raw 429s therefore overstates cap hits, and by a wide margin — in one real corpus the
+server-throttle variant was about a third of all `error: "rate_limit"` records. The product itself
+draws the same distinction: the overload string is a standalone constant (grep
+`not your usage limit`), while the cap messages are built by a formatter (grep the template
+`You've hit your ` returning an interpolation of a label plus a resets suffix) whose label map is
+the `rateLimitType` → display-name table (grep `five_hour: "session limit"` and read the adjacent
+`seven_day` / `seven_day_opus` / `seven_day_sonnet` / `seven_day_overage_included` / `overage`
+entries). The lookup falls back to the raw type string when the label is unknown, so a parser must
+tolerate unmapped labels rather than assume the five above.
+
+Version drift is real here: the label wording has changed across releases, and older records carry
+a bare `You've hit your limit` with no window named. Match on the presence of the negation
+(`not your usage limit`) to exclude throttles first, then on the label keywords, and treat an
+unrecognized cap message as "cap hit, window unknown" rather than dropping it.
+
+Two limits on this surface. It is retroactive only — the record appears when the wall is hit, so it
+can never warn of an approach; pair it with Surface 1 for that. And it is local: the corpus under
+the projects directory covers only the machines whose transcripts you can read, so a seat used from
+several machines needs its records unioned, keyed on something stable, before the counts mean
+anything.
+
+No hook fires on an API error — the 31 hook events (see `HOOKS.md`) contain no error-lifecycle
+event. To act on cap hits without OTel, scan the transcript from a `Stop` or `SessionEnd` hook:
+`transcript_path` is a base field present on every hook event, not a per-event extra.
 
 ## Fleet plan-limit tracking
 
@@ -419,9 +468,32 @@ components, not into the process environment. So enabling OpenTelemetry, or inst
 has to come from a settings file (`env` block) or the real process environment; a plugin can ship
 the collector-side hook scripts but cannot switch telemetry on.
 
-Hooks do not help either: no hook input carries `rate_limits`. Grep `rate_limits` across the bundle
-and every hit is the statusLine setup prompt, the statusLine input builder, or the `/usage` payload
-schemas.
+A plugin does remain useful for the parts that *are* hooks. `strictPluginOnlyCustomization`, the
+managed lockdown that blocks user and project customization, explicitly exempts plugin-provided
+customizations — its describe string reads "NOT blocked: managed (policySettings) sources,
+plugin-provided customizations". So a company plugin can carry the collector-side hook scripts and
+survive the strictest admin lockdown; it simply cannot be what turns telemetry on.
+
+Hook delivery has one non-obvious semantic worth knowing before splitting hooks across sources.
+Hooks do not merge the way other settings do: the resolver returns *either* the managed set or the
+user-visible set, never their union. Grep the resolver by its `disableAllHooks` early return and
+read the branch order — `policySettings.disableAllHooks` yields none; `allowManagedHooksOnly` (its
+describe string: "When true (and set in managed settings), only hooks from managed settings run.
+User, project, and local hooks are ignored") or a hooks lockdown yields the managed set alone;
+otherwise the merged user/project/local set is returned. Plan for one side of that switch, not both.
+
+Two hook types make this pipeline shorter than it first appears. An `http` hook takes a `url`
+described as "URL to POST the hook input JSON to" plus `headers` whose values may interpolate
+environment variables listed in the hook's own `allowedEnvVars` — so a hook can ship JSON to a
+collector with an auth header and no local script at all. Managed settings can fence this with
+`allowedHttpHookUrls` (wildcard URL allowlist; empty array blocks all HTTP hooks) and
+`httpHookAllowedEnvVars` (intersected with each hook's own list). The caveat for this use case is
+that the POSTed body is the hook input, which carries `transcript_path` but not the transcript, so
+cap-hit extraction still needs a local `command` hook to read and summarize the file first.
+
+Hooks do not help with utilization, though: no hook input carries `rate_limits`. Grep `rate_limits`
+across the bundle and every hit is the statusLine setup prompt, the statusLine input builder, or
+the `/usage` payload schemas.
 
 ## Anthropic-internal analytics events
 
@@ -450,7 +522,26 @@ with `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation
 | Session totals, by model                          | `/usage` (`/cost`, `/stats`)                              |
 | Live in-turn budget                               | statusLine `context_window`                               |
 | Plan limit utilization, per person                | statusLine `rate_limits` (nothing in OTel carries it)     |
-| Detecting a cap actually being hit                | OTel `claude_code.api_error` with `status_code` 429       |
+| History of caps already hit, no setup             | Transcript `error: "rate_limit"` records (Surface 5)      |
+| Detecting a cap live                              | OTel `claude_code.api_error`, but discriminate the text   |
+
+## Org-level visibility is not a product surface
+
+Worth recording because it is the first thing anyone asks and the answer is a dead end for most
+plans. Nothing in the client reports usage to an org-facing store that an admin can query; every
+surface in this doc is local to the machine. Anthropic's own admin-side offerings, which are
+server-side and therefore outside what this bundle can verify, are documented as tiered: the Admin
+API and the Enterprise Analytics API are Enterprise-only, and the Claude Code Analytics API is for
+Console/API-key organizations. Team-plan seats using Claude Code over OAuth spend against a seat
+allowance rather than a metered API key, so their usage is documented as not appearing in spend
+reports at all unless it overflows into usage credits.
+
+The consequence for this doc: on a Team plan, the surfaces described here are not a supplement to a
+first-party dashboard, they are the only implementation available, and OpenTelemetry with managed
+settings is the only route that streams per-user figures off the machine without bespoke scripting.
+None of the admin surfaces expose limit utilization on any tier. Treat the tiering specifics as
+external and re-check them against the published docs rather than this file; only the client-side
+half is source-verifiable.
 
 ## Per-release appendix
 
@@ -468,9 +559,18 @@ with `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation
   debounce over a fixed dependency set, plus optional `statusLine.refreshInterval` polling).
   Established as a negative result: no metric,
   event, or span attribute carries plan-limit utilization, and plugins cannot contribute `env` or
-  `statusLine` settings. Version-specific: the `/usage` structured payload
+  `statusLine` settings. Also added: Surface 5, cap hits persisted to the transcript as
+  `error: "rate_limit"` / `apiErrorStatus: 429` records, with the discrimination table separating
+  real cap hits from the `not your usage limit` server throttle (the label map anchored on
+  `five_hour: "session limit"`); hook-resolution semantics (managed and user hook sets replace
+  rather than merge, gated by `allowManagedHooksOnly`); the `http` hook type as a
+  no-local-script export path, fenced by `allowedHttpHookUrls` and `httpHookAllowedEnvVars`; and
+  `strictPluginOnlyCustomization` exempting plugin-provided customizations from admin lockdown.
+  Version-specific: the `/usage` structured payload
   (`rate_limits_available`, `model_scoped[]`, `extra_usage`, `behaviors`) is marked experimental in
-  its own schema and should be re-checked each release.
+  its own schema and should be re-checked each release. Cap-message wording has changed across
+  releases (older records carry a bare `You've hit your limit`), so text-matching parsers need to
+  stay version-tolerant.
 - 2.1.165: verified. `/usage` carries aliases `cost`, `stats`. OTEL token metric splits on a `type`
   attribute (`input`/`output`/`cacheRead`/`cacheCreation`); per-source attribution attrs include
   `agent.name`, `skill.name`, `plugin.name`, `mcp_server.name`, `mcp_tool.name`; spans carry
