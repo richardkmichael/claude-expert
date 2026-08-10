@@ -1,6 +1,7 @@
 # Monitoring Token Usage and Cost
 
-Behavioral model verified against 2.1.220. This document follows the landmark style in
+Behavioral model verified against 2.1.220, with the window-geometry, feature-flag, and monthly-spend
+sections re-verified against 2.1.226. This document follows the landmark style in
 `GUIDELINES.md`: it anchors on version-stable strings (slash-command names, `tengu_*` event names,
 env var names, OTEL metric/attribute names, literal UI strings, JSONL field names, behavioral logic)
 with grep re-location recipes, not on minified symbol names or line numbers, which churn every
@@ -102,6 +103,29 @@ which is also when the rate-limit headers refresh, so samples track responses cl
 command every N seconds in addition to event-driven updates") adds time-based polling and is the
 lever for a steady sampling rate. A previous still-running invocation is aborted when a new one
 starts, so a slow exporter drops samples rather than queueing them.
+
+### `/usage` in print mode is a free, out-of-session quota probe
+
+The most useful property of the non-interactive form is that it costs nothing and needs no running
+session:
+
+```
+claude -p "/usage" --output-format json
+```
+
+The JSON envelope reports `total_cost_usd: 0`, `num_turns: 0`, `duration_api_ms: 0`, and an
+all-zero `usage` object, with the human-readable report in `result` — measured at well under a
+second end to end. The command is a `local` slash command whose plan figures come from a server
+fetch, not from the model, so nothing is billed. This is the only way to read plan utilization
+without a live session, which makes it the right source for scheduled polling; the statusLine
+(above) only samples while Claude Code is actually running, and therefore goes quiet exactly when
+someone has stopped working and their quota is going unused.
+
+Two caveats. The rate-limit figures arrive as prose inside `result` (`Current session: 12% used ·
+resets Aug 9 at 10pm (America/Vancouver)`), not as structured fields, so a consumer must parse
+them — and the reset string omits the year. And the zero-cost property is a current fact, not a
+guarantee; a probe running on a schedule should assert on `total_cost_usd` / `num_turns` and warn
+rather than assume it stays free.
 
 The `/usage` slash command (aliases `/cost` and `/stats`, grep `aliases: ["cost", "stats"]`) reports
 session and plan usage. It has two forms:
@@ -377,6 +401,59 @@ verifiable in the 2.1.220 source. Default OTLP endpoints and export intervals be
 fallbacks, the server-side definition of limit utilization, and the server-side billing treatment
 of background traffic are not source-determinable.
 
+## Window geometry and pacing
+
+Everything needed to reason about *pace* — not just current utilization — is derivable client-side,
+because the window lengths are compiled-in constants while only the utilization fraction comes from
+the server. Grep `claimAbbrev: "5h"` for the table:
+
+| Window      | `claimAbbrev` | `windowSeconds` | Warn thresholds (`utilization`, `timePct`) |
+| ----------- | ------------- | --------------- | ------------------------------------------ |
+| `five_hour` | `5h`          | 18000           | (0.90, 0.72)                               |
+| `seven_day` | `7d`          | 604800          | (0.75, 0.60), (0.50, 0.35), (0.25, 0.15)   |
+
+Byte-identical in 2.1.220 and 2.1.226, so treat the two window lengths as stable constants.
+
+`timePct` is the fraction of the window elapsed, computed from the reset timestamp alone (grep the
+small helper that computes `resets_at - windowSeconds` and clamps the result to 0..1):
+
+```
+elapsed = clamp((now - (resets_at - windowSeconds)) / windowSeconds, 0, 1)
+```
+
+The client fires its warning when `utilization >= threshold.utilization && elapsed <=
+threshold.timePct` — that is, "you are this far ahead of pace this early". Reading the weekly row:
+25% consumed in the first 15% of the week is already flagged. Two consequences worth recording.
+First, any consumer of the statusLine `rate_limits` object can compute the same `elapsed` and
+therefore a pace ratio `utilization / elapsed`, where 1.0 is exactly on pace — the client publishes
+no such ratio itself, but the inputs are all present. Second, inverting the comparison
+(`utilization <= X && elapsed >= Y`) detects the opposite condition, quota going *unused*, which
+nothing in the product surfaces.
+
+What is not derivable is any absolute quantity. No token count, request count, or currency amount
+for a plan allowance appears anywhere in the bundle; the wire protocol carries only
+`anthropic-ratelimit-unified-{5h,7d}-utilization` fractions and `-reset` timestamps. So the size of
+a plan's quota is unknowable client-side by construction, and it can be changed server-side without
+a client release. Anything reasoning in absolute terms — "how many tokens are left", "how much of
+the week can one 5-hour window consume" — has to estimate it from observation rather than read it.
+The ratio between the two windows is the practically important one, and it is measurable: within a
+single 5-hour window both utilizations advance on the same consumption, so `Δ(7d) / Δ(5h)` across
+two samples is the fraction of the weekly allowance one full 5-hour window represents.
+
+### The monthly figure is a spend cap, not an allowance
+
+Easy to misread as a third quota window, and the difference inverts any use-it-or-lose-it
+reasoning. The monthly number is `extra_usage` — grep it in the `/usage` payload schema — with
+fields `is_enabled`, `monthly_limit`, `used_credits`, `utilization`, and `currency`. The presence of
+`currency` is the tell: this is money, the usage-credit overage budget, matched by UI strings like
+"You're out of usage credits", `/usage-credits`, and "You've hit your monthly spend limit". The
+server side is `anthropic-ratelimit-unified-overage-period-monthly-utilization`, surfaced as
+`overagePeriodMonthly`.
+
+So unspent monthly credit is money not spent, not allowance forfeited. Only the 5-hour and 7-day
+windows are seat allowance already paid for under a subscription, and only those two are wasted by
+going unused.
+
 ## Surface 5: cap hits recorded in the transcript
 
 Every API error is persisted as an `assistant` record in the session JSONL with
@@ -495,6 +572,26 @@ Hooks do not help with utilization, though: no hook input carries `rate_limits`.
 across the bundle and every hit is the statusLine setup prompt, the statusLine input builder, or
 the `/usage` payload schemas.
 
+## The `tengu_*` namespace is two things
+
+Worth stating plainly because it is easy to mistake one for the other: `tengu_*` is a shared
+namespace covering both analytics event names and GrowthBook feature-flag keys. Around 1,700
+distinct names appear in the bundle; roughly 260 of them are flag lookups.
+
+The call shape separates them. A flag lookup passes a client-side default as the second argument —
+`getFeatureValue`-style, e.g. `("tengu_gb_eval_authed_enable", !1)` — whereas an analytics emission
+passes a properties object. Grep a name with `,\s*(!0|!1)` following it to test which kind it is.
+Flag names also read differently: gates use opaque two-word codenames (`tengu_amber_lark`,
+`tengu_alder_compass`) while analytics events are descriptive (`tengu_agent_tool_completed`).
+
+The evaluation machinery is GrowthBook, not Statsig — grep the exported helpers
+`getAllGrowthBookFeatures`, `hasFreshGrowthBookFeatures`, `checkGate_CACHED_OR_BLOCKING`,
+`getDynamicConfig_CACHED_MAY_BE_STALE`, `getFeatureValue_CACHED_WITH_REFRESH`. The suffixes are the
+useful part: they encode each lookup's staleness contract, and remote evaluation (grep
+`eval-authed`) means server-side changes reach clients without a release. Consequence for this doc
+and any tool built from it: a behavior gated this way can differ between two users on the same
+version, and the literal in the bundle is only the fallback default.
+
 ## Anthropic-internal analytics events
 
 These `tengu_*` / event-pipeline emissions are not a public consumption API, but they show what the
@@ -545,6 +642,17 @@ half is source-verifiable.
 
 ## Per-release appendix
 
+- 2.1.226: partial re-verification, covering the sections this release was consulted for. The
+  window-geometry table (`five_hour`/18000 with one threshold pair, `seven_day`/604800 with three)
+  is byte-identical to 2.1.220, as is the elapsed-fraction helper — treat both window lengths as
+  stable constants. Newly documented from this release: the `tengu_*` namespace carries both
+  analytics event names and GrowthBook feature-flag keys (~1,700 names, ~260 of them flag lookups),
+  distinguished by whether a client-side default follows the name, with remote evaluation meaning
+  gated behavior can differ between users on one version; `extra_usage` (with its `currency` field)
+  is an overage spend cap rather than a plan allowance; and `claude -p "/usage"
+  --output-format json` is a zero-cost, out-of-session quota probe. Not re-checked against this
+  release: the metric/event inventories, identity attributes, and transcript cap-hit records, which
+  remain stamped at 2.1.220.
 - 2.1.220: verified, with the OpenTelemetry surface re-derived rather than spot-checked. Confirmed
   unchanged from 2.1.165: the eight metric instruments, the `input`/`output`/`cacheRead`/
   `cacheCreation` token `type` split, the per-source attribution attributes, and the span set with
