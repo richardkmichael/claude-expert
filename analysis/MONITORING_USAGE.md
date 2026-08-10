@@ -490,6 +490,42 @@ The hard limit: only the currently-authenticated account is observable. There is
 any other account's utilization, so quota on an account you are signed out of cannot be read at
 all — which is precisely the account most likely to be accruing unused quota.
 
+### Per-account probing via isolated config directories
+
+The way around that limit is one config directory per account, because `CLAUDE_CONFIG_DIR` isolates
+credentials as well as state — which is not obvious, since the default install leaves a single
+Keychain entry named `Claude Code-credentials` with no directory component in sight.
+
+Grep the service-name builder (a function returning a template of the form
+``  `Claude Code${OAUTH_FILE_SUFFIX}${suffix}${scope}`  ``, adjacent to a
+`find-generic-password` invocation). The `scope` segment is empty when the default directory is in
+use and otherwise `-` plus the first 8 hex characters of the SHA-256 of the NFC-normalised config
+directory path. So `CLAUDE_CONFIG_DIR=/some/dir` reads and writes
+`Claude Code-credentials-<sha8>`, a different item from the default, and authenticating in one
+directory cannot overwrite another's credentials. The paired account name for the Keychain item is
+`$USER` (falling back to the OS username, then the literal `claude-code-user` if it fails a
+character check) — the same dependency that makes `USER` load-bearing for a scheduled probe.
+
+`CLAUDE_SECURESTORAGE_CONFIG_DIR` overrides just the credential scope, independently of
+`CLAUDE_CONFIG_DIR`; setting it to the empty string forces the unsuffixed service name, which
+deliberately shares the default directory's credentials with an otherwise-isolated config
+directory.
+
+Verified behaviours worth knowing before building on this. A fresh config directory does not inherit
+the default login: the probe still exits 0 but degrades to the no-subscription output, the same
+failure mode as an unset `USER`, so each directory needs its own interactive login once.
+`CLAUDE_CONFIG_DIR` relocates the whole tree — the config JSON, `projects/`, `sessions/`,
+`backups/` — so an isolated directory keeps its own transcripts and does not pollute the main
+corpus that Surface 5 reads. It is not transcript-free, though: each probe writes a small session
+JSONL under the isolated `projects/`, so a directory used purely for polling still accumulates
+files and wants occasional pruning.
+
+Because the probe costs nothing, polling several accounts this way does not perturb the quantity
+being measured, and utilization is account-wide server state rather than per-process — so a probe
+from a polling-only directory returns exactly what a working session on that account would see.
+What such a directory cannot supply is anything session-scoped: no cost delta for absolute
+calibration, and no statusLine samples, since nothing is configured to run there.
+
 ## Window geometry and pacing
 
 Everything needed to reason about *pace* — not just current utilization — is derivable client-side,
