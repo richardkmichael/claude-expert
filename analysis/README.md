@@ -101,10 +101,10 @@ not part of this family despite the name.
 
 ## Observability
 
-| Doc                   | Scope                                                 | Verified          | Style    | Key landmarks                                                       |
-| --------------------- | ----------------------------------------------------- | ----------------- | -------- | ------------------------------------------------------------------- |
-| `MONITORING_USAGE.md` | Token/cost surfaces, OTel, plan limits, window pacing | 2.1.220 / 2.1.226 | landmark | `/usage`, `claude_code.session.count`, `rate_limits`, `claimAbbrev` |
-| `NOTIFICATIONS.md`    | Notification triggers, channels, and config           | 2.1.76            | landmark | `idle_prompt`, `preferredNotifChannel`, `notifyITerm2`              |
+| Doc                   | Scope                                                               | Verified          | Style    | Key landmarks                                                                  |
+| --------------------- | ------------------------------------------------------------------- | ----------------- | -------- | ------------------------------------------------------------------------------ |
+| `MONITORING_USAGE.md` | Token/cost surfaces, OTel, plan limits, pacing, account attribution | 2.1.220 / 2.1.226 | landmark | `/usage`, `claude_code.session.count`, `rate_limits`, `cachedUsageUtilization` |
+| `NOTIFICATIONS.md`    | Notification triggers, channels, and config                         | 2.1.76            | landmark | `idle_prompt`, `preferredNotifChannel`, `notifyITerm2`                         |
 
 ## Architecture and dependencies
 

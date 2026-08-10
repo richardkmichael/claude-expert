@@ -8,7 +8,7 @@ with grep re-location recipes, not on minified symbol names or line numbers, whi
 release. Per-release changes are in the appendix.
 
 This doc answers: how much usage is a given subagent or tool consuming, and where can that be read?
-The short version is that there are five observation surfaces, each with a different granularity and
+The short version is that there are six observation surfaces, each with a different granularity and
 a different honesty caveat. Per-subagent attribution is possible; exact per-tool-call token cost is
 not, because a tool call does not itself consume tokens — the assistant turns around it do.
 
@@ -91,12 +91,17 @@ request.
 Two properties matter when choosing between this and the `/usage` probe below, and they pull in
 opposite directions.
 
-Precision: the builder computes `used_percentage` as `utilization * 100` with no rounding, so
-statusLine consumers get the server's full float (`63.4`, not `63`). The display path is where
-flooring happens — grep for a `Math.floor(utilization * 100)` on the rendering side — and the
-`/usage` text output is floored the same way. So statusLine is the higher-resolution source, which
-matters for anything differencing two samples: integer percent quantises a small delta into
-uselessness.
+Precision: the builder computes `used_percentage` as `utilization * 100` with no rounding, whereas
+the display paths floor — grep for a `Math.floor(utilization * 100)` on the rendering side, and the
+`/usage` text output floors the same way. So statusLine preserves whatever precision the header
+carries while the rendered figures do not, which matters to anything differencing two samples,
+since integer percent quantises a small delta into uselessness.
+
+How much that is worth in practice is unconfirmed. Observed values from the usage endpoint are
+whole numbers (`16`, `21`, `23`), so if the `anthropic-ratelimit-unified-*` headers are likewise
+integral then the unrounded arithmetic preserves nothing extra and the advantage is theoretical.
+Treat statusLine as no worse than the alternatives on precision, and verify against real header
+values before relying on sub-point resolution.
 
 Coverage: the statusLine payload carries only `five_hour` and `seven_day`. The model-scoped weekly
 buckets that `/usage` displays (`Current week (Sonnet only)`, and the per-model rows built from the
@@ -428,6 +433,63 @@ verifiable in the 2.1.220 source. Default OTLP endpoints and export intervals be
 fallbacks, the server-side definition of limit utilization, and the server-side billing treatment
 of background traffic are not source-determinable.
 
+## Surface 6: the cached utilization blob in the config
+
+The richest and most convenient plan-usage source is not a command output at all: it is a cache
+written to the top-level config JSON (`~/.claude.json`, or `$CLAUDE_CONFIG_DIR`). Grep the config
+for `cachedUsageUtilization`. It holds the claude.ai usage endpoint's response verbatim, alongside
+`fetchedAtMs` and — the field that makes the rest usable — `accountUuid`.
+
+Its `utilization` object carries `five_hour` and `seven_day` (each with `utilization`,
+`resets_at`, and null-by-default `limit_dollars` / `used_dollars` / `remaining_dollars`),
+`extra_usage` (with `currency`, `monthly_limit`, `used_credits`, `spend_limit_reached`,
+`credits_ever_enabled`, `daily`, `weekly`), a `spend` object, and a long tail of
+mostly-null named buckets — `seven_day_oauth_apps`, `seven_day_opus`, `seven_day_sonnet`,
+`seven_day_cowork`, `seven_day_omelette`, `omelette_promotional`, `tangelo`, `iguana_necktie`,
+`nimbus_quill`, `cinder_cove`, `amber_ladder`. The codenames are server-side buckets in the same
+naming family as the GrowthBook flags; treat the set as unstable and read it dynamically.
+
+The most useful member is `limits[]`, a normalised array that supersedes reading the individual
+buckets. Each entry has `kind` (`session`, `weekly_all`, `weekly_scoped`), `group`, `percent`,
+`severity`, `resets_at`, `is_active`, and for a scoped entry a `scope.model.display_name`. That is
+the model-scoped weekly the statusLine object cannot express, in structured form.
+
+Three practical advantages over the `/usage` text: reset times are ISO 8601 rather than a
+year-less local string; every bucket is present rather than only those the dialog renders; and
+`accountUuid` identifies whose figures these are.
+
+Watch the units. This blob comes from the usage endpoint and its `utilization` / `percent` values
+are already on a 0-100 scale, whereas the `anthropic-ratelimit-unified-*` response headers that
+feed the statusLine object are 0-1 fractions scaled by 100 at the boundary. Two sources, two
+scales, same nominal field name.
+
+Refresh semantics: running the `/usage` probe updates `fetchedAtMs` and the payload, so
+"probe, then read the config" is a reliable way to obtain fresh structured figures without parsing
+any prose. Check `fetchedAtMs` rather than assuming — a failed refresh leaves the previous values
+in place with no error.
+
+### Account switching invalidates a naive series
+
+`cachedUsageUtilization` is a single slot, not a per-account map. Authenticating as a different
+account overwrites it, and `accountUuid` is the only marker of which plan the numbers describe.
+Two consequences for anything that samples over time.
+
+A sampled series must be partitioned by account before it means anything. Different accounts have
+different allowances, so a utilization delta spanning a switch is not a consumption measurement,
+and a ratio derived from such a pair is meaningless. Worse for reset detection: a switch produces
+exactly the signature described above — utilization falling — so an unattributed series reports
+every account switch as a mid-window grant.
+
+The statusLine payload does not identify the account at all, so a statusLine-based sampler has to
+read `oauthAccount.accountUuid` from the config itself to label its own samples. That object also
+carries `emailAddress`, `organizationName`, `organizationUuid`, `seatTier`,
+`organizationRateLimitTier`, `userRateLimitTier`, `billingType` and `hasExtraUsageEnabled` —
+`seatTier` being the field that distinguishes one plan from another in a multi-account setup.
+
+The hard limit: only the currently-authenticated account is observable. There is no cached copy of
+any other account's utilization, so quota on an account you are signed out of cannot be read at
+all — which is precisely the account most likely to be accruing unused quota.
+
 ## Window geometry and pacing
 
 Everything needed to reason about *pace* — not just current utilization — is derivable client-side,
@@ -697,6 +759,7 @@ with `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation
 | Session totals, by model                          | `/usage` (`/cost`, `/stats`)                              |
 | Live in-turn budget                               | statusLine `context_window`                               |
 | Plan limit utilization, per person                | statusLine `rate_limits` (nothing in OTel carries it)     |
+| All buckets, structured, account-tagged           | `cachedUsageUtilization` in the config (Surface 6)        |
 | History of caps already hit, no setup             | Transcript `error: "rate_limit"` records (Surface 5)      |
 | Detecting a cap live                              | OTel `claude_code.api_error`, but discriminate the text   |
 
