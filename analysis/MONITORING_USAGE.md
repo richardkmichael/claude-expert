@@ -83,11 +83,27 @@ in the product:
 
 Re-locate the documented shape by grepping the statusLine setup prompt for
 `Claude.ai subscription usage limits`; re-locate the builder by grepping for a spread guarded on
-`five_hour ||` alongside `seven_day` (the builder multiplies a server `utilization` fraction by
-100 to produce `used_percentage`, so telemetry consumers get percent, not a 0-1 fraction). Both
-sub-objects are individually optional. Underlying source: the `anthropic-ratelimit-unified-5h-*`
-/ `-7d-*` response headers (grep `anthropic-ratelimit-unified-`), parsed per API response, so the
-value is as fresh as the last request.
+`five_hour ||` alongside `seven_day`. Both sub-objects are individually optional. Underlying
+source: the `anthropic-ratelimit-unified-5h-*` / `-7d-*` response headers (grep
+`anthropic-ratelimit-unified-`), parsed per API response, so the value is as fresh as the last
+request.
+
+Two properties matter when choosing between this and the `/usage` probe below, and they pull in
+opposite directions.
+
+Precision: the builder computes `used_percentage` as `utilization * 100` with no rounding, so
+statusLine consumers get the server's full float (`63.4`, not `63`). The display path is where
+flooring happens — grep for a `Math.floor(utilization * 100)` on the rendering side — and the
+`/usage` text output is floored the same way. So statusLine is the higher-resolution source, which
+matters for anything differencing two samples: integer percent quantises a small delta into
+uselessness.
+
+Coverage: the statusLine payload carries only `five_hour` and `seven_day`. The model-scoped weekly
+buckets that `/usage` displays (`Current week (Sonnet only)`, and the per-model rows built from the
+server `limits[]` array via `model_scoped[]`) are absent from it entirely. On a plan where a
+model-scoped weekly is the binding constraint rather than the all-models weekly, statusLine cannot
+see the window that actually matters. Sample with statusLine for resolution; read `/usage` for
+completeness.
 
 Because the statusLine command is an arbitrary shell command receiving this JSON on stdin, it is
 the practical hook for exporting plan-limit utilization to an external system: read stdin, emit the
