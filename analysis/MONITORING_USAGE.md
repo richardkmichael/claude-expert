@@ -556,11 +556,22 @@ a bare `You've hit your limit` with no window named. Match on the presence of th
 (`not your usage limit`) to exclude throttles first, then on the label keywords, and treat an
 unrecognized cap message as "cap hit, window unknown" rather than dropping it.
 
-Two limits on this surface. It is retroactive only — the record appears when the wall is hit, so it
-can never warn of an approach; pair it with Surface 1 for that. And it is local: the corpus under
+Three limits on this surface. It is retroactive only — the record appears when the wall is hit, so
+it can never warn of an approach; pair it with Surface 1 for that. And it is local: the corpus under
 the projects directory covers only the machines whose transcripts you can read, so a seat used from
 several machines needs its records unioned, keyed on something stable, before the counts mean
 anything.
+
+The third is an interpretation trap rather than a coverage gap. A cap-hit count is a function of
+two things that both drift — how hard the account was used, and how large the allowance was — and
+allowance changes are never announced or recorded anywhere on the client. So a total spanning any
+such change describes two different plans at once and means nothing. Report per period, and
+normalise by an activity denominator from the same corpus (active days, and record counts per day
+as a crude intensity proxy) so periods are comparable at all. Even then the attribution is only
+suggestive: a period with *higher* activity and *fewer* cap hits than a later one is evidence the
+allowance tightened, but record counts are a poor stand-in for consumption because context size
+dominates token cost, and this surface never reveals the size of a limit — only that one was
+reached.
 
 No hook fires on an API error — the 31 hook events (see `HOOKS.md`) contain no error-lifecycle
 event. To act on cap hits without OTel, scan the transcript from a `Stop` or `SessionEnd` hook:
