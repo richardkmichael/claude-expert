@@ -121,11 +121,22 @@ without a live session, which makes it the right source for scheduled polling; t
 (above) only samples while Claude Code is actually running, and therefore goes quiet exactly when
 someone has stopped working and their quota is going unused.
 
-Two caveats. The rate-limit figures arrive as prose inside `result` (`Current session: 12% used ·
+Three caveats. The rate-limit figures arrive as prose inside `result` (`Current session: 12% used ·
 resets Aug 9 at 10pm (America/Vancouver)`), not as structured fields, so a consumer must parse
-them — and the reset string omits the year. And the zero-cost property is a current fact, not a
+them — and the reset string omits the year. The zero-cost property is a current fact, not a
 guarantee; a probe running on a schedule should assert on `total_cost_usd` / `num_turns` and warn
 rather than assume it stays free.
+
+The third caveat is the one that will actually bite a scheduled job. When the OAuth credential
+lookup fails, `/usage` does not error — it silently degrades to its API-key output form, the
+`Total cost: / Usage by model:` block with no plan-limit lines at all. On macOS, where credentials
+live in the Keychain rather than a `.credentials.json`, that lookup requires `USER` to be set in
+the environment. Bisected on 2.1.226: with `HOME` and a correct `PATH` but no `USER`, the probe
+exits 0 and reports no plan limits; adding `USER` alone restores them, and `LOGNAME` does not
+substitute. Since launchd and cron both supply a stripped environment, a naive scheduled probe
+reports "no limits" forever and looks like an account without a subscription. Any consumer should
+treat zero parsed windows as a configuration failure to investigate rather than as an absence of
+limits.
 
 The `/usage` slash command (aliases `/cost` and `/stats`, grep `aliases: ["cost", "stats"]`) reports
 session and plan usage. It has two forms:
