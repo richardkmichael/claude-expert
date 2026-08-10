@@ -467,6 +467,46 @@ The ratio between the two windows is the practically important one, and it is me
 single 5-hour window both utilizations advance on the same consumption, so `Δ(7d) / Δ(5h)` across
 two samples is the fraction of the weekly allowance one full 5-hour window represents.
 
+### Grace windows
+
+The server can hand back a temporary allowance after a cap is reached. Grep
+`anthropic-ratelimit-unified-grace-status` for the gate, alongside two companion headers,
+`-grace-5h-utilization` and `-grace-7d-utilization`, each parsed as a 0..1 fraction. When either is
+above zero the client sets an internal `rateLimitGraceActive` flag and shows a wrap-up prompt (grep
+`grace window active`, whose text asks the user to finish or wind down rather than start new work).
+
+Two things follow. Grace is a distinct pool with its own utilization, not a rollback of the main
+window's counter — so a session can continue past an apparent 100%. And none of it is exposed:
+`rateLimitGraceActive` reaches no statusLine field, no `/usage` line, and no telemetry, so a
+consumer sees only its side effects.
+
+### Detecting mid-window resets and capacity grants
+
+Server-side changes to an allowance mid-window are observable, and more cheaply than they look —
+no absolute quota figure is needed. Within a single window `utilization = used / capacity` is
+monotonically non-decreasing, so a *decrease* has only three causes, and the reset timestamp
+separates them:
+
+| Observation                                  | Cause                                         |
+| -------------------------------------------- | --------------------------------------------- |
+| utilization drops, `resets_at` moves forward | ordinary window rollover                      |
+| utilization drops, `resets_at` unchanged     | `used` reset mid-window, or `capacity` raised |
+
+The second row is the interesting one. A mid-window reset and a capacity increase are
+indistinguishable from utilization alone — raising the denominator lowers the ratio just as
+zeroing the numerator does — but either means allowance appeared that was not there before. The
+detection needs only a monotonicity check over a sampled series.
+
+Two limits worth stating. The change is invisible if utilization was at zero when it happened,
+since there is nothing to drop from; a small nonzero reading suffices, but nothing at all does not.
+And the sampled series must be dense enough that the drop is not masked by consumption in the same
+interval — the scheduled `/usage` probe keeps sampling while idle and covers the model-scoped
+buckets, whereas the statusLine sampler stops when work stops.
+
+A second-order signal exists for capacity changes specifically: the 5-hour-to-weekly ratio derived
+above shifts if one window's capacity is changed and the other's is not. Comparing that ratio
+across weeks detects a rescaling that a utilization drop alone could not attribute.
+
 ### The monthly figure is a spend cap, not an allowance
 
 Easy to misread as a third quota window, and the difference inverts any use-it-or-lose-it
