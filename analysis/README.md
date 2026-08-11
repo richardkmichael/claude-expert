@@ -65,6 +65,7 @@ Style legend:
 | `CONTEXT_OPS_DIAGRAMS.md`       | Diagrams: context ops as append-only JSONL           | unstated | landmark | `parentUuid`, `logicalParentUuid`, `forkedFrom`               |
 | `COMMAND_HISTORY.md`            | Input history file format and filtering              | 2.1.76   | landmark | `~/.claude/history.jsonl`, `sessionId`                        |
 | `KEYBOARD_INPUT_DECODING.md`    | stdin escape-sequence decoder, CSI-u/Kitty limits, keybinding matching, push-to-talk hold heuristic | 2.1.226 | landmark | `CLAUDE_CODE_ALTGR_AS_TEXT`, `kittyKeyboard`, `pendingByteEvents`, `superKey`, `voice:pushToTalk` |
+| `VOICE_MODE.md`                 | Voice dictation: tap-mode self-termination (15s silence / 120s cap), the three-word auto-submit gate, STT stream and endpoint, what an external process can observe | 2.1.226/227 | landmark | `[voice] Toggle silence timeout`, `[voice] Toggle max-duration cap`, `tap to send`, `stt_provider`, `CLAUDE_CODE_VOICE_FORWARD_INTERIMS_TYPED` |
 | `CD_COMMAND.md`                 | `/cd`: moves transcript + cwd, leaves memory behind  | 2.1.198  | landmark | `Move this session to a new working directory`, `tengu_cd_command`, `relocated` |
 | `BACKGROUND_SESSIONS_RESPAWN.md` | Background-session retire→wake flag/env preservation, respawn-state validation | 2.1.169  | landmark | `retireIfSettled`, `respawnFlags`, `stripped non-allowlisted`, `tengu_bg_retired` |
 

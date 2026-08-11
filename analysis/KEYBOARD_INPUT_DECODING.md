@@ -248,6 +248,10 @@ comparison to relocate the matcher.
 Because no release events exist, `voice:pushToTalk` reconstructs hold-and-release from keyboard
 auto-repeat. Grep `voice:pushToTalk` for the resolution, the validation warning, and the handler.
 
+This section covers only how the keybinding infers a hold. What the recording then does — tap mode's
+keystroke-free termination, the auto-submit gate, and the speech-to-text stream — is in
+`VOICE_MODE.md`.
+
 The handler keeps repeat counters and one timer. Constants, adjacent in the source:
 
 | Value | Role                                                                             |
