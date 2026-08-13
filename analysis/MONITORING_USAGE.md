@@ -1,7 +1,9 @@
 # Monitoring Token Usage and Cost
 
 Behavioral model verified against 2.1.220, with the window-geometry, feature-flag, and monthly-spend
-sections re-verified against 2.1.226. This document follows the landmark style in
+sections re-verified against 2.1.226 and the cap-reached behavior (grace windows, the injected
+wrap-up messages, the continue-after-reset affordance, the retry watchdog) against 2.1.231. This
+document follows the landmark style in
 `GUIDELINES.md`: it anchors on version-stable strings (slash-command names, `tengu_*` event names,
 env var names, OTEL metric/attribute names, literal UI strings, JSONL field names, behavioral logic)
 with grep re-location recipes, not on minified symbol names or line numbers, which churn every
@@ -602,10 +604,87 @@ The server can hand back a temporary allowance after a cap is reached. Grep
 above zero the client sets an internal `rateLimitGraceActive` flag and shows a wrap-up prompt (grep
 `grace window active`, whose text asks the user to finish or wind down rather than start new work).
 
+The client asks for the grace pool rather than merely observing it. Grep the request header
+`anthropic-usage-limit`, set to `extended` on continuation requests: the gate is
+`tengu_lantern_spool`, and the surrounding condition restricts it to first-party auth, non-auxiliary
+query sources, and a query-chain depth above zero. A turn already in progress is what gets to
+overrun the cap; a fresh turn started after the wall does not.
+
 Two things follow. Grace is a distinct pool with its own utilization, not a rollback of the main
 window's counter — so a session can continue past an apparent 100%. And none of it is exposed:
 `rateLimitGraceActive` reaches no statusLine field, no `/usage` line, and no telemetry, so a
 consumer sees only its side effects.
+
+### The model is told about the cap, in the conversation
+
+Two meta messages are injected into the message array as `isMeta` records, which is why a model can
+discuss a cap it is standing on top of. Both are edge-triggered, consumed once, and cleared rather
+than delivered at the start of a fresh turn chain, so they land on a continuation request inside a
+turn. Both are gated, both default off, and both are 5-hour-window logic:
+
+| Trigger                                              | Gate                      | Message (grep)             |
+| ---------------------------------------------------- | ------------------------- | -------------------------- |
+| `five_hour` utilization at or past 0.95              | `tengu_vellum_anchor`     | `Usage limit approaching`  |
+| grace-zone utilization above zero (cap reached)      | `tengu_lantern_wick_mode` | `grace window active`      |
+
+`tengu_lantern_wick_mode` is three-valued — `off`, `wrap-up`, `next-steps` — and the two live
+values select between two texts. Both open with `[Usage limit reached — grace window active.` and
+forbid subagents and long-running work; `next-steps` additionally asks for up to three bullets of
+the most impactful remaining work. The near-limit message uses that same next-steps wording.
+
+Neither message mentions resuming, and neither carries the reset timestamp. A model that names a
+reset time learned it from ordinary text: the cap line quoted below is what a failed subagent,
+workflow stage, or teammate session reports back as its failure reason, and that text reaches the
+conversation as a tool result.
+
+### Continuing after a cap
+
+There is a first-party resume affordance, and it is manual. Grep `to continue after reset` for the
+hint line (rendered as `Press ⏎ to continue after reset`) and
+`prefillRateLimitAutoQueueContinue` for the mechanism: on hitting the cap the client writes the
+literal word `continue` into the prompt buffer, and the user submits it once the window rolls over.
+Nothing schedules the submission — no timer is armed from `resetsAt`, and the reset time is used
+only to render the hint and to dedupe the arming.
+
+It is narrowly gated. The path requires `tengu_vellum_anchor`, a `rejected` status with a finite
+`resetsAt`, `rateLimitType === "five_hour"`, and no overage in play — a weekly cap, a model-scoped
+cap, a `credits_required` error, or an org spend-cap block all skip it. Telemetry:
+`tengu_rl_checkpoint_auto_continue_queued` and `tengu_rl_checkpoint_copy_shown` on arming,
+`tengu_rl_checkpoint_auto_continue_cancelled_by_upsell` when the user picks an upsell option
+instead, which also clears the prefilled word. The same gate appends ` · progress saved` to the cap
+line (grep `progressSavedSuffix`).
+
+Separately, `/rate-limit-options` has carried a `Wait for limit to reset` entry across many
+releases. Before the auto-continue path existed it only dismissed the menu; it now also triggers the
+prefill.
+
+A model can nonetheless resume itself at the reset, and this predates every gate above. It needs
+only two ordinary primitives: the reset time, read as text out of a failed subagent or workflow
+stage, and a backgrounded shell command that exits at that time. Background completion wakes an idle
+session and re-invokes the model, which is the Bash tool's documented contract (grep
+`it keeps running across turns and re-invokes you when it exits`, and
+`tengu_bg_attach_wake_after_reap` for the wake path). Sessions where this happened look like a
+product feature and are not one. Foreground `sleep` is now blocked in the Bash tool, so the current
+spellings are a backgrounded until-loop, `Monitor`, or a scheduled wakeup.
+
+### Unattended resume: the retry watchdog
+
+One configuration does resume automatically, with no keystroke. Grep the env var
+`CLAUDE_CODE_RETRY_WATCHDOG`. When it is set, a 429 or a 529 stops being a terminating error: the
+retry loop pins the attempt counter at the ceiling so retries never exhaust, takes its delay from
+`anthropic-ratelimit-unified-reset` rather than from backoff, sleeps that long, and continues the
+same turn. The delay is capped at six hours (grep the retry module's `21600000`), the sleep is
+chunked so an abort or a wake subscription can cut it short, and waits above a minute emit
+`tengu_api_persistent_retry_wait`. The watchdog also raises the default retry ceiling from 10 to
+300 and lifts the clamp that otherwise limits `CLAUDE_CODE_MAX_RETRIES` to 15.
+
+The client sets this for itself only on cloud and self-hosted runners, alongside
+`CLAUDE_CODE_REMOTE=true` and `CLAUDE_ENABLE_STREAM_WATCHDOG=1` — grep the env block that carries
+`CLAUDE_CODE_ENVIRONMENT_KIND: "byoc"`. Nothing restricts reading it to those runners, so exporting
+it in a local terminal gets the same behavior. Two consequences worth stating before anyone does:
+the session blocks silently for the whole window rather than returning control, and every other 429
+path is suppressed too, including the fast-mode fallbacks that would otherwise downgrade instead of
+waiting.
 
 ### Detecting mid-window resets and capacity grants
 
@@ -848,6 +927,21 @@ half is source-verifiable.
 
 ## Per-release appendix
 
+- 2.1.231: partial re-verification, covering what happens when a cap is actually reached. New in
+  this release: the near-limit `Usage limit approaching` meta message at 0.95 five-hour utilization
+  under `tengu_vellum_anchor`; the `Press ⏎ to continue after reset` affordance, which prefills the
+  literal word `continue` into the prompt buffer under the same gate, with the
+  `tengu_rl_checkpoint_*` event trio and the ` · progress saved` suffix; and the promotion of
+  `tengu_lantern_wick` to the three-valued `tengu_lantern_wick_mode` (`off` / `wrap-up` /
+  `next-steps`), the second value adding a request for up to three bullets of remaining work.
+  Established as negative results: nothing schedules a resume from `resetsAt` in an interactive
+  session, and neither injected message carries the reset time — a model that names one read it
+  from a subagent, workflow, or teammate failure string. Documented from this release but older
+  than it: the `anthropic-usage-limit: extended` request header under `tengu_lantern_spool`, which
+  is how the client asks for the grace pool (present since at least 2.1.186, with the
+  `grace window active` message added in 2.1.220); and `CLAUDE_CODE_RETRY_WATCHDOG`, which turns a
+  429 into a wait until `anthropic-ratelimit-unified-reset` (six-hour cap) and is set by the client
+  only for cloud and self-hosted runners, though nothing restricts reading it locally.
 - 2.1.226: partial re-verification, covering the sections this release was consulted for. The
   window-geometry table (`five_hour`/18000 with one threshold pair, `seven_day`/604800 with three)
   is byte-identical to 2.1.220, as is the elapsed-fraction helper — treat both window lengths as
