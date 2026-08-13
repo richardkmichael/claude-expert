@@ -110,6 +110,35 @@ model-scoped weekly is the binding constraint rather than the all-models weekly,
 see the window that actually matters. Sample with statusLine for resolution; read `/usage` for
 completeness.
 
+### The statusLine failure contract
+
+Anything built on this surface has to satisfy a contract that is only partly documented, and whose
+failure mode is silent by design.
+
+Exit 0 is mandatory. Grep the executor for its `s.status === 0` branch: stdout is used only on a
+zero exit, is trimmed line-by-line with empties dropped, and a non-empty result becomes the line.
+Every other outcome returns undefined, and the caller invokes its result handler unconditionally —
+so the rendered text is cleared rather than left stale. The published docs say the same thing in
+one sentence: scripts that exit non-zero or produce no output cause the status line to go blank.
+
+The rest is observable only in the source. stderr is captured and written to the debug log, never
+to the UI. A non-zero exit records one telemetry event classified `spawn_failed`, `timeout`, or
+`nonzero_exit` — behind a once-per-session latch, so a command failing on every render reports
+exactly once. There is no retry, no backoff, and no disabling after repeated failures. The constant
+separating `timeout` from `nonzero_exit` is 600000 ms, though the practical bound is much tighter
+because a still-running invocation is aborted when the next one starts (grep the abort check that
+precedes the status read). An aborted run returns silently and is not counted as a failure.
+
+Consequences for a recorder built on this surface: never exit non-zero, since doing so blanks the
+user's status line rather than merely losing a sample; treat everything after reading stdin as
+best-effort; and in a pipeline remember the last command's exit status is the one Claude Code sees.
+
+Adjacent settings on the same object: `padding`, `refreshInterval` (seconds, minimum 1),
+`hideVimModeIndicator` for a command that renders `vim.mode` itself, and a separate
+`subagentStatusLine` whose contract differs — it receives the visible subagent rows as one JSON
+object and emits one JSON line per row, each `{"id", "content"}`. Execution also requires workspace
+trust, the same gate hooks pass through.
+
 Because the statusLine command is an arbitrary shell command receiving this JSON on stdin, it is
 the practical hook for exporting plan-limit utilization to an external system: read stdin, emit the
 numbers somewhere, print the status line. The input also carries `prompt_id`, documented as "same
