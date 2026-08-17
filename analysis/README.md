@@ -61,7 +61,7 @@ Style legend:
 | `SESSION_TRANSCRIPT.md`         | JSONL transcript format, record types, linkage model | 2.1.165  | landmark | `parentUuid`, `logicalParentUuid`, `<sessionId>.jsonl`        |
 | `SESSION_MEMORY_AND_SUMMARY.md` | Background summary compaction (removed by 2.1.138)   | 2.1.76   | legacy   | `tengu_session_memory`, `session-memory/summary.md`          |
 | `SESSION_RESUME.md`             | Post-resume "resume vs summary" prompt and dismissal | 2.1.104  | landmark | `tengu_gleaming_fair`, `CLAUDE_CODE_RESUME_THRESHOLD_MINUTES` |
-| `CLEAR_COMPACT_FORK_CONTEXT.md` | /compact, /clear, /fork, /rewind mechanics; auto-compact trigger threshold | 2.1.76/207 | landmark | `compact_boundary`, `microcompact_boundary`, `forkedFrom`, `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` |
+| `CLEAR_COMPACT_FORK_CONTEXT.md` | /compact, /clear, /fork, /rewind mechanics; auto-compact trigger threshold | 2.1.76/231 | landmark | `compact_boundary`, `microcompact_boundary`, `forkedFrom`, `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`, `testPctOverride` |
 | `CONTEXT_OPS_DIAGRAMS.md`       | Diagrams: context ops as append-only JSONL           | unstated | landmark | `parentUuid`, `logicalParentUuid`, `forkedFrom`               |
 | `COMMAND_HISTORY.md`            | Input history file format and filtering              | 2.1.76   | landmark | `~/.claude/history.jsonl`, `sessionId`                        |
 | `KEYBOARD_INPUT_DECODING.md`    | stdin escape-sequence decoder, CSI-u/Kitty limits, keybinding matching, push-to-talk hold heuristic | 2.1.226 | landmark | `CLAUDE_CODE_ALTGR_AS_TEXT`, `kittyKeyboard`, `pendingByteEvents`, `superKey`, `voice:pushToTalk` |

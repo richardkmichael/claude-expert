@@ -2,7 +2,8 @@
 
 Source: `cli.prettier.js` 2.1.76 (`work/2.1.76/package/cli.prettier.js`) for the
 record mechanics; the "When auto-compaction fires" section was verified against
-2.1.207.
+2.1.207 and re-verified unchanged against 2.1.231 — same two constants, same
+`min` operator, same validity range.
 
 Four mechanisms manipulate conversation context. They differ in what the model
 sees going forward, whether the session continues or a new one is created, and
@@ -79,7 +80,20 @@ threshold = min( floor(usable × pct/100),  usable − 13000 )     # pct valid �
   `max_output_tokens` honors `CLAUDE_CODE_MAX_OUTPUT_TOKENS`. For current
   large-output models the reserve caps at 20,000.
 - The operator is `min`, so `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` can only *lower* the
-  threshold — never raise it above the `usable − 13000` floor.
+  threshold — never raise it above the `usable − 13000` floor. A percentage above
+  roughly 93 therefore does nothing on a 200K window, and above roughly 98.7 does
+  nothing on a 1M one.
+- The variable is read straight from `process.env`, so the `env` block of
+  `settings.json` sets it as well as the shell does. Note the name has no `CODE_`
+  segment: `CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE` does not exist and is silently
+  ignored.
+- Internally the value lands in a field named `testPctOverride`, alongside
+  `testBlockingOverride`. Both are test hooks rather than a supported settings
+  surface, so re-check them after an upgrade.
+- The same call reports `pctLeft` as `round(((threshold − used) / threshold) × 100)`,
+  which is the figure the UI counts down. A status line wanting to show progress
+  toward compaction rather than toward a full window should divide by the threshold
+  for the same reason.
 - Firing requires `autoCompactEnabled` (default `true`). With it off, no
   auto-compaction runs; instead a hard "blocked" state is reached at
   `usable − 3000`. `CLAUDE_CODE_BLOCKING_LIMIT_OVERRIDE` overrides that blocking
