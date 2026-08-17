@@ -727,6 +727,46 @@ So unspent monthly credit is money not spent, not allowance forfeited. Only the 
 windows are seat allowance already paid for under a subscription, and only those two are wasted by
 going unused.
 
+## When a window begins: the 5-hour window is anchored to activity, the weekly one is not
+
+Neither `resets_at` value can be extrapolated the same way, and the difference decides what a
+scheduling tool may legitimately predict. The anchoring rule is server-side, so it is not visible in
+the bundle; the finding below is empirical, from recorded `statusLine` readings.
+
+The 5-hour window is not a fixed grid. It begins when you next do something and its clock does not
+advance while you are idle. Consecutive `five_hour.resets_at` values across observed transitions:
+
+| previous reset | next reset | delta   | what happened                          |
+| -------------- | ---------- | ------- | -------------------------------------- |
+| 20:10          | 01:10      | +5.00h  | working across the boundary            |
+| 01:10          | 06:50      | +5.67h  | idle 40 min, then resumed              |
+| 06:50          | 15:20      | +8.50h  | idle 3h 30m, then resumed              |
+
+A delta above five hours is exactly the idle gap. In every case the new window is first seen at 0%
+used, which is self-consistent: your activity both starts the window and produces the reading.
+
+The weekly window is a fixed seven-day grid. An observed rollover moved `seven_day.resets_at` by
+exactly `+168.00h`, landing on local midnight, with no dependence on activity.
+
+Consequences for anything built on these:
+
+- Only the current 5-hour `resets_at` is knowable. Any tiling beyond it assumes uninterrupted
+  back-to-back use and is a capacity estimate, not a schedule.
+- Idle time does not consume 5-hour windows. It does consume wall-clock time before the fixed
+  weekly reset, which is where the real cost of idling lands.
+- A window is consumed by *starting* it. Beginning one and then stopping spends the whole slot for
+  whatever was used in it.
+
+Reproduction: record the `statusLine` payload's `rate_limits` over several days, then group by
+`session_id` and walk each session's own `resets_at` transitions.
+
+Two traps in that data. Readings from concurrent sessions interleave, and each session carries its
+own snapshot refreshed only when it last called the API, so an idle session reports a window that
+expired hours ago — sorting the raw log by timestamp produces a sawtooth of contradictory values.
+And transient one-off values occur: three weekly `resets_at` appeared exactly once each against
+~104,000 readings of the true value, so discard singletons rather than treating them as mid-week
+adjustments.
+
 ## Surface 5: cap hits recorded in the transcript
 
 Every API error is persisted as an `assistant` record in the session JSONL with
