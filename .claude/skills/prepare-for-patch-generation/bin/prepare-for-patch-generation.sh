@@ -24,8 +24,23 @@ if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     exit 1
 fi
 
-readonly PATCHES_VERSION_DIR="patches/${VERSION}"
-readonly WORK_VERSION_DIR="work/${VERSION}"
+# Anchor the output directories to the repository, not to the caller's working directory: this
+# script is run by a skill, whose shell may be cwd'd anywhere in the tree. Layout is
+# <repo>/.claude/skills/<skill>/bin/<this script>, so the root is four levels above bin/.
+SCRIPT_DIR="$(cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -P -- "${SCRIPT_DIR}/../../../.." && pwd)"
+readonly SCRIPT_DIR REPO_ROOT
+
+# Fail loudly if that derivation is wrong. Writing a 24MB tree into an unexpected directory is
+# quiet enough to go unnoticed for a whole session.
+if [[ ! -d "${REPO_ROOT}/analysis" || ! -d "${REPO_ROOT}/patches" ]]; then
+    echo "Error: expected repository root at ${REPO_ROOT}, but it has no analysis/ and patches/" >&2
+    echo "       (derived from this script's location: ${SCRIPT_DIR})" >&2
+    exit 1
+fi
+
+readonly PATCHES_VERSION_DIR="${REPO_ROOT}/patches/${VERSION}"
+readonly WORK_VERSION_DIR="${REPO_ROOT}/work/${VERSION}"
 readonly CLI_PRETTIER_JS="${WORK_VERSION_DIR}/package/cli.prettier.js"
 
 # Check if version already prepared
@@ -34,11 +49,39 @@ if [[ -f "${CLI_PRETTIER_JS}" ]]; then
     exit 1
 fi
 
+# Record which output directories already exist, so failure cleanup removes only what this run
+# created. A patches/<version> directory may already hold real patch work.
+PATCHES_DIR_PREEXISTED=0
+WORK_DIR_PREEXISTED=0
+if [[ -d "${PATCHES_VERSION_DIR}" ]]; then PATCHES_DIR_PREEXISTED=1; fi
+if [[ -d "${WORK_VERSION_DIR}" ]]; then WORK_DIR_PREEXISTED=1; fi
+readonly PATCHES_DIR_PREEXISTED WORK_DIR_PREEXISTED
+
 # All extraction happens in a temp directory; only cli.prettier.js lands in the work dir.
 TEMP_DIR="$(mktemp -d)"
 readonly TEMP_DIR
-trap 'rm -rf "${TEMP_DIR}"' EXIT
-trap 'echo "Error occurred, cleaning up..." >&2; rm -rf "${WORK_VERSION_DIR}"' ERR
+
+# Cleanup hangs off EXIT rather than ERR: every failure path here is `cmd || { echo …; exit 1; }`,
+# which suppresses errexit and so never fires an ERR trap. COMPLETED is set only after the last
+# step succeeds, so any other way out of the script counts as a failure.
+COMPLETED=0
+cleanup() {
+    rm -rf "${TEMP_DIR}"
+
+    if (( COMPLETED )); then
+        return
+    fi
+
+    echo "Preparation of ${VERSION} failed; removing partial output." >&2
+    if (( ! WORK_DIR_PREEXISTED )); then
+        rm -rf "${WORK_VERSION_DIR}"
+    fi
+    # rmdir, not rm -rf: leave the directory alone if anything managed to write into it.
+    if (( ! PATCHES_DIR_PREEXISTED )); then
+        rmdir "${PATCHES_VERSION_DIR}" 2>/dev/null || true
+    fi
+}
+trap cleanup EXIT
 
 mkdir -p "${PATCHES_VERSION_DIR}" || {
     echo "Error: failed to create patches directory: ${PATCHES_VERSION_DIR}" >&2
@@ -152,4 +195,5 @@ chmod +x "${CLI_PRETTIER_JS}" || {
     exit 1
 }
 
+COMPLETED=1
 echo "Prettified source code for version ${VERSION} has been prepared: ${CLI_PRETTIER_JS}"
