@@ -3,7 +3,7 @@
 set -euo pipefail
 
 # Check required dependencies
-for cmd in npm tar npx chmod uname mktemp wc; do
+for cmd in npm tar npx node chmod uname mktemp wc; do
     command -v "$cmd" >/dev/null 2>&1 || {
         echo "Error: required command '$cmd' not found" >&2
         exit 1
@@ -94,6 +94,7 @@ mkdir -p "${WORK_VERSION_DIR}/package" || {
 }
 
 readonly CLI_JS="${TEMP_DIR}/package/cli.js"
+readonly MODULES_DIR="${TEMP_DIR}/modules"
 
 # Download the wrapper package.
 npm --silent pack --pack-destination "${TEMP_DIR}" "@anthropic-ai/claude-code@${VERSION}" > /dev/null || {
@@ -158,20 +159,25 @@ if [[ ! -f "${CLI_JS}" ]]; then
         exit 1
     }
 
-    npx --yes tweakcc unpack "${CLI_JS}" "${NATIVE_BIN}" || {
-        echo "Error: failed to unpack cli.js from ${NATIVE_BIN}" >&2
+    MODULE_COUNT="$(node "${SCRIPT_DIR}/extract-bun-modules.mjs" "${NATIVE_BIN}" "${MODULES_DIR}")" || {
+        echo "Error: failed to extract JS modules from ${NATIVE_BIN}" >&2
         exit 1
     }
+    echo "Extracted ${MODULE_COUNT} JavaScript module(s) from the native binary"
 fi
 
-# Prettifying the bundle is memory-hungry: the ~20MB single-line cli.js blows through Node's
-# default heap (~2GB) and OOMs. Raise --max-old-space-size when cli.js is large, scaled to the
+# Prettifying is memory-hungry: a multi-megabyte single-line bundle blows through Node's default
+# heap (~2GB) and OOMs. Raise --max-old-space-size when the largest input is large, scaled to the
 # machine's RAM (capped below physical RAM, so smaller boxes stay safe). The flag only raises the
 # ceiling, so it is harmless when the extra headroom is not needed.
 readonly PRETTIER_HEAP_THRESHOLD_BYTES=$((8 * 1024 * 1024))
-CLI_JS_BYTES="$(wc -c < "${CLI_JS}")"
+if [[ -f "${CLI_JS}" ]]; then
+    LARGEST_BYTES="$(wc -c < "${CLI_JS}")"
+else
+    LARGEST_BYTES="$(find "${MODULES_DIR}" -type f -exec wc -c {} + | awk '$2 != "total" { if ($1 > m) m = $1 } END { print m + 0 }')"
+fi
 PRETTIER_NODE_OPTIONS="${NODE_OPTIONS:-}"
-if (( CLI_JS_BYTES > PRETTIER_HEAP_THRESHOLD_BYTES )); then
+if (( LARGEST_BYTES > PRETTIER_HEAP_THRESHOLD_BYTES )); then
     case "$(uname -s)" in
         Darwin) RAM_MB=$(( $(sysctl -n hw.memsize) / 1024 / 1024 )) ;;
         Linux)  RAM_MB=$(awk '/^MemTotal:/ { print int($2 / 1024) }' /proc/meminfo) ;;
@@ -182,13 +188,41 @@ if (( CLI_JS_BYTES > PRETTIER_HEAP_THRESHOLD_BYTES )); then
         HEAP_MB=$(( RAM_MB * 3 / 4 ))
     fi
     PRETTIER_NODE_OPTIONS="${PRETTIER_NODE_OPTIONS} --max-old-space-size=${HEAP_MB}"
-    echo "cli.js is $(( CLI_JS_BYTES / 1024 / 1024 )) MB; raising prettier heap to ${HEAP_MB} MB (physical RAM: ${RAM_MB} MB)"
+    echo "Largest input is $(( LARGEST_BYTES / 1024 / 1024 )) MB; raising prettier heap to ${HEAP_MB} MB (physical RAM: ${RAM_MB} MB)"
 fi
 
-NODE_OPTIONS="${PRETTIER_NODE_OPTIONS}" npx --yes prettier --ignore-path /dev/null "${CLI_JS}" > "${CLI_PRETTIER_JS}" || {
-    echo "Error: failed to prettify ${CLI_JS}" >&2
-    exit 1
-}
+if [[ -f "${CLI_JS}" ]]; then
+    NODE_OPTIONS="${PRETTIER_NODE_OPTIONS}" npx --yes prettier --ignore-path /dev/null "${CLI_JS}" > "${CLI_PRETTIER_JS}" || {
+        echo "Error: failed to prettify ${CLI_JS}" >&2
+        exit 1
+    }
+else
+    # One list drives both steps, so no module can be concatenated without having been prettified.
+    MODULE_FILES=("${MODULES_DIR}"/*)
+
+    # Prettier rewrites the modules in place, one process for the whole set: it holds only the
+    # current file, so peak memory tracks the largest module rather than the whole bundle.
+    NODE_OPTIONS="${PRETTIER_NODE_OPTIONS}" npx --yes prettier --ignore-path /dev/null --log-level warn --write "${MODULE_FILES[@]}" || {
+        echo "Error: failed to prettify the extracted modules in ${MODULES_DIR}" >&2
+        exit 1
+    }
+
+    # Concatenate into the single file the analysis tooling expects. Each module gets a banner so
+    # a match found by grep can be traced back to the module it came from. Every bun binary seen so
+    # far carries several, pre-split releases included; the unbannered form is for a hypothetical
+    # binary holding exactly one, where a banner would only add noise.
+    : > "${CLI_PRETTIER_JS}"
+    for module_file in "${MODULE_FILES[@]}"; do
+        if (( ${#MODULE_FILES[@]} > 1 )); then
+            printf '// ==== bun module: %s ====\n' "$(basename "${module_file}" | sed 's/^[0-9]*__//')" >> "${CLI_PRETTIER_JS}"
+        fi
+        cat "${module_file}" >> "${CLI_PRETTIER_JS}" || {
+            echo "Error: failed to append ${module_file} to ${CLI_PRETTIER_JS}" >&2
+            exit 1
+        }
+        printf '\n' >> "${CLI_PRETTIER_JS}"
+    done
+fi
 
 chmod +x "${CLI_PRETTIER_JS}" || {
     echo "Error: failed to make ${CLI_PRETTIER_JS} executable" >&2

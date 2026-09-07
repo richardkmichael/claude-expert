@@ -12,6 +12,16 @@ Claude session rooted here. See `mcp/README.md` for registration and design.
 - `cli.prettier.js` is Claude Code. For versions <= 2.1.116 it is a minified Node.js application
   shipped via npm; for >= 2.1.117 it is the JavaScript extracted from a bun-compiled native binary.
   Either way the prettified form lives at `work/<version>/package/cli.prettier.js`.
+- A bun-compiled binary embeds several JavaScript modules, so `cli.prettier.js` is their
+  concatenation in the binary's own order, each preceded by a `// ==== bun module: <name> ====`
+  banner naming the module a match came from. Chunk names are content hashes and change every
+  release, so read a banner to orient yourself, never as a landmark.
+- How the application is distributed across those modules changed at 2.1.242. Up to 2.1.241 it is
+  one multi-megabyte `cli` module alongside a handful of vendor bundles (mermaid, highlight.js,
+  Chart.js) and native-addon shims. From 2.1.242 it is split across a thousand-odd
+  `chunk-<hash>.js` modules behind a small `cli` entry module, and cross-module references resolve
+  through the `import`/`export` lists at each module's edges. Extracting only the entry module of a
+  split binary yields a stub of a few hundred lines, not the application.
 - It is self-contained: no `package.json`, lock file, or `node_modules` — all dependencies are
   bundled inline.
 - The original unminified source is not available.
