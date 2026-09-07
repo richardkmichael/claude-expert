@@ -1,8 +1,9 @@
 # Monitoring Token Usage and Cost
 
 Behavioral model verified against 2.1.220, with the window-geometry, feature-flag, and monthly-spend
-sections re-verified against 2.1.226 and the cap-reached behavior (grace windows, the injected
-wrap-up messages, the continue-after-reset affordance, the retry watchdog) against 2.1.231. This
+sections re-verified against 2.1.226, the cap-reached behavior (grace windows, the injected
+wrap-up messages, the continue-after-reset affordance, the retry watchdog) against 2.1.231, and the
+`/usage` plan-limit bars and limits-attribution block against 2.1.263. This
 document follows the landmark style in
 `GUIDELINES.md`: it anchors on version-stable strings (slash-command names, `tengu_*` event names,
 env var names, OTEL metric/attribute names, literal UI strings, JSONL field names, behavioral logic)
@@ -212,9 +213,74 @@ session and plan usage. It has two forms:
 
   Followed by a one-line `breakdown · opus: N% · sonnet: N% · cache hit: N%` (grep `cache hit`).
 
-Granularity caveat: `/usage` and `/stats` break usage down by model only. They do not show a
-per-subagent, per-skill, per-plugin, or per-MCP breakdown. That granular attribution exists only via
-OpenTelemetry (Surface 4).
+Granularity: the `Usage by model:` block breaks session cost down by model only, but it is not the
+whole of what `/usage` reports. Both forms also print a limits-attribution block headed `What's
+contributing to your limits usage?` (grep that string), covering the last 24 hours and the last
+week. It carries two kinds of row.
+
+Behaviors are whole-of-usage characteristics, each a percentage with its own sentence: grep
+`% of your usage was at >150k context`, `came from subagent-heavy sessions`, `hit a >100k-token
+cache miss`, `while 4+ sessions ran in parallel`, `came from sessions active for 8+ hours`. They
+overlap, and the product says so — `Behaviors are independent characteristics, not a breakdown`.
+
+Named-entity rows do attribute usage, at the granularity the OpenTelemetry surface offers: grep
+`Top skills`, `Top subagents`, `Top plugins`, `Top MCP servers`. Each lists entities with a percent,
+capped at eight with a `+N more` tail.
+
+The reason to still prefer Surface 4 is the caveat the block prints about itself: `Approximate,
+based on local sessions on this machine — does not include other devices or claude.ai`. This is
+computed from local session history, not from server accounting, so it cannot see a teammate's
+machine or the same account used elsewhere.
+
+### Where the plan-limit bars come from
+
+The bars are server figures, not local accounting. Nothing in Claude Code counts tokens toward a
+plan limit; it fetches percentages and reset times and renders them. The fetch is
+`GET /api/oauth/usage` (grep `api/oauth/usage`, and `fetchUtilization: GET` for the debug line),
+OAuth-authenticated with a 5-second timeout, retried once through a 401-refresh path. The response
+object is kept verbatim and cached to `cachedUsageUtilization` (Surface 6).
+
+Three of the bars read named top-level fields of that response: `five_hour` is `Current session`,
+`seven_day` is `Current week (all models)`, and `seven_day_sonnet` is `Current week (Sonnet only)`,
+the last rendered only when `subscription_type` is `max`, `team`, or null.
+
+Every other per-model row — `Current week (Opus)`, `Current week (Fable)`, and any name Anthropic
+introduces next — comes from the response's `limits[]` array instead, and is entirely
+server-driven. Relocate the builder by grepping `weekly_scoped`; it filters `limits[]` down to
+entries whose `kind` is `weekly_scoped` and which carry a string `scope.model.display_name`, then
+builds each row as:
+
+| Rendered part | Source                                             |
+|---------------|----------------------------------------------------|
+| Title         | `` `Current week (${scope.model.display_name})` `` |
+| Percentage    | the entry's `percent`, already on a 0-100 scale    |
+| Reset line    | the entry's `resets_at`                            |
+
+So the label is a string the server chose. There is no local table mapping a model to a bucket, no
+`seven_day_fable` field to go with `seven_day_sonnet`, and no dependence on which model the session
+is configured to use: a row appears because the account has that scoped weekly window, and it is
+named whatever the server called it. This is why the row can read `Fable` while the local model
+catalogue calls the same model `Fable 5` (grep `display_name: "Fable 5"`).
+
+One local gate decides whether a scoped row is shown at all: the GrowthBook flag
+`tengu_usage_overage_included_models`, a list of model display names, matched case-insensitively
+against `scope.model.display_name`. An empty list renders no per-model rows however many the server
+returned. Because a stale list would silently drop rows, opening the dialog first waits up to 1.5
+seconds for GrowthBook to settle when the value is still coming from the fallback or disk source;
+grep `overage-included models allowlist` for both the settled and timed-out debug lines, the latter
+noting that per-model rows fall back to the cached list.
+
+There is a second, degraded path. When the endpoint's figures are unavailable, utilization is seeded
+from the `anthropic-ratelimit-unified-*` response headers instead, and a scoped entry is synthesised
+from the `seven_day_overage_included` header bucket. The headers carry no model name, so the label
+is recovered indirectly: from the cached `limits[]` if exactly one scoped entry survives the gate
+filter, otherwise from the first name in the gate list. A row rendered this way can therefore be
+labelled with the right percentage and the wrong model. Distinguish the paths by `source`, which
+reads `headers` rather than the endpoint response (grep `source: "headers"`).
+
+The `+50% weekly limits promo` line under a bar is unrelated to any of this: it is remote copy from
+the `tengu_rate_limit_promo_notices` flag, whose entries carry `bar`, `text` and `variant` and are
+matched to a bar by name. For a scoped row the `bar` matched against is the model display name.
 
 ## Surface 2: per-subagent attribution (the Agent tool result)
 
@@ -727,6 +793,82 @@ So unspent monthly credit is money not spent, not allowance forfeited. Only the 
 windows are seat allowance already paid for under a subscription, and only those two are wasted by
 going unused.
 
+## Surface 7: the OAuth usage endpoint
+
+The authoritative source, and the only one that needs neither a Claude Code process nor a cache.
+
+```
+GET https://api.anthropic.com/api/oauth/usage
+  Authorization: Bearer <accessToken>
+  anthropic-beta: oauth-2025-04-20
+  Accept: application/json
+```
+
+Relocation: `rg -n 'api/oauth/usage'` in the bundle for the path, and `rg -n 'function KJ\('` for the
+credential lookup described below.
+
+### Getting the token
+
+The bearer token is the one Claude Code already stores per config directory, under
+`claudeAiOauth.accessToken`, alongside `refreshToken`, `expiresAt`, `refreshTokenExpiresAt`,
+`scopes`, `subscriptionType` and `rateLimitTier`.
+
+On macOS it lives in the Keychain, not on disk. The service name is built as
+`Claude Code` + `OAUTH_FILE_SUFFIX` + `-credentials` + a directory discriminator, and the account
+name is `$USER`. The discriminator is empty when `CLAUDE_CONFIG_DIR` is unset, and otherwise
+`-sha256(NFC(dir))[:8]` — so several logins coexist, one per config directory:
+
+```
+security find-generic-password -s "Claude Code-credentials" -a "$USER" -w
+security find-generic-password -s "Claude Code-credentials-<8 hex>" -a "$USER" -w
+```
+
+`CLAUDE_SECURESTORAGE_CONFIG_DIR` overrides which directory is hashed. On other platforms the same
+object is a `.credentials.json` file inside the config directory.
+
+### Response shape
+
+Top-level keys are one object per bucket plus a flattened array:
+
+| key | meaning |
+| --- | ------- |
+| `five_hour`, `seven_day` | `utilization`, `resets_at`, and null `limit_dollars` / `used_dollars` / `remaining_dollars` on a subscription seat |
+| `limits[]` | one entry per active bucket: `kind` (`session`, `weekly_all`, `weekly_scoped`), `group`, `percent`, `severity`, `resets_at`, `scope`, `is_active` |
+| `extra_usage` | as in the cached blob, plus `daily` and `weekly` sub-objects |
+| `spend` | structured money: `used`/`limit` as `amount_minor` + `currency` + `exponent`, plus `cap`, `percent`, `severity`, `enabled` |
+| `member_dashboard_available` | boolean |
+
+`limits[]` is the part the cached blob does not improve on: a scoped weekly names itself, as
+`scope.model.display_name`, instead of having to be inferred from a key. `is_active` marks which
+bucket is currently binding.
+
+Many bucket keys exist and read null on a normal seat — `seven_day_oauth_apps`, `seven_day_opus`,
+`seven_day_sonnet`, `seven_day_cowork`, `seven_day_omelette`, and codenamed slots in the same
+register as the bundle's feature-flag names. Treat the set as open and key off `limits[]`.
+
+### Practical notes
+
+- `utilization` is currently a percentage (`41.0`). Older payloads used fractions (`0.41`), so
+  infer the scale rather than assuming it — if any value in the payload is `>= 1` it is percentages.
+- The endpoint rate-limits. A 429 carries `Retry-After`; honour it rather than polling tightly.
+- It reports live figures, so nothing equivalent to the cached blob's `fetchedAtMs` staleness
+  applies.
+
+### Related endpoints on the same credential
+
+`GET /api/oauth/profile` returns `account` (uuid, email, display name, `has_claude_max`,
+`has_claude_pro`, `created_at`) and `organization` (uuid, name, `organization_type`, `billing_type`,
+`rate_limit_tier`, `seat_tier`, `has_extra_usage_enabled`) — the same identity the config file
+caches under `oauthAccount`, but authoritative.
+
+`POST /v1/oauth/token` is the refresh path, which is what makes a token-only deployment viable:
+ship an access token to a machine that has no Claude Code install, and renew it before `expiresAt`.
+
+`GET /api/claude_code/organizations/metrics_enabled` returns `400 Access Forbidden` for a
+non-admin seat, which is consistent with the rest of this document: org-level usage visibility is
+not a seat-holder surface. `GET /api/oauth/validate` and `GET /v1/organizations/spend_limits` both
+return `405`, so they are not GETs.
+
 ## When a window begins: the 5-hour window is anchored to activity, the weekly one is not
 
 Neither `resets_at` value can be extrapolated the same way, and the difference decides what a
@@ -966,6 +1108,18 @@ external and re-check them against the published docs rather than this file; onl
 half is source-verifiable.
 
 ## Per-release appendix
+
+- 2.1.263: partial re-verification, covering the `/usage` plan-limit bars and the limits-attribution
+  block. Corrected a claim that had been wrong since it was written: `/usage` does attribute usage
+  to named skills, subagents, plugins and MCP servers, in both the dialog and the non-interactive
+  text form. Documented from this release but older than it: the derivation of the per-model weekly
+  rows from the server `limits[]` array and the `tengu_usage_overage_included_models` gate. New in
+  this release: the 1.5-second wait for that gate to settle before the dialog renders, and the
+  header-seeded fallback that synthesises a `weekly_scoped` entry from the
+  `seven_day_overage_included` header bucket and has to guess the model name that goes with it.
+  Read from a split bundle: the application is spread across a thousand-odd ES modules rather than
+  carried in one, which arrived in 2.1.242 (bisected — 2.1.241 is the last release with a single
+  multi-megabyte `cli` module). See the source note in `CLAUDE.md`.
 
 - 2.1.231: partial re-verification, covering what happens when a cap is actually reached. New in
   this release: the near-limit `Usage limit approaching` meta message at 0.95 five-hour utilization

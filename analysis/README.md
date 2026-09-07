@@ -104,7 +104,7 @@ not part of this family despite the name.
 
 | Doc                   | Scope                                                               | Verified          | Style    | Key landmarks                                                                  |
 | --------------------- | ------------------------------------------------------------------- | ----------------- | -------- | ------------------------------------------------------------------------------ |
-| `MONITORING_USAGE.md` | Token/cost surfaces, OTel, plan limits, pacing, window anchoring, cap-reached behavior, account attribution | 2.1.220 / 2.1.226 / 2.1.231 | landmark | `/usage`, `claude_code.session.count`, `rate_limits`, `cachedUsageUtilization`, `to continue after reset`, `CLAUDE_CODE_RETRY_WATCHDOG` |
+| `MONITORING_USAGE.md` | Token/cost surfaces, OTel, plan limits, pacing, window anchoring, cap-reached behavior, account attribution | 2.1.220 / 2.1.226 / 2.1.231 / 2.1.263 | landmark | `/usage`, `api/oauth/usage`, `weekly_scoped`, `tengu_usage_overage_included_models`, `claude_code.session.count`, `rate_limits`, `cachedUsageUtilization`, `to continue after reset`, `CLAUDE_CODE_RETRY_WATCHDOG` |
 | `NOTIFICATIONS.md`    | Notification triggers, channels, and config                         | 2.1.76            | landmark | `idle_prompt`, `preferredNotifChannel`, `notifyITerm2`                         |
 
 ## Architecture and dependencies
