@@ -192,6 +192,57 @@ still `1e8` □ per-server `timeout` still ignored below 1000 ms □ idle defaul
 carry `mcpErrorSource: "downstream_unreachable"` □ `request_timeout_ms` still capped at 5 minutes
 and still ignored when `timeout` is set.
 
+## MCP tool auto-backgrounding
+
+Verified against `cli.prettier.js` 2.1.277 (2026-09-18). This section is newer than the rest of the
+document (see the `Source:` line) and follows the landmark style.
+
+A foreground MCP tool call that has not returned within a threshold is moved to the background on
+its own. The turn continues, the call is registered in the task registry with a description naming
+the server and tool, and a notification arrives when it settles. This is unrelated to the gated-off
+task machinery documented above: it is Claude Code's own mechanism, needing nothing from the server.
+
+Relocate with `rg -n 'tengu_mcp_tool_auto_backgrounded'`. That telemetry call sits inside the
+backgrounding helper, whose parameter list includes `autoBackgroundMs` and `onBackgrounded`; the
+threshold resolver is the small function above it, ending in a gate call whose fallback is the
+default constant.
+
+Nothing changes on the wire. The call is issued once, and the helper races that single in-flight
+promise against a timer; when the timer wins, the promise is not cancelled and no second request is
+sent. The `tools/call` request stays open on the transport, so the wall-clock limit and the idle
+watchdog above keep counting against a backgrounded call — backgrounding buys a responsive turn, not
+a larger budget. It buys no durability either: the work lives on an open connection, so ending the
+session ends it, with no handle to resume from. This is the difference from a real task, which
+answers the request immediately with a handle the client can poll after a reconnect. A server is
+neither told that its call was backgrounded nor able to detect it.
+
+The threshold resolves in this order, and any zero means the call is never backgrounded:
+
+- client type `sse-ide` or `ws-ide` → 0
+- background tasks disabled for the session, either by the session's own `backgroundTasksDisabled`
+  or by `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` → 0; relocate with
+  `rg -n 'Background tasks are disabled in this session'`
+- non-interactive session without `CLAUDE_AUTO_BACKGROUND_TASKS` set → 0
+- `CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS` set → that value, clamped to [0, 2147483647]
+- otherwise the `tengu_mcp_auto_background` gate, whose default is on → 120000 ms
+
+The recorded trigger is `timeout` for the threshold firing, or `deliver_message` when the call is
+backgrounded to let a queued message through. On settling, the registry entry takes `completed`,
+`tool_error`, `aborted` or `call_failed`, along with the server's own bounded status message.
+
+The practical consequence is that the tool-call timeouts documented above are not what anyone waits
+for. An interactive caller waits two minutes and gets the turn back while the call keeps running to
+its wall-clock limit; only a headless caller without `CLAUDE_AUTO_BACKGROUND_TASKS`, or a session
+with background tasks disabled, blocks for the whole call. A slow MCP server therefore does not need
+to implement tasks to avoid blocking an interactive session, and wrapping the call in a subagent
+buys nothing an interactive session does not already do.
+
+Re-verify: □ default threshold still 120000 ms □ `CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS` still
+overrides and still clamps at [0, 2147483647] □ `sse-ide` / `ws-ide` still exempt □ non-interactive
+still requires `CLAUDE_AUTO_BACKGROUND_TASKS` □ `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` still
+disables □ gate `tengu_mcp_auto_background` still defaults on □ triggers still `timeout` and
+`deliver_message` □ the in-flight call still raced against the timer rather than re-issued.
+
 ## Task-augmented tool calls: implemented, gated off
 
 Verified against `cli.prettier.js` 2.1.277 (2026-09-18). This section is newer than the rest of the
