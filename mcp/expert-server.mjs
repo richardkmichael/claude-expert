@@ -32,12 +32,12 @@
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import { Server } from "@modelcontextprotocol/sdk@1.29.0/server/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk@1.29.0/server/stdio.js";
+import { Server } from "@modelcontextprotocol/sdk@1.30.0/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk@1.30.0/server/stdio.js";
 import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
-} from "@modelcontextprotocol/sdk@1.29.0/types.js";
+} from "@modelcontextprotocol/sdk@1.30.0/types.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = process.env.CLAUDE_CODE_ANALYSIS_DIR || resolve(HERE, "..");
