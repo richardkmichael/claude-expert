@@ -129,6 +129,69 @@ So to add a server that lands in a specific project's own `.mcp.json` (e.g. so i
 shared from that project), run `claude mcp add <name> ... -s project` with that project as the cwd —
 `-s user`/`-s local` never touch a project-local file.
 
+## Tool-call timeouts and the idle watchdog
+
+Verified against `cli.prettier.js` 2.1.277 (2026-09-18). This section is newer than the rest of the
+document (see the `Source:` line) and follows the landmark style.
+
+Four timeouts exist, and only the last two apply to a tool call already in flight:
+
+| Timeout               | Default                        | Set by                                        |
+| --------------------- | ------------------------------ | --------------------------------------------- |
+| Server startup        | 30000 ms                       | `MCP_TIMEOUT`                                 |
+| Transport connect     | 5000 ms                        | `MCP_CONNECT_TIMEOUT_MS`                      |
+| Tool call, wall clock | 1e8 ms (~27.8 h)               | per-server `timeout`, else `MCP_TOOL_TIMEOUT` |
+| Tool call, idle       | 1800000 ms stdio, 300000 other | per-server `timeout`, else the idle env var   |
+
+The two startup values come from a pair of one-line getters returning `30000` and `5000` when their
+env var is unset or non-positive, each capped at `2147483647`; relocate with
+`rg -n 'MCP_CONNECT_TIMEOUT_MS'` and take the module that exports both.
+
+Relocate the tool-call path with `rg -n 'MCP tool idle timeout'`. The enclosing function takes a
+destructured object (`client`, `tool`, `args`, `signal`, `onProgress`, `idleTimeoutMs`) and races
+`callTool` against two rejection promises: a `setTimeout` holding the wall-clock limit and a
+30-second `setInterval` holding the idle watchdog and the transport-drop check.
+
+Wall clock. Resolved as per-server `timeout` (ignored below 1000 ms, so it falls through) ??
+`MCP_TOOL_TIMEOUT` ?? `1e8`, clamped to `[1000, 2147483647]`; relocate the resolver with
+`rg -n 'MCP_TOOL_TIMEOUT'` and take the function whose fallback constant is `1e8`. With neither set
+the limit is about 27.8 hours, so a default-configured server has no practical wall-clock limit.
+Expiry rejects with `MCP server "<name>" tool "<tool>" timed out after <n>s`, titled `MCP tool
+timeout`, and carries `mcpErrorSource: "downstream_unreachable"`.
+
+Progress notifications do not extend the wall clock. The `.mcp.json` `timeout` field states this in
+its own schema description; relocate with `rg -n 'progress notifications do not extend it'`.
+
+Idle watchdog. Resolved as `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT` ?? 1800000 for stdio and 300000 for
+every other transport, then floored by the per-server `timeout` and capped by the wall clock, so it
+can never fire after the wall clock does. Setting the env var to 0 disables it, and it is disabled
+outright for the `sse-ide`, `ws-ide` and `sdk` client types. The 30-second poll also writes
+`Tool '<tool>' still running (<n>s elapsed)` to the MCP debug log. An `onprogress` notification
+resets the idle clock, as does a pending elicitation: while one is open the clock is held at the
+current time, and closing one restarts it from the moment it closed. The abort message names both
+remedies, a per-server `timeout` for one server or `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT` globally.
+
+Transport drop. The same 30-second interval watches a per-call flag armed when the transport records
+an error mid-call, and rejects 90 seconds after arming with `MCP transport lost mid-call`, on the
+grounds that the response is presumed lost. Relocate with `rg -n 'response presumed lost'`.
+
+Two consequences worth stating plainly. A stdio server that sends no progress notifications gets 30
+minutes of silence before it is aborted; an HTTP or SSE server gets 5. And the SDK's own 60-second
+default request timeout never governs a tool call, because the application always passes an explicit
+`timeout` to `callTool`.
+
+An internal per-server `request_timeout_ms` also exists, set by the host on the `mcp_set_servers`
+control event rather than written into `.mcp.json` by hand. It raises the per-request fetch
+first-byte budget and the tool-call watchdog for that one server, is capped at 5 minutes, and is
+ignored when `timeout` is also set. Relocate with `rg -n 'request_timeout_ms'`.
+
+Re-verify: □ startup getters still default to `30000` and `5000` □ wall-clock fallback constant
+still `1e8` □ per-server `timeout` still ignored below 1000 ms □ idle defaults still 1800000 stdio /
+300000 other □ idle watchdog still capped by the wall clock and disabled for `sse-ide` / `ws-ide` /
+`sdk` □ poll interval still 30 s and transport-drop grace still 90 s □ both abort messages still
+carry `mcpErrorSource: "downstream_unreachable"` □ `request_timeout_ms` still capped at 5 minutes
+and still ignored when `timeout` is set.
+
 ## Executive Summary
 
 Claude Code uses the **TypeScript MCP SDK** (minified to JavaScript) for protocol implementation, while building application-specific configuration management, tool integration, and user interface components on top of it. The MCP implementation is production-grade with full protocol compliance and multiple transport options.
