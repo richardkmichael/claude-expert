@@ -40,7 +40,7 @@ Style legend:
 | `FILE_INCLUSION.md`          | `@`-file completion via git/ripgrep, result capping   | 2.1.207  | landmark | `[FileIndex]`, `respectGitignore`, `tengu_file_suggestions_git_ls_files` |
 | `TASK_TOOL_AND_SUBAGENTS.md` | Agent/Task tool: schema, launch, output, isolation    | 2.1.165  | landmark | `tengu_agent_tool_completed`, `delegate work to a subagent`, headless    |
 | `SKILLS_AND_SUBAGENTS.md`    | Skill `allowed-tools` and where grants do/don't apply | 2.1.76   | landmark | `allowed-tools`                                                          |
-| `SKILLIFY.md`                | Disabled skill-creation feature (prompt, dead setup)  | 2.1.76   | landmark | `tengu_skill_improvement_survey`                                         |
+| `SKILLIFY.md`                | Dead Skillify prompt; live `propose_skills` proposals | 2.1.277  | landmark | `# Skillify`, `propose_skills`, `CLAUDE_CODE_SKILL_PROPOSALS`            |
 
 ## Permissions and safety
 
