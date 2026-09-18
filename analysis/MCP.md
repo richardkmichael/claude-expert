@@ -192,6 +192,68 @@ still `1e8` □ per-server `timeout` still ignored below 1000 ms □ idle defaul
 carry `mcpErrorSource: "downstream_unreachable"` □ `request_timeout_ms` still capped at 5 minutes
 and still ignored when `timeout` is set.
 
+## Task-augmented tool calls: implemented, gated off
+
+Verified against `cli.prettier.js` 2.1.277 (2026-09-18). This section is newer than the rest of the
+document (see the `Source:` line) and follows the landmark style.
+
+Claude Code carries a complete client-side implementation of MCP tasks — async tool calls — and a
+feature gate keeps all of it unreachable. An MCP server therefore cannot make Claude Code run its
+tool asynchronously, whatever it advertises.
+
+Which tasks. The source names its own helpers `Sep2663`, but the wire methods it drives are the set
+that spec revision 2025-11-25 defined under SEP-1686: `tasks/get`, `tasks/result`, `tasks/list`,
+`tasks/cancel` and `notifications/tasks/status`, with per-tool opt-in through
+`execution.taskSupport`. That design shipped as an explicitly experimental core feature and revision
+2026-07-28 removed it from the core protocol, moving tasks to the official extension
+`io.modelcontextprotocol/tasks` (SEP-2663). The extension is not wire-compatible with what Claude
+Code implements: `tasks/get` carries the result inline for terminal states so `tasks/result` is
+gone, `tasks/list` is removed, mid-flight input is fulfilled through a new `tasks/update`, a task
+handle is identified by `resultType: "task"`, and task creation is server-directed, which retires
+the per-tool `taskSupport` warmup. The dormant code is built on the superseded shape.
+
+The gate. Relocate with `rg -n 'tasks: \{ requests: \{ elicitation'`. The client capability object
+spreads its `tasks` entry only when a zero-argument gate function returns true, and that function's
+entire body is `return !1`; it is defined in the same bun module as the capability builder. The same
+gate guards the outbound call path: relocate with `rg -n 'getProtocolEra\(\) === "modern"'`, where
+the gate result is computed into a variable that nothing reads and the request options object
+built beside it is empty, so `tools/call` params never carry a `task` field. Task augmentation is
+client-initiated, so a server that declares task support is simply never asked for a task.
+
+The gate returns `!1` in 2.1.231, 2.1.263 and 2.1.277. The app-level machinery below is absent in
+2.1.231 and present from 2.1.263, so the client work landed between those two and has stayed dark.
+
+What sits behind the gate:
+
+- Client plumbing for `tasks/get`, `tasks/result`, `tasks/list`, `tasks/cancel` and
+  `notifications/tasks/status`, gated on the server advertising capability
+  `tasks.requests.tools.call` and on the individual tool declaring `execution.taskSupport` of
+  `"required"` or `"optional"` in `tools/list`. A plain call against a `"required"` tool throws
+  rather than running; relocate with `rg -n 'requires task-based execution'`.
+- Two drive modes for a tool result that carries a task, both reachable only through the gate.
+  Inline polling reports the server's own `statusMessage` as tool progress; relocate with
+  `rg -n 'polling inline'`. Backgrounding hands the task to Claude Code's task registry as task type
+  `mcp_task`, returns a placeholder tool result, and writes sidecar metadata so the task survives a
+  session restart; relocate with `rg -n 'backgrounded as'` and `rg -n 'Sep2663'` (three helpers:
+  register-or-adopt, background-drive, placeholder-result).
+- Poll cadence taken from the task's own `pollInterval`, defaulting to 2000 ms and clamped to
+  [100, 60000]; the poller abandons a task after 10 consecutive failed polls. Relocate the poll loop
+  with `rg -n 'poll failed'`, and the clamp constants as the `var` group above it.
+- `input_required` handling that fetches the task result to surface the server's prompt, then
+  resolves it through a user dialog.
+- Telemetry `mcp_task_background`, `mcp_task_complete` and `mcp_task_restore`; relocate with
+  `rg -n 'mcp_task_background'`.
+
+The task object the client expects, from the bundled SDK schema: `taskId`, `status` (one of
+`working`, `input_required`, `completed`, `failed`, `cancelled`), `ttl`, `createdAt`,
+`lastUpdatedAt`, optional `pollInterval` and optional `statusMessage`. The client-side augmentation
+it would send is `{ ttl?, pollInterval? }`. Relocate with `rg -n '"notifications/tasks/status"'`.
+
+Re-verify: □ gate function still returns `!1` □ capability spread still guarded by it □ call-path
+options object still built without a `task` field □ `taskSupport` still gates on `"required"` /
+`"optional"` □ poll default still 2000 ms, clamp still [100, 60000], failure limit still 10 □ both
+drive modes still present □ the three `mcp_task_*` telemetry names still present.
+
 ## Executive Summary
 
 Claude Code uses the **TypeScript MCP SDK** (minified to JavaScript) for protocol implementation, while building application-specific configuration management, tool integration, and user interface components on top of it. The MCP implementation is production-grade with full protocol compliance and multiple transport options.
