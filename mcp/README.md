@@ -70,7 +70,7 @@ All optional, via environment variables on the server entry:
     CLAUDE_BIN                 Path to the claude binary (default: claude on PATH)
     EXPERT_ALLOWED_TOOLS       Comma-separated tool allowlist
                                (default: Read,Grep,Glob,Bash,WebFetch,Write,Edit,Agent)
-    EXPERT_TIMEOUT_MS          Per-question wall-clock budget (default: 300000)
+    EXPERT_TIMEOUT_MS          Per-question wall-clock budget (default: 1500000)
     EXPERT_MODEL               Optional model override passed to claude --model
 
 The default allowlist lets the expert research (`Read`/`Grep`/`Glob`/`Bash`/`WebFetch`), write or
@@ -80,6 +80,12 @@ requires it to check `git status --short` first and skip the write-back entirely
 tree already has unrelated pending changes — since this repo's checkout may be in active interactive
 use at the same time a question arrives from another project. Set `EXPERT_ALLOWED_TOOLS` back to
 the original `Read,Grep,Glob,Bash,WebFetch` to restore a strictly read-only expert.
+
+Raising `EXPERT_TIMEOUT_MS` past 1800000 also needs work at the calling end. Claude Code aborts a
+stdio MCP server that has gone 30 minutes without a response or a progress notification, so a budget
+above that is cut short by the client unless the caller sets a per-server `timeout` in its
+`.mcp.json` or raises `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`. The 25-minute default sits under that
+bound deliberately. See `analysis/MCP.md`, "Tool-call timeouts and the idle watchdog".
 
 ## Billing
 

@@ -26,7 +26,7 @@
 //   CLAUDE_CODE_ANALYSIS_DIR  Repo root the expert explores (default: parent of this file)
 //   CLAUDE_BIN                Path to the claude binary (default: "claude" on PATH)
 //   EXPERT_ALLOWED_TOOLS      Comma-separated tool allowlist (default: research + write-back set)
-//   EXPERT_TIMEOUT_MS         Per-question wall-clock budget (default: 300000)
+//   EXPERT_TIMEOUT_MS         Per-question wall-clock budget (default: 1500000)
 //   EXPERT_MODEL              Optional model override passed to `claude --model`
 
 import { spawn } from "node:child_process";
@@ -44,7 +44,12 @@ const REPO_ROOT = process.env.CLAUDE_CODE_ANALYSIS_DIR || resolve(HERE, "..");
 const CLAUDE_BIN = process.env.CLAUDE_BIN || "claude";
 const ALLOWED_TOOLS =
   process.env.EXPERT_ALLOWED_TOOLS || "Read,Grep,Glob,Bash,WebFetch,Write,Edit,Agent";
-const TIMEOUT_MS = Number(process.env.EXPERT_TIMEOUT_MS || 300000);
+// 25 minutes. Researching a question against a 25MB bundle routinely runs past five,
+// and the expert's own write-back adds a doc rewrite and a delegated commit on top. The
+// ceiling is the calling client's patience, not ours: Claude Code aborts a stdio server
+// that has been silent for 30 minutes (CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT), so a budget
+// under that bound holds without asking every caller to reconfigure their end.
+const TIMEOUT_MS = Number(process.env.EXPERT_TIMEOUT_MS || 1500000);
 const MODEL = process.env.EXPERT_MODEL || "";
 
 const SERVER_INFO = { name: "claude-code-expert", version: "0.1.0" };
