@@ -81,6 +81,12 @@ tree already has unrelated pending changes — since this repo's checkout may be
 use at the same time a question arrives from another project. Set `EXPERT_ALLOWED_TOOLS` back to
 the original `Read,Grep,Glob,Bash,WebFetch` to restore a strictly read-only expert.
 
+A long call does not hold up an interactive caller. Claude Code moves an MCP tool call that has not
+returned within two minutes into the background, returns the turn, and delivers a notification when
+the call settles. A headless caller is the exception: auto-backgrounding is off in a non-interactive
+session unless `CLAUDE_AUTO_BACKGROUND_TASKS` is set, so a `claude -p` caller blocks for the whole
+question. See `analysis/MCP.md`, "MCP tool auto-backgrounding".
+
 Raising `EXPERT_TIMEOUT_MS` past 1800000 also needs work at the calling end. Claude Code aborts a
 stdio MCP server that has gone 30 minutes without a response or a progress notification, so a budget
 above that is cut short by the client unless the caller sets a per-server `timeout` in its
