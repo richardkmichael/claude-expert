@@ -1,169 +1,94 @@
-# Claude Code Application Functional Breakdown
+# Application Functional Breakdown
 
-Source: `cli.prettier.js` 2.1.76 (`work/2.1.76/package/cli.prettier.js`)
+Source: `cli.prettier.js` (`work/<version>/package/cli.prettier.js`)
+Verified against: cli.prettier.js 2.1.277 (2026-09-19)
 
-This document provides detailed documentation of the Claude Code application functionality by examining the non-library code sections in `package/cli.prettier.js`.
+An orientation map: which app-level concerns live in the bundle, how to find each one, and which
+doc covers it in depth. This doc deliberately holds no detail that another doc owns.
 
-## Code Sections Analyzed
+## Finding app code at all
 
-### Transition Phase (Lines 339,457 - 348,935)
-**Bootstrap and Environment Setup**
+App and library code are interleaved, and from 2.1.242 the application is split across a
+thousand-odd content-hashed chunk modules. Neither module boundaries nor ordering are stable, so
+orient by grepping app-specific strings rather than by position: `tengu_*` event names,
+`CLAUDE_CODE_*` env vars, config keys, tool names, and literal prompt or UI text. None of those
+appear inside bundled third-party libraries.
 
-### Core Application (Lines 357,001 - 444,530)
-**Main Application Implementation**
+Read the `// ==== bun module:` banner above a hit only to know which module you landed in. Chunk
+names are content hashes and change every release.
 
-## Detailed Functional Analysis
+## Configuration and settings
 
-### 1. Configuration and Settings Management
+| Concern            | Landmark                          | Depth                     |
+| ------------------ | --------------------------------- | ------------------------- |
+| Config directory   | `CLAUDE_CONFIG_DIR`               | `SETTINGS.md`             |
+| Global config file | `.config.json`, `.claude`+`.json` | `SETTINGS.md`             |
+| Settings merge     | `settings.json`, `errors` array   | `SETTINGS.md`             |
+| Boolean env values | truthy set `1/true/yes/on`        | `GIT_USAGE.md`            |
 
-#### Configuration Directory Structure (Line 339,622-339,625)
-```javascript
-[source fragment removed]
-```
-- **Primary config dir**: `~/.claude/` (default)
-- **Environment override**: `CLAUDE_CONFIG_DIR` environment variable
-- **XDG support**: `~/.config/` for Linux systems
+The config directory is `CLAUDE_CONFIG_DIR` when set, otherwise `.claude` under the home directory.
 
-#### Configuration Files (Line 339,682-339,687)
-```javascript
-[source fragment removed]
-```
-**Files Read**:
-- `~/.claude/.config.json` (preferred)
-- `~/.claude.json` (fallback)
-- `$CLAUDE_CONFIG_DIR/.config.json` (if env var set)
+The global config file has a two-step resolution worth knowing: a `.config.json` inside the config
+directory wins if it exists, and otherwise the path is `.claude<suffix>.json` in `CLAUDE_CONFIG_DIR`
+or the home directory. The suffix is not a constant. It is empty in production and one of
+`-staging-oauth`, `-local-oauth` or `-custom-oauth` when pointed at a non-production auth
+environment, with `CLAUDE_CODE_CUSTOM_OAUTH_URL` forcing the custom variant.
 
-#### Settings Processing Pipeline (Lines 357,001-357,050)
-```javascript
-[source fragment removed]
-```
-**Settings Sources** (Line 357,043):
-- `"user"` - User-level settings
-- `"project"` - Project-specific settings
-- `"local"` - Local override settings
+That interpolation is why grepping for the literal `.claude.json` finds call sites and comments but
+not the construction site. Grep `.config.json` instead and read the function next to it, or grep the
+suffix list.
 
-**Data Structure**:
-- Settings object with nested properties
-- Error array with file/path/message details
-- Validation and merging of multiple config sources
+Boolean env vars are parsed by shared helpers with fixed token sets rather than ad hoc per call
+site: truthy is `1`, `true`, `yes`, `on`; falsy is `0`, `false`, `no`, `off`; both trimmed and
+case-insensitive. At 2.1.277 most call sites reach these through a typed env-accessor layer that
+declares each variable as a boolean or tri-state boolean, so the parsing no longer appears inline.
+Grep `triBool` for the tri-state declarations.
 
-#### Boolean Configuration Parsing (Line 339,625-339,629)
-```javascript
-[source fragment removed]
-```
-**Accepted boolean values**: `"1"`, `"true"`, `"yes"`, `"on"`
+## Agents and skills
 
-### 2. Agent System Architecture
+| Concern                  | Landmark                        | Depth                            |
+| ------------------------ | ------------------------------- | -------------------------------- |
+| Agent directory          | `agents` under `.claude`        | `SKILLS_AND_SUBAGENTS.md`        |
+| Agent frontmatter schema | `whenToUse`, `allowed-tools`    | `MARKDOWN_FRONTMATTER.md`        |
+| Agent discovery          | `agent-` display prefix         | `TASK_TOOL_AND_SUBAGENTS.md`     |
+| Model resolution         | `CLAUDE_CODE_SUBAGENT_MODEL`    | `MAIN_THREAD_AGENT_AND_MODEL.md` |
 
-#### Agent Directory Structure (Line 422,528)
-```javascript
-[source fragment removed]
-```
-**Directory Layout**:
-- User settings: `~/.claude/agents/`
-- Project settings: `./.claude/agents/`
+A discovered agent is surfaced as a completion entry whose display text is `agent-` followed by the
+agent type, with the description taken from the agent's `whenToUse` and a per-type color.
 
-#### Agent Configuration Object (Lines 425,000-430,000)
-**Agent Properties**:
-- `agentType`: String identifier for agent type
-- `displayText`: UI display name
-- `description`: Agent capability description
-- `whenToUse`: Usage guidance text
-- `tools`: Array of available tool names
-- `model`: AI model specification (optional, can be "inherit")
-- `systemPrompt`: Agent behavior instructions
-- `color`: UI color for agent display
-- `source`: Source type indicator
+## Terminal and environment detection
 
-#### Agent Discovery and Loading (Lines 433,680-433,690)
-```javascript
-[source fragment removed]
-```
+Detection runs once at startup from env vars, in a fixed priority order, and its result drives
+notification channel selection among other things. `NOTIFICATIONS.md` holds the order and the
+consequences.
 
-### 3. File System Operations
+## Tool surface
 
-#### Files Written
-- **Settings**: `localSettings` file (Line 357,004)
-- **Agent configs**: Files in `~/.claude/agents/` directory
-- **Log files**: Various telemetry and debug output
+Tool registration, availability gating and permission checks are in `TOOLS_AND_EXECUTION.md`.
+Per-tool validation behavior is in `TOOL_VALIDATION.md`. Tool descriptions are template literals
+with interpolated values; the verbatim text is in `PROMPTS_RENDERED.md`.
 
-#### Files Read
-- **Config files**: `.config.json`, `.claude.json`
-- **Agent definitions**: Agent files from agents directory
-- **Project files**: Various source files for analysis
+Tools that show a confirmation render their own description string for the prompt, for example the
+web search tool rendering the pending query. Those strings are part of the UI surface, not the
+model-facing description.
 
-#### Stream Processing (Line 357,079)
-```javascript
-[source fragment removed]
-```
-- Node.js stream-based file processing
-- PassThrough streams for data transformation
-- Async stream handling throughout application
+## State and files
 
-### 4. Terminal and Environment Detection
+| Written                        | Read                                      |
+| ------------------------------ | ----------------------------------------- |
+| Global config file             | Global config file                        |
+| `settings.json` at each scope  | `settings.json` at each scope             |
+| Session transcripts as JSONL   | Agent and skill markdown with frontmatter |
+| Shell snapshots                | `CLAUDE.md` and its includes              |
 
-#### Terminal Emulator Detection (Line 339,774-339,790)
-**Detected Terminals**:
-- `"JetBrains-JediTerm"` - JetBrains IDEs
-- `"gnome-terminal"` - GNOME Terminal
-- `"windows-terminal"` - Windows Terminal
-- Environment variables: `TERMINAL_EMULATOR`, `GNOME_TERMINAL_SERVICE`, `WT_SESSION`
+Transcript layout is in `SESSION_TRANSCRIPT.md` with a JSON Schema under `schemas/`. Shell snapshot
+behavior is in `BASH_TOOL_EXECUTION.md`. `CLAUDE.md` discovery and includes are in
+`CLAUDE_MD_EXTERNAL_INCLUDES.md`.
 
-### 5. Web Search Integration (Line ~422,216)
-```javascript
-[source fragment removed]
-```
-**Search Object Structure**:
-- `query`: Search query string
-- Integration with external search APIs
-- Results processing and formatting
+## Version history
 
-### 6. Data Models and Object Types
-
-#### Settings Object Structure
-```javascript
-[source fragment removed]
-```
-
-#### Agent Object Structure
-```javascript
-[source fragment removed]
-```
-
-#### Configuration Constants
-```javascript
-[source fragment removed]
-```
-
-## Implementation Patterns
-
-### Error Handling
-- Comprehensive error collection during settings processing
-- File existence checks before reading
-- Timeout handling for async operations (1000ms timeout)
-
-### Cross-Platform Support
-- XDG Base Directory Specification compliance on Linux
-- Windows Terminal detection
-- Environment variable overrides for all paths
-
-### Performance Optimizations
-- Settings caching with `y41 = null` cache invalidation
-- Set-based deduplication of errors and agents
-- Async/await patterns for file operations
-
-### Security Considerations
-- Path sanitization and validation
-- Environment variable validation
-- File existence verification before access
-
-## Architecture Summary
-
-The Claude Code application implements a sophisticated configuration and agent management system with:
-
-1. **Multi-level configuration**: User → Project → Local settings hierarchy
-2. **Extensible agent system**: Plugin-like agents with specific capabilities
-3. **Cross-platform compatibility**: Robust environment detection and path handling
-4. **Stream-based processing**: Efficient file and data handling
-5. **Comprehensive error handling**: Detailed error reporting and validation
-6. **Terminal integration**: Rich CLI experience with environment-specific optimizations
+- 2.1.76: single `cli` module; app code locatable by line range.
+- 2.1.242: application split across content-hashed chunk modules. Line ranges and module positions
+  stop meaning anything across releases.
+- 2.1.277: config filename carries an auth-environment suffix; boolean env parsing consolidated
+  behind a typed env-accessor layer.
