@@ -64,9 +64,9 @@ entry is an additive spread.
 
 ### Execution
 
-| Tool         | Condition                                                |
-| ------------ | -------------------------------------------------------- |
-| `Bash`       | Shell is bash-capable                                    |
+| Tool         | Condition                                                      |
+| ------------ | -------------------------------------------------------------- |
+| `Bash`       | Shell is bash-capable                                          |
 | `PowerShell` | `CLAUDE_CODE_USE_POWERSHELL_TOOL`, or Windows without git-bash |
 
 ### Web
@@ -150,23 +150,23 @@ MCP servers also provide tools dynamically, named `mcp__<servername>__<toolname>
 
 ### Special Purpose
 
-| Tool                       | Condition                                       |
-| -------------------------- | ----------------------------------------------- |
-| `TodoWrite`                | Always                                          |
+| Tool                       | Condition                                        |
+| -------------------------- | ------------------------------------------------ |
+| `TodoWrite`                | Always                                           |
 | `LSP`                      | Always (gate is a literal — see Condition gates) |
-| `ReportFindings`           | Always                                          |
-| `REPL`                     | Always                                          |
-| `Workflow`                 | Always (alias `RunWorkflow`)                    |
-| `Monitor`                  | Always                                          |
-| `Artifact`                 | Always                                          |
-| `Projects`                 | Always                                          |
-| `DesignSync`               | Always                                          |
+| `ReportFindings`           | Always                                           |
+| `REPL`                     | Always                                           |
+| `Workflow`                 | Always (alias `RunWorkflow`)                     |
+| `Monitor`                  | Always                                           |
+| `Artifact`                 | Always                                           |
+| `Projects`                 | Always                                           |
+| `DesignSync`               | Always                                           |
 | `ClaudeDesign`             | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` unset |
-| `PushNotification`         | Always                                          |
-| `RemoteTrigger`            | Always                                          |
-| `ShareOnboardingGuide`     | Always                                          |
-| `ShowOnboardingRolePicker` | Always                                          |
-| `ToolSearch`               | Tool search enabled                             |
+| `PushNotification`         | Always                                           |
+| `RemoteTrigger`            | Always                                           |
+| `ShareOnboardingGuide`     | Always                                           |
+| `ShowOnboardingRolePicker` | Always                                           |
+| `ToolSearch`               | Tool search enabled                              |
 
 Plugin and skill tools (`SearchPlugins`, `SearchSkills`, `SuggestPluginInstall`, `SuggestSkills`,
 `ListPlugins`, `ListSkills`) are spread in as a group from a plugin-skill tool list.
@@ -256,24 +256,27 @@ source semantics, but do not conclude from one artifact that a platform check is
 general; per-platform bundles differ.
 
 
-## Example Tool Description: Read
+## Tool descriptions
 
-Location: cli.prettier.js (near line 239985)
+Tool descriptions are template literals assembled at module scope, with interpolations for
+runtime-varying values. The Read tool's description is representative: it interpolates the default
+line cap and the per-line truncation width, names the Bash tool through a variable rather than a
+literal, and conditionally includes its PDF sentence behind a capability check.
 
-```javascript
-[source fragment removed]
-```
+Relocate any tool's description by grepping a distinctive sentence from it that cannot span an
+interpolation boundary, for example `Results are returned using cat -n format`. The verbatim text of
+every description is in `PROMPTS_RENDERED.md`; this doc does not duplicate it.
 
+Tripwire: a description sentence that stops matching is either reworded or newly interpolated. Check
+for the latter before recording the former as a change.
 
 ## Tool Execution
 
 ### How Tools Are Sent to Claude
 
-Tools are sent as part of the Anthropic API request:
-
-```javascript
-[source fragment removed]
-```
+Tools are sent as part of the Anthropic API request, in the `tools` array alongside `model`,
+`messages`, `system` as an array of content blocks, `tool_choice` and `max_tokens`. See
+`ANTHROPIC_API_USAGE.md` for the full request shape and how each field is built.
 
 ### Tool Approval System
 
@@ -317,11 +320,9 @@ MCP tools are:
 
 ## Tool Permission Context
 
-Every tool execution checks permissions:
-
-```javascript
-[source fragment removed]
-```
+Every tool execution checks permissions. The context is not held separately: an accessor on the
+tool-use context reads `toolPermissionContext` off the current app state each time it is called, so
+a permission change made mid-session applies to the next tool call without re-plumbing.
 
 Permission modes:
 - `ask` — ask user for each tool use
