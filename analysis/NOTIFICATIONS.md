@@ -1,290 +1,202 @@
-# Claude Code Analysis - Notification System
+# Notification System
 
-Source: `cli.prettier.js` 2.1.76 (`work/2.1.76/package/cli.prettier.js`)
+Source: `cli.prettier.js` (`work/<version>/package/cli.prettier.js`)
+Verified against: cli.prettier.js 2.1.277 (2026-09-19)
 
-## Overview
+Two independent notification paths fire on every notification event:
 
-Claude Code has two independent notification paths that both fire on every
-notification event:
+1. Notification hook, a user-configured shell command.
+2. Built-in terminal notification, OSC escape codes written to stdout.
 
-1. Notification hook — a user-configured shell command
-2. Built-in terminal notification — OSC escape codes written to stdout
+The hook fires first, then the built-in. Neither depends on or replaces the other.
 
-The entry point is `Bg()` at line 348327:
+## Locating the dispatch
 
-```
-Bg(notificationObject, context)
- ├─ await Mg()    →  Notification hook (fires if configured; independent of channel)
- └─ await H0Y()  →  Built-in terminal notification (OSC escape codes to stdout)
-```
+Grep `tengu_notification_method_used`. The single hit is in the outer notification function, which
+reads the `preferredNotifChannel` setting, fires the hook, resolves a channel, emits the OSC
+sequence, and records the event. Three helpers sit immediately below it:
 
-The hook fires first, then the built-in. Neither path depends on or replaces the
-other.
+| Role             | What it does                                                            |
+| ---------------- | ----------------------------------------------------------------------- |
+| Channel resolver | Maps the configured channel to an effective one, or delegates to `auto` |
+| Auto-detector    | Maps the detected terminal to a channel                                 |
+| Emitter          | Switches on the effective channel and writes the escape sequence        |
 
-## Notification Types
+Splitting resolution from emission is what makes `auto` work: the auto-detector returns a channel
+name, which is then emitted by the same switch that handles an explicitly configured one.
 
-Notifications are triggered by several events (line 500415):
+## Channel values
 
-| notification_type    | Trigger                                 |
-|----------------------|-----------------------------------------|
-| `idle_prompt`        | Claude waiting for user input (60s idle)|
-| `permission_prompt`  | Tool use requires permission            |
-| `auth_success`       | Authentication completed                |
-| `elicitation_dialog` | Elicitation dialog shown                |
-| `elicitation_complete` | Elicitation completed                 |
+Grep the `preferredNotifChannel` settings enum to relocate the list.
 
-The `idle_prompt` notification fires via a `setTimeout` of `messageIdleNotifThresholdMs`
-(default 60 000 ms). It also re-checks elapsed time inside the callback before
-firing. See `SETTINGS.md` for details on that setting.
+| Value                      | Effect                                              |
+| -------------------------- | --------------------------------------------------- |
+| `auto` (default)           | Detect the terminal, then use its native protocol   |
+| `iterm2`                   | iTerm2 OSC 9                                        |
+| `iterm2_with_bell`         | iTerm2 OSC 9 plus BEL                               |
+| `kitty`                    | Kitty OSC 99                                        |
+| `ghostty`                  | Ghostty OSC 777                                     |
+| `terminal_bell`            | BEL only                                            |
+| `notifications_disabled`   | Suppress built-in notifications entirely            |
 
-## idle_prompt Firing Conditions (line 593589)
+An unrecognized value resolves to `none`, and nothing is sent.
 
-All of the following must be true for `idle_prompt` to fire:
+The setting takes effect without restarting. The config reader re-reads the global config file on
+each call, so a change made through `/config` is picked up on the next notification.
 
-| Variable     | Meaning                                    | Condition       |
-|--------------|--------------------------------------------|-----------------|
-| `Jq`         | Claude is loading/streaming                | must be `false` |
-| `SK`         | Turn counter (increments on user submit)   | must be `> 0`   |
-| `Z5`         | Timestamp when last response ended         | must be `> 0`   |
-| `sb() > Z5`  | User active after last response            | must be `false` |
-| `O7`         | Active local JSX UI (slash command dialog) | must be falsy   |
-| `Z_.current` | Internal ref (pending operation)           | must be `void 0`|
-| elapsed      | `Date.now() - Z5`                          | must be `>= messageIdleNotifThresholdMs` |
+## OSC escape sequences
 
-### Key State Variables (identified via minified code)
+Terminal-specific handlers write to stdout.
 
-| Minified | State declaration (line) | Meaning                                    |
-|----------|--------------------------|--------------------------------------------|
-| `Z5`     | `useState(0)` — line 592531, setter `N_` | Timestamp of last response end |
-| `SK`     | `useState(0)` — line 592499, setter `mq` | User submission counter        |
-| `Zq`     | `useState(T98())` — line 592451, setter `Lj` | Current prompt input text  |
-
-### Timing Analysis
-
-`N_(Date.now())` — the `Z5` setter — is called at line 593175 inside the
-`finally` block of `pD()` (the query handler), i.e. when streaming **ends**.
-
-`LA6(true)` — which sets `lastInteractionTime = Date.now()` — is called by
-`useEffect([Zq, SK])` at line 593578. This fires when:
-- `SK` increments (user **submits** a message, via `mq()` in `GW` at line 593332)
-- `Zq` changes (user types or input is cleared)
-
-The expected timeline for a normal exchange:
-
-```
-T1  user submits  →  SK++, Zq cleared  →  lastInteractionTime = T1
-T2  response ends →  N_(T2)            →  Z5 = T2   (T2 > T1)
-
-After timeout fires:
-  sb() = T1  <  T2 = Z5  →  sb() > Z5 is False  →  notification fires
-```
-
-### Unresolved: onRender() activity bump
-
-`rh1()` is called on every Ink render (line 150648). It calls `ss8()`
-(which updates `lastInteractionTime`) only if `nh1 === true`. `nh1` is set
-to `true` by `LA6(false)`. If `LA6(false)` is called during response
-streaming, `nh1` becomes `true` and the next render after T2 would set
-`lastInteractionTime = T2 + ε > Z5`, making `sb() > Z5` true and
-suppressing the notification. Whether `LA6(false)` is called during
-streaming was not determined.
-
-## Built-in Terminal Notification Path
-
-`H0Y()` at line 348337 dispatches on `preferredNotifChannel`:
-
-```javascript
-[source fragment removed]
-```
-
-In "auto" mode, `j0Y()` at line 348360 reads `s8.terminal` to pick the handler:
-
-```javascript
-[source fragment removed]
-```
-
-### OSC Escape Sequences
-
-Terminal-specific handlers write escape sequences to stdout via `sW()`:
-
-| Handler          | OSC code | Sequence pattern                                 |
-|------------------|----------|--------------------------------------------------|
+| Handler          | OSC code | Sequence pattern                                |
+| ---------------- | -------- | ----------------------------------------------- |
 | `notifyITerm2`   | 9        | `ESC ] 9 ; <message> BEL`                       |
-| `notifyKitty`    | 99       | Three-part sequence with title, body, focus      |
+| `notifyKitty`    | 99       | Three-part sequence with title, body, and focus |
 | `notifyGhostty`  | 777      | `ESC ] 777 ; notify ; <title> ; <message> BEL`  |
-| `notifyBell`     | —        | `BEL` (0x07)                                     |
+| `notifyBell`     | none     | `BEL` (0x07)                                    |
 
-All sequences are written via `stdout.write()`.
+Kitty and Ghostty both default the title to `Claude Code` when the notification carries none. Kitty
+additionally receives a random numeric id per notification.
 
-### Ghostty OSC 777: Observed Behaviour on macOS
+## Terminal detection
 
-Claude Code's responsibility ends at the `stdout.write()` call. What follows is
-handled by Ghostty and macOS.
+Detection runs once at startup and is recorded on the app's terminal state. Priority order:
 
-Ghostty intentionally suppresses visual notification delivery (banner + sound)
-when its window is focused, via:
+1. `CURSOR_TRACE_ID` / `VSCODE_GIT_ASKPASS_MAIN`, giving IDE variants
+2. `__CFBundleIdentifier`, giving JetBrains and other IDE bundles
+3. `TERM` equal to `xterm-ghostty`, giving `ghostty`
+4. `TERM` containing `kitty`, giving `kitty`
+5. `TERM_PROGRAM`, returned verbatim, for example `iTerm.app`
+6. `TMUX`, giving `tmux`
+7. Other terminal-specific env vars such as `KONSOLE_VERSION` and `ALACRITTY_LOG`
+8. `process.stdout.isTTY` false, giving `non-interactive`
 
-```
-!window.isKeyWindow || !surface.focused
-```
+The auto-detector recognizes only `Apple_Terminal`, `iTerm.app`, `kitty` and `ghostty`. Everything
+else, `tmux` included, yields `no_method_available`.
 
-When focused: the notification is silently stored in Notification Centre only —
-no banner, no sound. When unfocused: the full banner and sound appear as
-configured in System Settings. This is the standard macOS convention for
-well-behaved notification senders.
+Detection consults an attacher terminal before the local one, so a session attached from elsewhere
+is notified according to the attaching terminal. The telemetry event carries both as `term` and
+`attacher_term`.
 
-Consequence for Claude Code idle notifications: if the user is actively looking
-at the Ghostty window, the `idle_prompt` notification fires and OSC 777 is
-written, but nothing visible occurs. The notification only appears (with sound)
-when Ghostty loses focus — which is also when it is actually useful.
+Apple Terminal is the one detected terminal with a conditional result: it resolves to
+`terminal_bell` only when the front window's settings have the bell enabled, read through
+`osascript` and a `defaults export` of `com.apple.Terminal`. Otherwise it reports
+`no_method_available`.
 
-The apparent 3–5 second delay is because the notification was already delivered
-to Notification Centre; the banner appears when the user switches away from
-Ghostty, not at the moment of delivery.
+## Notification types
 
-Setting System Settings → Notifications → Ghostty to "Alerts" (sticky) rather
-than "Banners" (auto-dismiss) ensures the banner persists until dismissed.
+Grep the notification-type enum; it sits near the `preferredNotifChannel` enum in the same settings
+block.
 
-See https://github.com/ghostty-org/ghostty/discussions/10151 for details.
+| Type                                               | Trigger                                          |
+| -------------------------------------------------- | ------------------------------------------------ |
+| `idle_prompt`                                      | Claude waiting for user input                    |
+| `permission_prompt`                                | Tool use requires permission                     |
+| `worker_permission_prompt`                         | Permission required in a worker session          |
+| `auth_success`                                     | Authentication completed                         |
+| `elicitation_dialog`                               | Elicitation dialog shown                         |
+| `elicitation_url_dialog`                           | URL elicitation dialog shown                     |
+| `agent_needs_input`                                | A background agent is blocked on input           |
+| `agent_completed`                                  | A background agent finished                      |
+| `push_notification`                                | Mobile push delivery                             |
+| `computer_use_enter` / `_exit`                     | Computer-use session boundaries                  |
+| `quota_auto_resume_fired` / `_stale` / `_disabled` | Quota auto-resume state changes                  |
+| `model_refusal_fallback`                           | Model refusal triggered a fallback               |
 
-The `preferredNotifChannel` setting takes effect immediately without restarting
-Claude Code — changing it via `/config` is picked up on the next notification
-because `k1()` (the config reader) re-reads `~/.claude.json` from disk on each
-call.
+`elicitation_complete` and `elicitation_response` appear at call sites without being members of the
+enum, so treat the enum as the settings-facing list rather than the complete set.
 
-Sound intermittently stops playing even though the banner still appears. This
-appears to be a Ghostty or macOS bug, not a Claude Code issue.
+Tripwire: the enum held 5 members at 2.1.76 and 15 at 2.1.277. Re-read it rather than trusting this
+table.
 
-TODO: Investigate Ghostty's `UNNotificationContent` construction — specifically
-whether sound, badge, and interruptionLevel are set correctly, and whether the
-focus-suppression logic could be made configurable.
+## The idle notifier
 
-## Notification Hook Path
+At 2.1.277 the idle logic is a class, constructed with a named options object. The option names are
+the landmarks; grep `hasArmedQuotaAutoResume` or `hasSeededRemotePrompt` to land on the construction
+site, and `setLocalOverlayShowing` for the class body.
 
-`Mg()` fires the user-configured `Notification` hook event (if one is set up in
-`settings.json`). It receives a JSON payload on stdin including `hook_event_name`,
-`message`, `title`, `notification_type`, and session context.
+It subscribes to a turn snapshot exposing `isLoading`, `submitCount` and `lastQueryCompletionTime`,
+and re-arms whenever any of those change.
 
-Hooks cannot block or suppress notifications — they are for side effects only
-(playing sounds, sending external messages, etc.). A hook works regardless of
-which terminal is in use, making it the only reliable approach when running
-inside a multiplexer like tmux.
+A timer is armed only when the turn is not loading, `lastQueryCompletionTime` is non-zero, and
+either `submitCount` is above zero or a remote prompt was seeded. Its delay is the idle threshold,
+clamped to the 32-bit timeout ceiling.
 
-## Bug: "ghostty" Channel Value is Non-functional
+When the timer fires, the notification is sent only if all of these hold:
 
-The settings UI presents "ghostty" as a valid `preferredNotifChannel` option
-(line 461448), but `H0Y()`'s switch statement has no `case "ghostty"`. It falls
-through to `default: return "none"` — no notification is sent.
+    □ last interaction time is not newer than lastQueryCompletionTime
+    □ turn still not loading
+    □ no local overlay showing
+    □ no dialog on screen
+    □ no pending loop wakeup
+    □ no armed quota auto-resume
+    □ elapsed since lastQueryCompletionTime >= idle threshold
 
-The `notifyGhostty()` function (OSC 777) is only reachable via the `"auto"` path
-through `j0Y()`. The same applies to "ghostty" in the UI options list at line
-461442–461449: the enum includes "ghostty" but the dispatcher does not.
+The threshold is the `messageIdleNotifThresholdMs` setting, default 60000. The message is
+`Claude is waiting for your input`.
 
-Consequence: setting `preferredNotifChannel: "ghostty"` silently disables
-built-in notifications. Use `"auto"` instead.
+The last-interaction check is the interesting one: the timer is armed from the moment the response
+ends, and any user activity after that point cancels the notification when the timer eventually
+fires, rather than re-arming it.
 
-Similarly, there is no `case "ghostty"` for the forced path — if auto-detection
-misidentifies the terminal (common inside tmux), there is no way to force Ghostty
-OSC 777 via the channel setting.
+## The idle return hint
 
-### Fix
+A second, separate mechanism on the same class adds an in-app contextual notification rather than a
+terminal notification. Grep `idle-return-hint` or `tengu_idle_return_action`.
 
-Add a single case to `H0Y()` at line 348348, after the `"kitty"` case:
+It arms when the context is large enough, then fires after a longer idle period, showing
+`new task? /clear to save <n> tokens`. Both bounds are env-configurable:
 
-```javascript
-[source fragment removed]
-```
+| Env var                              | Default | Meaning                                   |
+| ------------------------------------ | ------- | ----------------------------------------- |
+| `CLAUDE_CODE_IDLE_TOKEN_THRESHOLD`   | `1e5`   | Minimum context tokens before it arms     |
+| `CLAUDE_CODE_IDLE_THRESHOLD_MINUTES` | `75`    | Idle minutes before the hint appears      |
 
-`notifyGhostty()` already exists and is called correctly via the `"auto"` path.
-The fix is a one-line missing case.
+`tengu_idle_return_action` records `hint_shown` when it appears and `hint_converted` when the user
+subsequently submits a `/clear`, each with `idleMinutes`, `messageCount` and `contextTokens`.
 
-## preferredNotifChannel Values
+## Notification hook path
 
-Defined in the settings UI at line 461442:
+The `Notification` hook event fires if one is configured in `settings.json`. It receives a JSON
+payload on stdin including `hook_event_name`, `message`, `title`, `notification_type`, and session
+context.
 
-| Value                    | Effect                                             |
-|--------------------------|----------------------------------------------------|
-| `"auto"` (default)       | Auto-detect terminal; use its native protocol      |
-| `"iterm2"`               | Force iTerm2 OSC 9                                 |
-| `"iterm2_with_bell"`     | iTerm2 OSC 9 + BEL                                 |
-| `"kitty"`                | Force Kitty OSC 99                                  |
-| `"terminal_bell"`        | BEL only                                           |
-| `"ghostty"`              | BUG: falls to default, nothing sent                |
-| `"notifications_disabled"` | Suppress built-in notifications entirely         |
+Hooks cannot block or suppress notifications; they are for side effects only, such as playing a
+sound or sending an external message. A hook works regardless of terminal, which makes it the only
+reliable approach inside a multiplexer.
 
-## Terminal Detection (vNK(), line 53917)
+## Ghostty OSC 777 on macOS
 
-`s8.terminal` is set once at startup by `vNK()`. The detection priority is:
+Claude Code's responsibility ends at the stdout write. What follows is Ghostty and macOS.
 
-1. `CURSOR_TRACE_ID` / `VSCODE_GIT_ASKPASS_MAIN` → IDE variants
-2. `__CFBundleIdentifier` → JetBrains and other IDE bundles
-3. `TERM === "xterm-ghostty"` → `"ghostty"`
-4. `TERM` includes `"kitty"` → `"kitty"`
-5. `TERM_PROGRAM` → returned verbatim (e.g. `"iTerm.app"`)
-6. `TMUX` → `"tmux"`
-7. Various other env vars (`KONSOLE_VERSION`, `ALACRITTY_LOG`, etc.)
-8. `!process.stdout.isTTY` → `"non-interactive"`
+Ghostty suppresses visual delivery, meaning banner and sound, while its window is focused and the
+surface is key. Focused, the notification is stored in Notification Centre silently. Unfocused, the
+banner and sound appear as configured in System Settings. This is the standard macOS convention for
+a well-behaved notification sender.
 
-Ghostty sets `TERM=xterm-ghostty`, which matches check 3. However, if Claude
-Code is running inside tmux within Ghostty, tmux overrides `TERM` to
-`screen-256color` or `tmux-256color`, causing check 6 to match instead —
-`s8.terminal` becomes `"tmux"` and `j0Y()` returns `"no_method_available"`.
+The consequence for idle notifications: if the user is looking at the Ghostty window, OSC 777 is
+written and nothing visible happens. The notification surfaces when Ghostty loses focus, which is
+also when it is useful. An apparent delay of a few seconds is the banner appearing on focus change,
+not delivery being slow.
 
-## macOS Notification Permissions
+Setting System Settings → Notifications → Ghostty to Alerts rather than Banners keeps the banner up
+until dismissed. See https://github.com/ghostty-org/ghostty/discussions/10151.
 
-When `notifyGhostty()` writes OSC 777 to stdout, Ghostty intercepts it and
-calls the macOS notification API. This requires Ghostty to have notification
-permission in System Settings → Notifications → Ghostty. If permission is
-absent or denied, macOS silently drops the notification — no error, no
-fallback.
+macOS silently drops the notification if Ghostty lacks notification permission. No error, no
+fallback, and the code path is working correctly end to end. This is a common failure mode and it
+masks unrelated configuration problems while it lasts.
 
-This is a common failure mode: the code path works correctly end-to-end but
-macOS suppresses the final delivery.
+Sound intermittently stops playing while the banner still appears. That is a Ghostty or macOS
+issue, not a Claude Code one.
 
-## Confirmed Bug: "ghostty" Channel Value
+## tmux
 
-The bug in `H0Y()` (no `case "ghostty":`) was confirmed by the following
-sequence of observations:
+A multiplexer swallows OSC escape codes, and detection reports `tmux` rather than the outer
+terminal, so the auto-detector returns `no_method_available`. Built-in notifications do not reach
+the outer terminal at all.
 
-1. With `preferredNotifChannel: "ghostty"` set → no notifications
-2. Switched to `"auto"` → still no notifications (separate macOS permissions issue)
-3. macOS permissions resolved → `"auto"` works; `"ghostty"` still does not
-
-The two problems coexisted independently. Switching to `"auto"` fixed the
-missing-case bug, but the macOS permission issue masked that fix until
-permissions were granted. The bug is real: `"ghostty"` hits `default: return
-"none"` regardless of whether permissions are in order.
-
-This is tracked in https://github.com/anthropics/claude-code/issues/19979.
-The reporter observed the same symptom (no notifications with `"ghostty"`) and
-found that switching to `"iterm2"` works as a workaround — consistent with
-`"iterm2"` having an explicit `case` in `H0Y()` while `"ghostty"` does not.
-
-## tmux Considerations
-
-When running inside tmux (or other multiplexers), OSC escape codes are typically
-swallowed by the multiplexer. `s8.terminal` will likely not be detected as
-"ghostty" or "kitty" either. In this environment:
-
-- Built-in terminal notifications will not reach the outer terminal
-- A Notification hook (running a subprocess like `osascript`) is the only
-  reliable path for desktop notifications
-
-The proper fix would be to detect `$TMUX` and wrap OSC sequences in DCS
-passthrough format, which tmux forwards to the outer terminal:
-
-```
-# plain (current):    ESC ] 9 ; message BEL
-# tmux DCS-wrapped:   ESC P tmux ; ESC ESC ] 9 ; message BEL ESC \
-```
-
-This requires tmux 3.3+ with `allow-passthrough on` (or `all`) in
-`~/.tmux.conf`. This is a known feature request:
-https://github.com/anthropics/claude-code/issues/19976
-
-As a workaround until the fix lands, a Notification hook can write the
-DCS-wrapped sequence directly to `/dev/tty` (hook stdout is captured by
-Claude Code, so `/dev/tty` must be used explicitly):
+A Notification hook running a subprocess is the reliable path. A hook can also write the
+DCS-wrapped sequence directly to `/dev/tty`, since hook stdout is captured:
 
 ```bash
 #!/bin/bash
@@ -293,3 +205,17 @@ read -r input
 message=$(echo "$input" | jq -r '.message // "Claude Code"')
 printf '\033Ptmux;\033\033]9;%s\007\033\\' "$message" > /dev/tty
 ```
+
+This requires tmux 3.3+ with `allow-passthrough on` in `~/.tmux.conf`. Wrapping OSC sequences in DCS
+passthrough when `$TMUX` is set is a standing feature request:
+https://github.com/anthropics/claude-code/issues/19976
+
+## Version history
+
+- 2.1.76: `ghostty` is offered in the settings enum but absent from the channel switch, so
+  configuring it silently sends nothing and OSC 777 is reachable only through `auto`. Reported as
+  https://github.com/anthropics/claude-code/issues/19979. Forcing `iterm2` was the workaround.
+- 2.1.277: fixed. The dispatch is split into resolver, auto-detector and emitter, and `ghostty` is
+  accepted on both the forced and auto paths. Idle logic extracted into a class with named
+  dependencies. Notification type enum grown to 15 members. Attacher-terminal detection and the
+  `attacher_term` telemetry field added. Idle return hint added.
