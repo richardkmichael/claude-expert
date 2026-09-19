@@ -1,8 +1,12 @@
 # Anthropic API Call Sites Analysis
 
-Source: `cli.prettier.js` 2.1.76 (`work/2.1.76/package/cli.prettier.js`)
+Source: `cli.prettier.js` (`work/<version>/package/cli.prettier.js`)
+Verified against: cli.prettier.js 2.1.76 (2026-06-06). Not re-verified against a current bundle;
+treat specifics as 2.1.76 facts and re-check with the landmark greps in each section.
 
-This document analyzes all locations where Claude Code makes API requests to Anthropic's API, documenting the request construction pipeline and all control mechanisms that affect what context gets included.
+This document analyzes all locations where Claude Code makes API requests to Anthropic's API,
+documenting the request construction pipeline and all control mechanisms that affect what context
+gets included.
 
 ---
 
@@ -22,13 +26,15 @@ This document analyzes all locations where Claude Code makes API requests to Ant
 
 ## Overview
 
-Claude Code makes API requests to Anthropic's `/v1/messages` endpoint. Every request contains three critical parameters:
+Claude Code makes API requests to Anthropic's `/v1/messages` endpoint. Every request contains three
+critical parameters:
 
 - **`system`**: Array of content blocks containing the system prompt and instructions
 - **`tools`**: Array of tool schemas (built-in + MCP tools)
 - **`messages`**: Conversation history with user/system context wrappers
 
-Understanding where API calls happen and how these parameters are constructed is essential for tracing context sources.
+Understanding where API calls happen and how these parameters are constructed is essential for
+tracing context sources.
 
 ---
 
@@ -36,39 +42,31 @@ Understanding where API calls happen and how these parameters are constructed is
 
 ### Primary API Call Site
 
-**Function**: `Js2()` (Streaming API implementation)
-**Location**: Line 468762-469090
-**Purpose**: Main streaming API call for interactive and non-interactive sessions
+The streaming function is the main API call for both interactive and non-interactive sessions.
 
-**Actual API Call** (Line 468871):
-```javascript
-[source fragment removed]
-```
+**Actual API Call**:
+The primary call is a streaming beta-messages request, made through the SDK client with an abort
+signal attached so the session can cancel it.
 
-Where:
-- `c` = Anthropic SDK client
-- `EA` = Request object (constructed in closure)
-- `G` = Abort signal for cancellation
-
-**Wrapper Function**: `H6A()` (Line 468750-468761)
-**Purpose**: Wraps `Js2()` with fixture testing layer, delegates to actual implementation
+A wrapper sits above it, adding a fixture-testing layer and delegating to the real implementation.
+Relocate both by grepping `beta.messages.stream`.
 
 ### Secondary API Call Sites
 
-| Function | Line | Purpose | API Method |
-|----------|------|---------|------------|
-| Batch processing | 146096 | Batch API requests | `beta.messages.create()` |
-| Token counting | 270240 | Count tokens for messages | `beta.messages.create()` |
-| Test validation | 467051 | Validate API responses | `beta.messages.create()` |
-| Print mode | 468649 | Non-streaming requests | `beta.messages.create()` |
-| Streaming wrapper | 469090 | Alternative streaming path | `beta.messages.stream()` |
+| Function          | Purpose                    | API Method               |
+| ----------------- | -------------------------- | ------------------------ |
+| Batch processing  | Batch API requests         | `beta.messages.create()` |
+| Token counting    | Count tokens for messages  | `beta.messages.create()` |
+| Test validation   | Validate API responses     | `beta.messages.create()` |
+| Print mode        | Non-streaming requests     | `beta.messages.create()` |
+| Streaming wrapper | Alternative streaming path | `beta.messages.stream()` |
 
 ### Call Site Selection Logic
 
-The primary entry point is `ES()` function (line 468734), which:
+The primary entry point is the query entry point function, which:
 1. Checks for "off-switch" (emergency disable)
 2. Selects Bedrock inference profiles if applicable
-3. Delegates to `Js2()` for streaming
+3. Delegates to the streaming function for streaming
 4. Returns async generator of API events
 
 ---
@@ -84,52 +82,58 @@ CLI Arguments / Environment Variables / Config Files
                     ↓
         Build Options Object
                     ↓
-        ES() Entry Point (line 468734)
+        Query entry point
                     ↓
-        System Prompt Assembly (lines 468788-468796)
+        System Prompt Assembly
                     ↓
-        Tool Schema Preparation (line 468775)
+        Tool Schema Preparation
                     ↓
-        Js2() Streaming Function (line 468762)
+        Streaming function
                     ↓
-        Request Body Construction (line 468836)
+        Request Body Construction
                     ↓
-        Anthropic SDK API Call (line 468871)
+        Anthropic SDK API Call
 ```
 
-### Variable Name Mapping (Obfuscated)
+### Values threaded through the streaming function
 
-In `Js2()` function context:
+The streaming function holds, in order of construction: the raw system prompt array, the raw
+messages array, the raw tool schemas, then the processed forms of each (system prompt as content
+blocks with cache control, normalized messages, prepared tool schemas), then the assembled request
+object, alongside the options object it was called with.
 
-| Variable | Purpose | Type |
-|----------|---------|------|
-| `B` | System prompt array (before processing) | `string[]` |
-| `A` | Messages array | `Message[]` |
-| `I` | Tools array (schemas) | `Tool[]` |
-| `F` | Final system prompt blocks (with cache control) | `ContentBlock[]` |
-| `V` | Normalized messages | `Message[]` |
-| `J` | Processed tool schemas | `Tool[]` |
-| `EA` | Final request object | `object` |
-| `Z` | Options object passed to ES() | `object` |
+The distinction that matters is raw versus processed. Each of the three inputs exists in both
+forms simultaneously, and only the processed form reaches the request.
 
 ### Request Object Construction
 
-**Location**: Line 468836-468848
-**Constructed in**: Closure function `U()` within `Js2()`
+Constructed by a closure inside the streaming function:
 
-```javascript
-[source fragment removed]
-```
+| Field                | Built from                                             |
+| -------------------- | ------------------------------------------------------ |
+| `model`              | Resolved model identifier                              |
+| `messages`           | Normalized conversation messages                       |
+| `system`             | System prompt content blocks                           |
+| `tools`              | Tool schemas plus `extraToolSchemas`                   |
+| `tool_choice`        | The caller's tool-choice strategy                      |
+| `betas`              | Conditional, only when beta features are active        |
+| `metadata`           | User metadata                                          |
+| `max_tokens`         | Resolved output cap                                    |
+| `thinking`           | Extended-thinking config, or absent                    |
+| `context_management` | Conditional, requires betas active and the beta listed |
+| Extra fields         | Spread last, from `CLAUDE_CODE_EXTRA_BODY`             |
+
+The extra-body spread comes last, so it can override any field above it.
 
 ### Key Processing Functions
 
-| Function | Line | Purpose |
-|----------|------|---------|
-| `kg()` | Unknown | Model identifier normalization |
-| `sAI()` | 469227 | Normalize messages with cache control |
-| `rAI()` | 469227 | Convert system prompt to content blocks |
-| `f01()` | Unknown | Process and filter tool schemas |
-| `Pu()` | 468632 | Generate metadata with user/session IDs |
+| Function                        | Purpose                                     |
+| ------------------------------- | ------------------------------------------- |
+| Model resolver                  | Model identifier normalization              |
+| the message normalizer          | Normalize messages with cache control       |
+| the system-prompt block builder | Convert system prompt to content blocks     |
+| the tool-schema preparer        | Process and filter tool schemas             |
+| Metadata builder                | Generate metadata with user and session ids |
 
 ---
 
@@ -139,175 +143,184 @@ In `Js2()` function context:
 
 #### System Prompt Controls
 
-| Argument | Effect | API Parameter | Code Location |
-|----------|--------|---------------|---------------|
-| `--system-prompt <prompt>` | Replaces entire system prompt | `system[0]` | Line 491764 |
-| `--system-prompt-file <file>` | Loads system prompt from file | `system[0]` | Line 491769 |
-| `--append-system-prompt <prompt>` | Appends to default system prompt | `system[N]` | Line 491775 |
-| `--append-system-prompt-file <file>` | Appends file contents to default | `system[N]` | Line 491781 |
+| Argument                             | Effect                           | API Parameter   |
+| ------------------------------------ | -------------------------------- | --------------- |
+| `--system-prompt <prompt>`           | Replaces entire system prompt    | `system[0]`     |
+| `--system-prompt-file <file>`        | Loads system prompt from file    | `system[0]`     |
+| `--append-system-prompt <prompt>`    | Appends to default system prompt | `system[N]`     |
+| `--append-system-prompt-file <file>` | Appends file contents to default | `system[N]`     |
 
-**Processing** (Lines 491938-491987):
-```javascript
-[source fragment removed]
-```
+**Processing**:
+Each of the two system-prompt flags has a file-valued counterpart, and supplying both forms of the
+same flag is an error printed in red to stderr. The file variant is read synchronously as UTF-8.
 
-**Effect on Request** (Line 468792):
-```javascript
-[source fragment removed]
-```
+The pairs are `--system-prompt` with `--system-prompt-file`, and `--append-system-prompt` with
+`--append-system-prompt-file`.
+
+**Effect on Request**:
+The presence of an append-system-prompt is carried through the options object as a boolean, not as
+the text itself, because the base-prompt selector needs only to know whether one exists.
 
 #### Tool Configuration
 
-| Argument | Effect | API Parameter | Restrictions |
-|----------|--------|---------------|--------------|
-| `--tools <tools...>` | Specifies available built-in tools | `tools[]` | Only with `--print` |
-| `--allowed-tools <tools...>` | Whitelist tool patterns | `tools[]` | All modes |
-| `--disallowed-tools <tools...>` | Blacklist tool patterns | `tools[]` | All modes |
+| Argument                        | Effect                             | API Parameter   | Restrictions        |
+| ------------------------------- | ---------------------------------- | --------------- | ------------------- |
+| `--tools <tools...>`            | Specifies available built-in tools | `tools[]`       | Only with `--print` |
+| `--allowed-tools <tools...>`    | Whitelist tool patterns            | `tools[]`       | All modes           |
+| `--disallowed-tools <tools...>` | Blacklist tool patterns            | `tools[]`       | All modes           |
 
-**Example** (Line 452365):
+**Example**:
 ```yaml
 claude_args: '--allowed-tools "Bash(gh issue view:*),Bash(gh search:*),..."'
 ```
 
 #### Model & Output Configuration
 
-| Argument | Effect | Code Location |
-|----------|--------|---------------|
-| `--model <model>` | Sets model for session | Line 491819 |
-| `--fallback-model <model>` | Auto-fallback when overloaded | Line 491823 |
-| `--print` / `-p` | Non-interactive mode | Line 491658 |
-| `--output-format <format>` | text/json/stream-json | Line 491665 |
-| `--max-turns <turns>` | Limits agentic turns | Line 491704 |
-| `--max-budget-usd <amount>` | Budget limit | Line 491712 |
+| Argument                    | Effect                        |
+| --------------------------- | ----------------------------- |
+| `--model <model>`           | Sets model for session        |
+| `--fallback-model <model>`  | Auto-fallback when overloaded |
+| `--print` / `-p`            | Non-interactive mode          |
+| `--output-format <format>`  | text/json/stream-json         |
+| `--max-turns <turns>`       | Limits agentic turns          |
+| `--max-budget-usd <amount>` | Budget limit                  |
 
 #### MCP & Plugin Configuration
 
-| Argument | Effect | Code Location |
-|----------|--------|---------------|
-| `--mcp-config <configs...>` | Load MCP servers from JSON | Line 491751 |
-| `--strict-mcp-config` | Only use specified MCP config | Line 491840 |
-| `--plugin-dir <paths...>` | Load plugins from directories | Line 491857 |
+| Argument                    | Effect                        |
+| --------------------------- | ----------------------------- |
+| `--mcp-config <configs...>` | Load MCP servers from JSON    |
+| `--strict-mcp-config`       | Only use specified MCP config |
+| `--plugin-dir <paths...>`   | Load plugins from directories |
 
 #### Permission & Session Controls
 
-| Argument | Effect | Code Location |
-|----------|--------|---------------|
-| `--permission-mode <mode>` | Sets permission mode (auto/manual/disabled) | Line 491789 |
-| `--session-id <uuid>` | Use specific session ID | Line 491845 |
-| `--continue` / `-c` | Continue most recent conversation | Line 491796 |
-| `--resume [sessionId]` | Resume a conversation | Line 491801 |
-| `--fork-session` | Create new session ID when resuming | Line 491806 |
-| `--settings <file-or-json>` | Load additional settings | Line 491827 |
+| Argument                    | Effect                                      |
+| --------------------------- | ------------------------------------------- |
+| `--permission-mode <mode>`  | Sets permission mode (auto/manual/disabled) |
+| `--session-id <uuid>`       | Use specific session ID                     |
+| `--continue` / `-c`         | Continue most recent conversation           |
+| `--resume [sessionId]`      | Resume a conversation                       |
+| `--fork-session`            | Create new session ID when resuming         |
+| `--settings <file-or-json>` | Load additional settings                    |
 
 ### 2. Environment Variables
 
 #### Authentication & API Provider
 
-| Variable | Effect | Code Location | Default |
-|----------|--------|---------------|---------|
-| `ANTHROPIC_API_KEY` | API key for Anthropic | Line 476435 | Required |
-| `CLAUDE_CODE_OAUTH_TOKEN` | OAuth token | Line 476409 | Preferred |
-| `CLAUDE_CODE_USE_BEDROCK` | Use AWS Bedrock | Line 206235 | False |
-| `CLAUDE_CODE_USE_VERTEX` | Use Google Vertex | Line 206261 | False |
+| Variable                  | Effect                | Default   |
+| ------------------------- | --------------------- | --------- |
+| `ANTHROPIC_API_KEY`       | API key for Anthropic | Required  |
+| `CLAUDE_CODE_OAUTH_TOKEN` | OAuth token           | Preferred |
+| `CLAUDE_CODE_USE_BEDROCK` | Use AWS Bedrock       | False     |
+| `CLAUDE_CODE_USE_VERTEX`  | Use Google Vertex     | False     |
 
-**Provider Detection** (Lines 206235-206261):
-```javascript
-[source fragment removed]
-```
+**Provider Detection**:
+Bedrock and Vertex are each selected by a truthy env var, and each has a companion var that skips
+its authentication: `CLAUDE_CODE_USE_BEDROCK` with `CLAUDE_CODE_SKIP_BEDROCK_AUTH`, and
+`CLAUDE_CODE_USE_VERTEX` with `CLAUDE_CODE_SKIP_VERTEX_AUTH`.
 
 #### Context & Content Controls
 
-| Variable | Effect | API Parameter | Code Location |
-|----------|--------|---------------|---------------|
-| `CLAUDE_CODE_DISABLE_CLAUDE_MDS` | Disable CLAUDE.md loading | `system[]` | Line 321038 |
-| `CLAUDE_CODE_DISABLE_ATTACHMENTS` | Disable attachments | `messages[]` | Line 313062 |
-| `CLAUDE_CODE_MAX_OUTPUT_TOKENS` | Override max output tokens | `max_tokens` | Line 469287 |
-| `CLAUDE_CODE_EXTRA_BODY` | Extra JSON for request body | All params | Lines 468585-468609 |
+| Variable                          | Effect                      | API Parameter   |
+| --------------------------------- | --------------------------- | --------------- |
+| `CLAUDE_CODE_DISABLE_CLAUDE_MDS`  | Disable CLAUDE.md loading   | `system[]`      |
+| `CLAUDE_CODE_DISABLE_ATTACHMENTS` | Disable attachments         | `messages[]`    |
+| `CLAUDE_CODE_MAX_OUTPUT_TOKENS`   | Override max output tokens  | `max_tokens`    |
+| `CLAUDE_CODE_EXTRA_BODY`          | Extra JSON for request body | All params      |
 
-**EXTRA_BODY Processing** (Lines 468585-468609):
-```javascript
-[source fragment removed]
-```
+**EXTRA_BODY Processing**:
+`CLAUDE_CODE_EXTRA_BODY` is parsed as JSON. A value that parses to a non-array object is used; a
+value that parses to anything else, or fails to parse, logs an error and is discarded rather than
+throwing. The result is spread over the request body.
 
 **Power User Note**: `CLAUDE_CODE_EXTRA_BODY` can inject ANY field into the request body!
 
 #### Prompt Caching Controls
 
-| Variable | Effect | Code Location |
-|----------|--------|---------------|
-| `DISABLE_PROMPT_CACHING` | Disable all prompt caching | Line 468612 |
-| `DISABLE_PROMPT_CACHING_HAIKU` | Disable for Haiku only | Line 468613 |
-| `DISABLE_PROMPT_CACHING_SONNET` | Disable for Sonnet only | Line 468617 |
-| `DISABLE_PROMPT_CACHING_OPUS` | Disable for Opus only | Line 468621 |
+| Variable                        | Effect                     |
+| ------------------------------- | -------------------------- |
+| `DISABLE_PROMPT_CACHING`        | Disable all prompt caching |
+| `DISABLE_PROMPT_CACHING_HAIKU`  | Disable for Haiku only     |
+| `DISABLE_PROMPT_CACHING_SONNET` | Disable for Sonnet only    |
+| `DISABLE_PROMPT_CACHING_OPUS`   | Disable for Opus only      |
 
-**Cache Enable Function** (Lines 468611-468626):
-```javascript
-[source fragment removed]
-```
-
-**Applied at Line 468797**:
-```javascript
-[source fragment removed]
-```
+**Cache Enable Function**:
+Caching is enabled unless `DISABLE_PROMPT_CACHING` is truthy, which disables it outright. Three
+per-model variants, `DISABLE_PROMPT_CACHING_HAIKU`, `_SONNET` and `_OPUS`, disable it only when the
+resolved model matches that family.
+The caching decision is passed into the system-prompt block builder as a parameter, so the same
+builder produces cached or uncached blocks.
 
 #### Tool & Bash Configuration
 
-| Variable | Effect | Code Location |
-|----------|--------|---------------|
-| `CLAUDE_CODE_USE_NATIVE_FILE_SEARCH` | Use native file search vs ripgrep | Line 472352 |
-| `CLAUDE_CODE_GIT_BASH_PATH` | Git bash path (Windows) | Lines 38274-38278 |
-| `CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR` | Maintain bash cwd | Line 3370 |
-| `CLAUDE_CODE_SHELL_PREFIX` | Prefix for shell commands | Lines 269799, 310179 |
-| `CLAUDE_CODE_DISABLE_COMMAND_INJECTION_CHECK` | Disable injection check | Lines 212358, 212466 |
+| Variable                                      | Effect                            | Code Location        |
+| --------------------------------------------- | --------------------------------- | -------------------- |
+| `CLAUDE_CODE_USE_NATIVE_FILE_SEARCH`          | Use native file search vs ripgrep |                      |
+| `CLAUDE_CODE_GIT_BASH_PATH`                   | Git bash path (Windows)           |                      |
+| `CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR`    | Maintain bash cwd                 |                      |
+| `CLAUDE_CODE_SHELL_PREFIX`                    | Prefix for shell commands         |                      |
+| `CLAUDE_CODE_DISABLE_COMMAND_INJECTION_CHECK` | Disable injection check           |                      |
 
 #### Performance & Behavior
 
-| Variable | Effect | Code Location |
-|----------|--------|---------------|
-| `CLAUDE_CODE_SUBAGENT_MODEL` | Override subagent model | Line 140963 |
-| `CLAUDE_CODE_MAX_RETRIES` | Max API retries | Line 345668 |
-| `CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY` | Tool concurrency limit | Line 348178 |
-| `CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING` | Disable file checkpointing | Lines 208276, 325004 |
+| Variable                                 | Effect                     | Code Location        |
+| ---------------------------------------- | -------------------------- | -------------------- |
+| `CLAUDE_CODE_SUBAGENT_MODEL`             | Override subagent model    |                      |
+| `CLAUDE_CODE_MAX_RETRIES`                | Max API retries            |                      |
+| `CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY`   | Tool concurrency limit     |                      |
+| `CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING` | Disable file checkpointing |                      |
 
 ### 3. Configuration Files
 
 #### Settings Files (JSON)
 
 **Locations checked in order**:
-1. Managed settings: `~/.claude/managed-settings.json` (line 476094)
-2. User settings: `~/.claude/settings.json` (line 476135)
-3. Project settings: `.claude/settings.json` (line 476148)
+1. Managed settings: `~/.claude/managed-settings.json`
+2. User settings: `~/.claude/settings.json`
+3. Project settings: `.claude/settings.json`
 
-**Schema**: `https://json.schemastore.org/claude-code-settings.json` (line 34589)
+**Schema**: `https://json.schemastore.org/claude-code-settings.json`
 
-**CLI Override**: `--settings <file-or-json>` (line 491827)
+**CLI Override**: `--settings <file-or-json>`
 
-**Source Control**: `--setting-sources <sources>` controls which are loaded (line 491853)
+**Source Control**: `--setting-sources <sources>` controls which are loaded
 
 #### MCP Configuration
 
-**Default Locations**: Checked at enterprise config level (line 491891)
+**Default Locations**: Checked at enterprise config level
 
 **Overrides**:
-- `--mcp-config <configs>`: Add additional configs (line 491751)
-- `--strict-mcp-config`: ONLY use specified configs (line 491840)
+- `--mcp-config <configs>`: Add additional configs
+- `--strict-mcp-config`: ONLY use specified configs
 
 ### 4. Programmatic Controls
 
 #### Options Object Structure
 
-Passed to `ES()` function at line 468734:
+Passed to the query entry point function:
 
-```javascript
-[source fragment removed]
-```
+| Option                     | Meaning                              |
+| -------------------------- | ------------------------------------ |
+| `model`                    | Model id                             |
+| `getToolPermissionContext` | Async permission context accessor    |
+| `agents`                   | Custom agent definitions             |
+| `isNonInteractiveSession`  | From `--print`                       |
+| `hasAppendSystemPrompt`    | From `--append-system-prompt`        |
+| `querySource`              | Source identifier                    |
+| `mcpTools`                 | MCP tool schemas                     |
+| `toolChoice`               | Tool-choice strategy                 |
+| `enablePromptCaching`      | Prompt caching flag                  |
+| `maxOutputTokensOverride`  | Output token override                |
+| `temperatureOverride`      | Temperature override                 |
+| `extraToolSchemas`         | Additional tool schemas              |
+| `fallbackModel`            | Fallback model                       |
+| `fetchOverride`            | Custom fetch implementation          |
+| `queryTracking`            | Query tracking data                  |
 
 #### Beta Features
-
-**Applied at Line 468842**:
-```javascript
-[source fragment removed]
-```
+The `betas` field is spread in conditionally, so it is absent rather than empty when no beta is
+active.
 
 Betas conditionally included based on:
 - Model capabilities
@@ -315,13 +328,10 @@ Betas conditionally included based on:
 - Feature flags
 
 #### Extended Thinking
+Extended thinking is included only when the resolved budget is above zero, as
+`{ budget_tokens, type: "enabled" }`, and omitted entirely otherwise.
 
-**Applied at Lines 468828-468829**:
-```javascript
-[source fragment removed]
-```
-
-Controlled by `maxThinkingTokens` parameter passed to `ES()`.
+Controlled by `maxThinkingTokens` parameter passed to the query entry point.
 
 ---
 
@@ -331,42 +341,49 @@ Controlled by `maxThinkingTokens` parameter passed to `ES()`.
 
 #### Base Opening Statement
 
-**Function**: `zvA()` (Line 144616-144623)
+**Function**: the base-prompt selector
 
-**Constants** (Lines 144624-144627):
-```javascript
-[source fragment removed]
-```
+**Constants**:
+Three base prompts exist as constants. Their opening lines are `You are Claude Code, Anthropic's
+official CLI for Claude`, the same sentence extended with `running within the Claude Agent SDK`, and
+`You are a Claude agent, built on Anthropic's Claude Agent SDK`. Verbatim text is in
+`PROMPTS_RENDERED.md`.
 
 **Selection Logic**:
-```javascript
-[source fragment removed]
-```
+Selection is by deployment and interactivity, not by model. Vertex always gets the plain CLI prompt.
+A non-interactive session gets the Agent SDK prompt, in the `running within` form when an
+append-system-prompt is present and the bare Claude-agent form when it is not. Everything else gets
+the plain CLI prompt.
+
+That an append-system-prompt changes which base prompt is selected, rather than only appending to
+it, is the non-obvious part.
 
 #### System Prompt Construction
 
-**Location**: Lines 468788-468796
-
-```javascript
-[source fragment removed]
-```
+The system prompt array is the selected base prompt, followed by any custom system prompts from the
+CLI arguments, followed by the MCP tools documentation. Falsy entries are filtered out, so an absent
+section leaves no gap.
 
 Components assembled:
-1. Base opening statement (`zvA()`)
+1. Base opening statement (the base-prompt selector)
 2. Custom system prompt (from `--system-prompt` or `--append-system-prompt`)
-3. MCP server instructions (`la2()`)
+3. MCP server instructions (the MCP tools documentation builder)
 
 #### Agent System Prompt Assembly
 
-**Function**: `Th2()` (Lines 468074-468086)
+**Function**: the agent prompt builder
 
-```javascript
-[source fragment removed]
-```
+The agent prompt builder appends two things to the base instructions it is given: a fixed `Notes:`
+block, and the rendered environment information.
+
+The notes cover three rules, which is worth knowing because they are agent-specific and appear
+nowhere in the main-thread prompt: agent threads reset their working directory between bash calls so
+paths must be absolute, the final response must share relevant file names and code snippets with
+absolute paths, and emojis are to be avoided. Verbatim text is in `PROMPTS_RENDERED.md`.
 
 #### Environment Information
 
-**Function**: `ia2()` (Lines 468029-468062)
+**Function**: the environment-info renderer
 
 Assembles environment block including:
 - Working directory
@@ -379,17 +396,16 @@ Assembles environment block including:
 
 #### MCP Server Instructions
 
-**Function**: `la2()` (Lines 467909-468027)
+**Function**: the MCP tools documentation builder
 
 Adds comprehensive MCP CLI command documentation when MCP tools are available.
 
 #### System Prompt to Content Blocks
 
-**Function**: `rAI()` (Lines 469227-469233)
+**Function**: the system-prompt block builder
 
-```javascript
-[source fragment removed]
-```
+Each system prompt string becomes a `text` content block. When caching is enabled, every block also
+carries a `cache_control` entry; when it is not, the blocks are otherwise identical.
 
 Converts system prompt string array to content blocks with optional cache control.
 
@@ -399,42 +415,25 @@ Converts system prompt string array to content blocks with optional cache contro
 
 **Complete Built-in Tool Names (All 18 Tools)**:
 
-| Tool Name | Code Variable | Line |
-|-----------|---------------|------|
-| `Read` | `G7` | 144470 |
-| `Write` | `oW` | 144499 |
-| `Edit` | `f5` | 144498 |
-| `NotebookEdit` | `fg` | 144512 |
-| `Bash` | `x4` | 144420 |
-| `Glob` | `Cq` | 144421 |
-| `Grep` | `wH` | 144442 |
-| `WebFetch` | `NC` | 144529 |
-| `WebSearch` | `Un` | 144548 |
-| `Task` | `i8` | 144428 |
-| `BashOutput` | (named in schema) | 444641 |
-| `KillShell` | (named in schema) | 444440 |
-| `TodoWrite` | `UvA` | 144966 |
-| `AskUserQuestion` | `ww` | 376517 |
-| `SlashCommand` | `OS` | 377632 |
-| `Skill` | `lN` | 377323 |
-| `ListMcpResourcesTool` | (named in schema) | 307647 |
-| `ReadMcpResourceTool` | (named in schema) | 307782 |
+Built-in tool names, as they appear in the `tools` array:
 
-**Tool Description Constants**:
-- `CHB` (Line 144477): Read tool description
-- `LHB` (Lines 144752-144799): TodoWrite tool description
-- `sEQ()` (Lines 268500-268548): Bash tool description (function)
-- `KHB` (Line 144530): WebFetch tool description
-- `EHB` (Lines 144549-144560): WebSearch tool description
+`Read`, `Write`, `Edit`, `NotebookEdit`, `Bash`, `BashOutput`, `KillShell`, `Glob`, `Grep`,
+`WebFetch`, `WebSearch`, `Task`, `TodoWrite`, `AskUserQuestion`, `SlashCommand`, `Skill`,
+`ListMcpResourcesTool`, `ReadMcpResourceTool`.
+
+Most are held in module-level constants rather than written as literals at the registration site, so
+grep a tool name and follow the constant to its uses. A few are named directly in their schema.
+
+Tool descriptions are constants for the static ones and functions for those that vary at runtime.
+The Bash description is a function because it assembles per-model and gated sections; see
+`GIT_USAGE.md`. Verbatim text for every description is in `PROMPTS_RENDERED.md`.
 
 #### Tool Processing Pipeline
 
-**Line 468775-468787**: Tools processed through `f01()` to prepare schemas
+Tools processed through the tool-schema preparer to prepare schemas
 
-**Line 468840**: Final tools array assembly:
-```javascript
-[source fragment removed]
-```
+Final tools array assembly:
+The tools array is the built-in and MCP schemas followed by `extraToolSchemas`, defaulting to empty.
 
 Where:
 - `J` = Processed built-in + MCP tools
@@ -444,40 +443,49 @@ Where:
 
 #### User Context Loading
 
-**Function**: `rC()` (Lines 321037-321040)
+**Function**: the claudeMd context entry
 
-```javascript
-[source fragment removed]
-```
+The `claudeMd` context entry is memoized and resolves to the assembled memory-file contents, or to
+nothing at all when `CLAUDE_CODE_DISABLE_CLAUDE_MDS` is set. Note it is the key that disappears, not
+a key with an empty value.
 
 Loads CLAUDE.md memory files unless disabled.
 
 #### System Context Loading
 
-**Function**: `sC()` (Lines 321033-321036)
+**Function**: the gitStatus context entry
 
-```javascript
-[source fragment removed]
-```
+The `gitStatus` entry is memoized the same way, and the key is present only when the git status
+collector returns something.
 
 Loads git status information.
 
 #### Memory File Assembly
 
-**Function**: `hjQ()` (Lines 311969-311990)
+**Function**: the memory assembly
 
-```javascript
-[source fragment removed]
-```
+The memory assembly walks the memory file entries, skipping any without content, and renders each as
+`Contents of <path><suffix>:` followed by a blank line and the file's content.
 
-**Preamble constant** (Lines 311963-311964):
-```javascript
-[source fragment removed]
-```
+The suffix names the scope, and the three values are the useful landmark here:
+
+| Entry type | Suffix                                                      |
+| ---------- | ----------------------------------------------------------- |
+| Project    | ` (project instructions, checked into the codebase)`        |
+| Local      | ` (user's private project instructions, not checked in)`    |
+| Other      | ` (user's private global instructions for all projects)`    |
+
+With no entries carrying content the result is the empty string. Otherwise the rendered entries are
+joined by blank lines under a fixed lead-in sentence.
+
+**Preamble constant**:
+The lead-in is a single constant sentence beginning `Codebase and user instructions are shown
+below`, which asserts that these instructions override default behavior. Verbatim text is in
+`PROMPTS_RENDERED.md`.
 
 #### Memory File Discovery
 
-**Function**: `HF()` (Lines 312004-312030)
+**Function**: the memory-file collector
 
 Searches for CLAUDE.md files in hierarchy:
 1. Managed location (global `~/.claude/CLAUDE.md`)
@@ -489,17 +497,21 @@ Searches for CLAUDE.md files in hierarchy:
 
 #### Context Injection Wrapper
 
-**Function**: `Lr()` (Lines 445797-445816)
+**Function**: the context injection function
 
-```javascript
-[source fragment removed]
-```
+Context entries are injected as a synthetic user message prepended to the conversation, and an empty
+context object short-circuits to the original messages rather than producing an empty reminder.
+
+The message is a `<system-reminder>` block whose body is the lead-in `As you answer the user's
+questions, you can use the following context:`, then each entry rendered as a `#` heading naming the
+key followed by its value, then a closing caution that the context may not be relevant. It is marked
+`isMeta`. Verbatim text is in `PROMPTS_RENDERED.md`.
 
 Wraps messages with user context (CLAUDE.md) and system context (git status).
 
 #### Message Processing
 
-**Function**: `sAI()` (Line 469227)
+**Function**: the message normalizer
 
 Normalizes messages and adds cache control to message content blocks.
 
@@ -509,18 +521,18 @@ Normalizes messages and adds cache control to message content blocks.
 
 ### Comparison Table
 
-| Aspect | Main Session | Agent (Subagent) |
-|--------|-------------|------------------|
-| **API Call** | Original request | Separate, independent request |
-| **System Prompt** | Full (~2.6k tokens) | Simplified (~500 tokens) |
-| **Base Statement** | "You are Claude Code..." | "You are an agent for Claude Code..." |
-| **Tools** | All 18 + MCP tools | Filtered subset (per agent definition) |
-| **Conversation History** | Full session history | Isolated (or forked if configured) |
-| **MCP Server Instructions** | Included in system prompt | Empty (no MCP clients) |
-| **Memory Files** | Included (CLAUDE.md) | NOT included |
-| **Environment Info** | Included | Included |
-| **Token Cost** | Part of main session budget | Separate API call (additional cost) |
-| **Context Isolation** | Shared with user | Isolated task context |
+| Aspect                      | Main Session                | Agent (Subagent)                       |
+| --------------------------- | --------------------------- | -------------------------------------- |
+| **API Call**                | Original request            | Separate, independent request          |
+| **System Prompt**           | Full (~2.6k tokens)         | Simplified (~500 tokens)               |
+| **Base Statement**          | "You are Claude Code..."    | "You are an agent for Claude Code..."  |
+| **Tools**                   | All 18 + MCP tools          | Filtered subset (per agent definition) |
+| **Conversation History**    | Full session history        | Isolated (or forked if configured)     |
+| **MCP Server Instructions** | Included in system prompt   | Empty (no MCP clients)                 |
+| **Memory Files**            | Included (CLAUDE.md)        | NOT included                           |
+| **Environment Info**        | Included                    | Included                               |
+| **Token Cost**              | Part of main session budget | Separate API call (additional cost)    |
+| **Context Isolation**       | Shared with user            | Isolated task context                  |
 
 ### Main Session System Prompt Components
 
@@ -542,7 +554,7 @@ Normalizes messages and adds cache control to message content blocks.
 3. Notes about absolute paths and emoji avoidance
 4. Environment information
 
-**Agent System Prompt Function**: `Th2()` at line 468074
+**Agent System Prompt Function**: the agent prompt builder
 
 ### Why This Matters
 
@@ -557,69 +569,69 @@ Normalizes messages and adds cache control to message content blocks.
 
 ### Master Control → API Parameter Table
 
-| Control Type | Control Name | API Parameter | Code Location |
-|--------------|--------------|---------------|---------------|
-| CLI Arg | `--system-prompt` | `system` array | 468789-468796 |
-| CLI Arg | `--append-system-prompt` | `system` array, flag | 468792 |
-| CLI Arg | `--model` | `model` | 468837 |
-| CLI Arg | `--tools` | `tools` array | 468840 |
-| CLI Arg | `--allowed-tools` | `tools` array (filtered) | Tool filtering |
-| CLI Arg | `--disallowed-tools` | `tools` array (filtered) | Tool filtering |
-| Env Var | `CLAUDE_CODE_MAX_OUTPUT_TOKENS` | `max_tokens` | 468844 |
-| Env Var | `CLAUDE_CODE_EXTRA_BODY` | Entire request body | 468585-468609 |
-| Env Var | `DISABLE_PROMPT_CACHING` | Cache control blocks | 468797 |
-| Env Var | `CLAUDE_CODE_DISABLE_CLAUDE_MDS` | `system` array content | 321038 |
-| Env Var | `CLAUDE_CODE_DISABLE_ATTACHMENTS` | Message attachments | 313062 |
-| Env Var | `CLAUDE_CODE_USE_BEDROCK` | Provider, endpoint, model | 206235 |
-| Env Var | `CLAUDE_CODE_USE_VERTEX` | Provider, endpoint, system | 206261 |
-| Programmatic | `isNonInteractiveSession` | Base system prompt variant | 468791 |
-| Programmatic | `maxThinkingTokens` | `thinking` parameter | 468828 |
-| Programmatic | `temperatureOverride` | `temperature` | 468813 |
-| Programmatic | `toolChoice` | `tool_choice` | 468841 |
-| Programmatic | `extraToolSchemas` | `tools` array | 468840 |
-| Programmatic | `mcpTools` | `system` array (MCP docs) | 468795 |
-| Programmatic | `enablePromptCaching` | Cache control blocks | 468797 |
-| Programmatic | `querySource` | Metadata/telemetry | 468816 |
-| Metadata | Session/Account IDs | `metadata.user_id` | 468843 |
-| Config | Beta features | `betas` array | 468842 |
+| Control Type   | Control Name                      | API Parameter              | Code Location   |
+| -------------- | --------------------------------- | -------------------------- | --------------- |
+| CLI Arg        | `--system-prompt`                 | `system` array             | 468789-468796   |
+| CLI Arg        | `--append-system-prompt`          | `system` array, flag       | 468792          |
+| CLI Arg        | `--model`                         | `model`                    | 468837          |
+| CLI Arg        | `--tools`                         | `tools` array              | 468840          |
+| CLI Arg        | `--allowed-tools`                 | `tools` array (filtered)   | Tool filtering  |
+| CLI Arg        | `--disallowed-tools`              | `tools` array (filtered)   | Tool filtering  |
+| Env Var        | `CLAUDE_CODE_MAX_OUTPUT_TOKENS`   | `max_tokens`               | 468844          |
+| Env Var        | `CLAUDE_CODE_EXTRA_BODY`          | Entire request body        | 468585-468609   |
+| Env Var        | `DISABLE_PROMPT_CACHING`          | Cache control blocks       | 468797          |
+| Env Var        | `CLAUDE_CODE_DISABLE_CLAUDE_MDS`  | `system` array content     | 321038          |
+| Env Var        | `CLAUDE_CODE_DISABLE_ATTACHMENTS` | Message attachments        | 313062          |
+| Env Var        | `CLAUDE_CODE_USE_BEDROCK`         | Provider, endpoint, model  | 206235          |
+| Env Var        | `CLAUDE_CODE_USE_VERTEX`          | Provider, endpoint, system | 206261          |
+| Programmatic   | `isNonInteractiveSession`         | Base system prompt variant | 468791          |
+| Programmatic   | `maxThinkingTokens`               | `thinking` parameter       | 468828          |
+| Programmatic   | `temperatureOverride`             | `temperature`              | 468813          |
+| Programmatic   | `toolChoice`                      | `tool_choice`              | 468841          |
+| Programmatic   | `extraToolSchemas`                | `tools` array              | 468840          |
+| Programmatic   | `mcpTools`                        | `system` array (MCP docs)  | 468795          |
+| Programmatic   | `enablePromptCaching`             | Cache control blocks       | 468797          |
+| Programmatic   | `querySource`                     | Metadata/telemetry         | 468816          |
+| Metadata       | Session/Account IDs               | `metadata.user_id`         | 468843          |
+| Config         | Beta features                     | `betas` array              | 468842          |
 
 ### Controls by API Parameter
 
 #### `system` Parameter
 
-| Control | Effect |
-|---------|--------|
-| `--system-prompt` | Replaces entire system prompt |
-| `--append-system-prompt` | Appends to default system prompt |
-| `CLAUDE_CODE_DISABLE_CLAUDE_MDS` | Removes CLAUDE.md content |
-| `isNonInteractiveSession` | Changes base opening statement |
-| `mcpTools` | Adds MCP server instructions |
+| Control                          | Effect                           |
+| -------------------------------- | -------------------------------- |
+| `--system-prompt`                | Replaces entire system prompt    |
+| `--append-system-prompt`         | Appends to default system prompt |
+| `CLAUDE_CODE_DISABLE_CLAUDE_MDS` | Removes CLAUDE.md content        |
+| `isNonInteractiveSession`        | Changes base opening statement   |
+| `mcpTools`                       | Adds MCP server instructions     |
 
 #### `tools` Parameter
 
-| Control | Effect |
-|---------|--------|
-| `--tools` | Specifies available tools |
-| `--allowed-tools` | Whitelist filter |
-| `--disallowed-tools` | Blacklist filter |
-| `extraToolSchemas` | Adds additional tools |
+| Control              | Effect                    |
+| -------------------- | ------------------------- |
+| `--tools`            | Specifies available tools |
+| `--allowed-tools`    | Whitelist filter          |
+| `--disallowed-tools` | Blacklist filter          |
+| `extraToolSchemas`   | Adds additional tools     |
 
 #### `messages` Parameter
 
-| Control | Effect |
-|---------|--------|
-| `CLAUDE_CODE_DISABLE_ATTACHMENTS` | Removes attachments |
-| User/system context wrappers | Adds CLAUDE.md and git status |
+| Control                           | Effect                        |
+| --------------------------------- | ----------------------------- |
+| `CLAUDE_CODE_DISABLE_ATTACHMENTS` | Removes attachments           |
+| User/system context wrappers      | Adds CLAUDE.md and git status |
 
 #### Other Parameters
 
-| Control | Parameter | Effect |
-|---------|-----------|--------|
-| `--model` | `model` | Sets model ID |
-| `CLAUDE_CODE_MAX_OUTPUT_TOKENS` | `max_tokens` | Overrides token limit |
-| `maxThinkingTokens` | `thinking` | Extended thinking budget |
-| `DISABLE_PROMPT_CACHING` | Cache control | Disables caching |
-| `CLAUDE_CODE_EXTRA_BODY` | ANY | Injects arbitrary fields |
+| Control                         | Parameter     | Effect                   |
+| ------------------------------- | ------------- | ------------------------ |
+| `--model`                       | `model`       | Sets model ID            |
+| `CLAUDE_CODE_MAX_OUTPUT_TOKENS` | `max_tokens`  | Overrides token limit    |
+| `maxThinkingTokens`             | `thinking`    | Extended thinking budget |
+| `DISABLE_PROMPT_CACHING`        | Cache control | Disables caching         |
+| `CLAUDE_CODE_EXTRA_BODY`        | ANY           | Injects arbitrary fields |
 
 ---
 
@@ -627,59 +639,59 @@ Normalizes messages and adds cache control to message content blocks.
 
 ### Quick Lookup Table
 
-| Function/Location | Line | Purpose |
-|-------------------|------|---------|
-| `ES()` | 468734 | Main API call entry point |
-| `Js2()` | 468762 | Streaming API implementation |
-| Request construction | 468836-468848 | Builds final request object |
-| Actual API call | 468871 | `c.beta.messages.stream()` |
-| System prompt assembly | 468788-468796 | Builds system array |
-| `zvA()` | 144616 | Base system prompt selection |
-| `Th2()` | 468074 | Agent system prompt assembly |
-| `ia2()` | 468029 | Environment information |
-| `la2()` | 467909 | MCP server instructions |
-| `rAI()` | 469227 | System to content blocks |
-| `sAI()` | 469227 | Messages normalization |
-| `Pu()` | 468632 | Metadata generation |
-| `hjQ()` | 311969 | CLAUDE.md assembly |
-| `HF()` | 312004 | CLAUDE.md discovery |
-| `Lr()` | 445797 | Context wrapper injection |
-| `rC()` | 321037 | User context loader |
-| `sC()` | 321033 | System context loader |
-| `Ys2()` | 468611 | Cache enable check |
-| EXTRA_BODY parsing | 468585-468609 | Extra request body fields |
-| CLI args parsing | 491764-491987 | System prompt args |
-| Tool constants | 144470-144548 | Built-in tool names |
+| Function/Location                   | Purpose                      |
+| ----------------------------------- | ---------------------------- |
+| the query entry point               | Main API call entry point    |
+| the streaming function              | Streaming API implementation |
+| Request construction                | Builds final request object  |
+| Actual API call                     | `c.beta.messages.stream()`   |
+| System prompt assembly              | Builds system array          |
+| the base-prompt selector            | Base system prompt selection |
+| the agent prompt builder            | Agent system prompt assembly |
+| the environment-info renderer       | Environment information      |
+| the MCP tools documentation builder | MCP server instructions      |
+| the system-prompt block builder     | System to content blocks     |
+| the message normalizer              | Messages normalization       |
+| Metadata builder                    | Metadata generation          |
+| the memory assembly                 | CLAUDE.md assembly           |
+| the memory-file collector           | CLAUDE.md discovery          |
+| the context injection function      | Context wrapper injection    |
+| the claudeMd context entry          | User context loader          |
+| the gitStatus context entry         | System context loader        |
+| the caching predicate               | Cache enable check           |
+| EXTRA_BODY parsing                  | Extra request body fields    |
+| CLI args parsing                    | System prompt args           |
+| Tool constants                      | Built-in tool names          |
 
 ### Key Constants
 
-| Constant | Line | Value |
-|----------|------|-------|
-| `$HB` | 144624 | "You are Claude Code, Anthropic's official CLI for Claude." |
-| `$r4` | 144625 | "...running within the Claude Agent SDK." |
-| `qr4` | 144626 | "You are a Claude agent, built on Anthropic's Claude Agent SDK." |
-| `Xu6` | 311963 | CLAUDE.md preamble text |
-| `G7` | 144470 | "Read" |
-| `f5` | 144498 | "Edit" |
-| `oW` | 144499 | "Write" |
+| Constant            | Value                                                                  |
+| ------------------- | ---------------------------------------------------------------------- |
+| CLI base prompt     | `You are Claude Code, Anthropic's official CLI for Claude.`            |
+| Agent SDK prompt    | The same sentence extended with `running within the Claude Agent SDK.` |
+| Claude agent prompt | `You are a Claude agent, built on Anthropic's Claude Agent SDK.`       |
+| Memory preamble     | `Codebase and user instructions are shown below...`                    |
+
+Verbatim text is in `PROMPTS_RENDERED.md`.
 
 ---
 
 ## Next Steps
 
-This document establishes the foundation for deeper context tracing. The following phases can now proceed:
+This document establishes the foundation for deeper context tracing. The following phases can now
+proceed:
 
 ### Phase 2: System Prompt Text Sources
 
 **Goal**: Trace every string literal and variable that contributes to the `system` parameter.
 
 **Approach**:
-1. Start from `rAI()` function (line 469227)
-2. Trace backward through `B` variable assembly (line 468788)
+1. Start from the system-prompt block builder function
+2. Trace backward through `B` variable assembly
 3. Follow each component:
-   - `zvA()` → base statement constants
+   - the base-prompt selector → base statement constants
    - Custom system prompts → CLI args
-   - `la2()` → MCP instructions
+   - the MCP tools documentation builder → MCP instructions
 4. Use code-intel tools to find all references
 5. Document every source location
 
@@ -688,8 +700,8 @@ This document establishes the foundation for deeper context tracing. The followi
 **Goal**: Document all tool schemas and their text descriptions.
 
 **Approach**:
-1. Start from `tools` array in request (line 468840)
-2. Trace `J` variable through `f01()` processing
+1. Start from `tools` array in request
+2. Trace `J` variable through the tool-schema preparer processing
 3. Find all built-in tool definitions
 4. Trace MCP tool integration
 5. Document tool description sources
@@ -699,9 +711,9 @@ This document establishes the foundation for deeper context tracing. The followi
 **Goal**: Understand runtime context assembly (memory files, environment, etc.).
 
 **Approach**:
-1. Trace `hjQ()` → `HF()` → file reads
-2. Follow `ia2()` → environment variable collection
-3. Map `Lr()` → context wrapper injection
+1. Trace the memory assembly → the memory-file collector → file reads
+2. Follow the environment-info renderer → environment variable collection
+3. Map the context injection function → context wrapper injection
 4. Document all file I/O and environment access
 
 ### Phase 5: Complete Context Map
@@ -729,17 +741,21 @@ This document establishes the foundation for deeper context tracing. The followi
 **Version**: The SDK version is not explicitly declared in package.json (no `@anthropic-ai/sdk`
 dependency listed). The code bundles the SDK or uses dynamic imports.
 
-**Note**: The use of `client.beta.*` methods indicates the SDK uses the beta namespace, which is the standard way to access beta API features (see Claude docs).
+**Note**: The use of `client.beta.*` methods indicates the SDK uses the beta namespace, which is the
+standard way to access beta API features (see Claude docs).
 
 ### 2. System-Reminder XML Element
 
-**Purpose**: The `<system-reminder>` XML wrapper is **custom to Claude Code**, not part of the official Anthropic API specification.
+**Purpose**: The `<system-reminder>` XML wrapper is **custom to Claude Code**, not part of the
+official Anthropic API specification.
 
-**Generation**: Generated in the `Lr()` function at line 445797-445816
+Generated by the context injection function.
 
-**Function**: It wraps user context (CLAUDE.md files) and system context (git status) to inject them into the conversation as specially-marked metadata messages that Claude treats as system-level information.
+**Function**: It wraps user context (CLAUDE.md files) and system context (git status) to inject them
+into the conversation as specially-marked metadata messages that Claude treats as system-level
+information.
 
-**Example Content** (from line 445797):
+**Example Content** (from):
 ```
 <system-reminder>
 As you answer the user's questions, you can use the following context:
@@ -750,51 +766,53 @@ IMPORTANT: this context may or may not be relevant to your tasks. You should not
 </system-reminder>
 ```
 
-**Why XML**: The XML-style markup makes it visually distinct in the message stream and helps Claude understand it's metadata rather than user content.
+**Why XML**: The XML-style markup makes it visually distinct in the message stream and helps Claude
+understand it's metadata rather than user content.
 
 ### 3. Beta Features Currently Active/Available
 
-Based on code analysis (lines 206360-206406), Claude Code includes these beta features:
+Based on code analysis, Claude Code includes these beta features:
 
-| Beta Feature | Constant | Code Line | Enabled When |
-|--------------|----------|-----------|--------------|
-| `interleaved-thinking-2025-05-14` | `gAQ` | 206331, 206378 | Model supports thinking & not disabled |
-| `context-management-2025-06-27` | `luA` | 206334, 206386 | `preserve_thinking` enabled OR `USE_API_CONTEXT_MANAGEMENT=1` |
-| Token-efficient tools | `uAQ` | 206384 | First-party Anthropic & fine-grained streaming enabled |
-| `oauth-2025-04-20` | `aAA` | 31679, 206373 | User authenticated via OAuth |
-| Fine-grained tool streaming | `uAQ` | 206384 | First-party, fine-grained streaming not disabled |
-| Tool PEAR | `mAQ` | 206388 | Feature flag `tengu_tool_pear` enabled |
-| Vertex AI features | `dAQ` | 206389 | Running on Vertex AI |
-| Custom betas from env | `ANTHROPIC_BETAS` | 206390-206395 | `ANTHROPIC_BETAS` environment variable set |
-| Skills | `skills-2025-10-02` | 146283+ | Used throughout file operations |
-| Files API | `files-api-2025-04-14` | 145705+ | Used for file upload operations |
+| Beta Feature                      | Constant               | Code Line      | Enabled When                                                  |
+| --------------------------------- | ---------------------- | -------------- | ------------------------------------------------------------- |
+| `interleaved-thinking-2025-05-14` | `gAQ`                  | 206331, 206378 | Model supports thinking & not disabled                        |
+| `context-management-2025-06-27`   | `luA`                  | 206334, 206386 | `preserve_thinking` enabled OR `USE_API_CONTEXT_MANAGEMENT=1` |
+| Token-efficient tools             | `uAQ`                  | 206384         | First-party Anthropic & fine-grained streaming enabled        |
+| `oauth-2025-04-20`                | `aAA`                  | 31679, 206373  | User authenticated via OAuth                                  |
+| Fine-grained tool streaming       | `uAQ`                  | 206384         | First-party, fine-grained streaming not disabled              |
+| Tool PEAR                         | `mAQ`                  | 206388         | Feature flag `tengu_tool_pear` enabled                        |
+| Vertex AI features                | `dAQ`                  | 206389         | Running on Vertex AI                                          |
+| Custom betas from env             | `ANTHROPIC_BETAS`      | 206390-206395  | `ANTHROPIC_BETAS` environment variable set                    |
+| Skills                            | `skills-2025-10-02`    | 146283+        | Used throughout file operations                               |
+| Files API                         | `files-api-2025-04-14` | 145705+        | Used for file upload operations                               |
 
 **Key Functions**:
-- **`pR1()` function** (lines 206369-206396): Builds the beta features array based on model and configuration
-- **`hU()` function** (lines 206398-206402): Applies model-specific filtering (Bedrock filters some betas)
-- **`lR1()` function** (lines 206403-206404): Gets Bedrock-specific betas only
+- **the beta-features builder function**: Builds the beta features array based on model and configuration
+- **the model-specific beta filter function**: Applies model-specific filtering (Bedrock filters some betas)
+- **the Bedrock beta list function**: Gets Bedrock-specific betas only
 
 ### 4. Context Management Beta Feature (`context_management` Parameter)
 
 **Documentation Match**: YES - This relates directly to the Anthropic API's context editing feature.
 
-**What It Is**: The `context_management` parameter (line 468846) enables automatic context editing strategies to manage conversation context as it grows.
+**What It Is**: The `context_management` parameter enables automatic context editing strategies to
+manage conversation context as it grows.
 
 **How It Works**:
-```javascript
-[source fragment removed]
-```
+`context_management` is included only when all three hold: a config was built, betas are active, and
+the context-management beta is in the active beta list.
 
 Where:
-- `y` = context management configuration from `UHB()` function
+- `y` = context management configuration from the context-management config builder function
 - `C` = betas are enabled
 - `X.includes(luA)` = context-management-2025-06-27 beta is included
 - `luA` = "context-management-2025-06-27"
 
-**Configuration Source** (`UHB()` at line 144561-144600):
-```javascript
-[source fragment removed]
-```
+**Configuration Source** (the context-management config builder):
+The context-management config is built only when the `preserve_thinking` feature returns enabled,
+and is otherwise absent. Within it, two env vars select the strategies:
+`USE_API_CLEAR_TOOL_RESULTS` and `USE_API_CLEAR_TOOL_USES`, feeding the dated
+`clear_tool_uses_*` and `clear_thinking_*` edit types.
 
 **Environment Variables That Control It**:
 - `USE_API_CLEAR_TOOL_RESULTS`: Enable tool result clearing strategy
@@ -802,16 +820,19 @@ Where:
 - `API_MAX_INPUT_TOKENS`: Threshold for clearing
 - `API_TARGET_INPUT_TOKENS`: Target tokens after clearing
 
-**Relation to Thinking Blocks**: YES - When extended thinking is enabled, `context_management` can automatically manage thinking block history to prevent context overflow, as documented in the Anthropic API.
+**Relation to Thinking Blocks**: YES - When extended thinking is enabled, `context_management` can
+automatically manage thinking block history to prevent context overflow, as documented in the
+Anthropic API.
 
 ### 5. CLAUDE_CODE_EXTRA_BODY Purpose
 
-**Function**: **Experimental feature for Anthropic to inject custom API request fields** without requiring Claude Code code changes.
+**Function**: **Experimental feature for Anthropic to inject custom API request fields** without
+requiring Claude Code code changes.
 
-**How It Works** (lines 468583-468609):
-```javascript
-[source fragment removed]
-```
+**How It Works**:
+The extra-body builder parses `CLAUDE_CODE_EXTRA_BODY` as JSON, accepts only a non-array object,
+logs and discards anything else, and spreads the result over the request body. It then merges
+`anthropic_beta` separately rather than letting the spread overwrite the computed beta list.
 
 **Use Cases**:
 1. **Anthropic experiments**: Test new API fields without shipping code changes
@@ -824,19 +845,19 @@ Where:
 CLAUDE_CODE_EXTRA_BODY='{"custom_field":"value","experimental_mode":true}' claude
 ```
 
-**Merged Into**: The final request body at line 468847: `...AA`
+**Merged Into**: The final request body: `...AA`
 
 ### 6. `fetchOverride` and `queryTracking`
 
 **`fetchOverride`**:
-- Part of options object passed to `ES()` function
+- Part of options object passed to the query entry point function
 - Allows custom HTTP client implementation
 - Used for network customization, proxying, or testing
-- **NOT currently actively used** in the request construction (line 468862 constructs fetch call but doesn't show override usage in visible code)
+- Not used in the visible request construction: the fetch call is built without consulting it.
 
 **`queryTracking`**:
-- Passed to telemetry/analytics at line 468817: `queryTracking: Z.queryTracking`
-- Used in `Qs2()` function for tracking query metadata
+- Passed to telemetry/analytics: `queryTracking: Z.queryTracking`
+- Consumed by the query-tracking reporter
 - Includes information like:
   - `model`: Model used
   - `messagesLength`: Serialized request size
@@ -847,15 +868,15 @@ CLAUDE_CODE_EXTRA_BODY='{"custom_field":"value","experimental_mode":true}' claud
 
 **Purpose**: Provides fine-grained telemetry about API calls for monitoring and debugging.
 
-### 7. Agent System Prompt (`Th2()`) Customization
+### 7. Agent System Prompt (the agent prompt builder) Customization
 
 **Can It Be Changed?**
 
-No direct CLI customization for agent system prompts. The `Th2()` function (line 468074) builds a fixed system prompt structure for agents:
+No direct CLI customization for agent system prompts. The the agent prompt builder function builds a
+fixed system prompt structure for agents:
 
-```javascript
-[source fragment removed]
-```
+The agent prompt builder returns the base instructions, then the fixed `Notes:` block, then the
+rendered environment information. See "System Prompt Assembly" above.
 
 **Arguments**:
 - `A`: Base system prompt components (not user-customizable)
@@ -867,7 +888,8 @@ No direct CLI customization for agent system prompts. The `Th2()` function (line
 - `--system-prompt`: Does NOT affect agent prompts
 - Only main session prompts are customizable via CLI
 
-**Agent-Specific Design**: Agents intentionally have simplified prompts to keep them focused and reduce context overhead.
+**Agent-Specific Design**: Agents intentionally have simplified prompts to keep them focused and
+reduce context overhead.
 
 ### 8. Token Count Claims (500 vs 2.6K)
 
@@ -897,7 +919,8 @@ These are **estimates, not exact**. Evidence:
 
 ### 9. Core Instructions Text - Found!
 
-The "Core instructions" mentioned in BLOG_CONTEXT.md line 73 are **generated dynamically** from multiple sources rather than a single text constant. However, key sections are:
+The "Core instructions" mentioned in BLOG_CONTEXT.md are **generated dynamically** from multiple
+sources rather than a single text constant. However, key sections are:
 
 **Base core instructions** are in the main system prompt assembly, and include:
 - "You are Claude Code, Anthropic's official CLI for Claude."
@@ -905,12 +928,13 @@ The "Core instructions" mentioned in BLOG_CONTEXT.md line 73 are **generated dyn
 - Security policy text about authorized usage
 - Help and feedback instructions
 
-**These sections are conditionally assembled** in the request construction (lines 468789-468796) from:
-1. `zvA()` function result (base statement)
+**These sections are conditionally assembled** in the request construction from:
+1. the base-prompt selector function result (base statement)
 2. Custom system prompt (from CLI args)
-3. `la2()` result (MCP instructions)
+3. the MCP tools documentation builder result (MCP instructions)
 
-The full literal text isn't a single constant - it's built at runtime from multiple sources as described in the report's "System Prompt Assembly" section.
+The full literal text isn't a single constant - it's built at runtime from multiple sources as
+described in the report's "System Prompt Assembly" section.
 
 ---
 
@@ -929,6 +953,9 @@ The most powerful control mechanisms:
 2. Programmatic options object - Fine-grained control
 3. `--system-prompt` / `--append-system-prompt` - Direct system prompt control
 
-All controls flow through: `ES()` → `Js2()` → request body assembly → Anthropic API
+All controls flow through: the query entry point → the streaming function → request body assembly →
+Anthropic API
 
-**Key Insight**: Starting from the API request construction at line 468836, we can trace backward to find ALL context sources, because everything must flow through one of the three parameters: `system`, `tools`, or `messages`.
+**Key Insight**: Starting from the API request construction we can trace backward to find ALL
+context sources, because everything must flow through one of the three parameters: `system`,
+`tools`, or `messages`.
