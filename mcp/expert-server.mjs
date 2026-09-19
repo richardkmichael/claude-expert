@@ -27,7 +27,12 @@
 //   CLAUDE_BIN                Path to the claude binary (default: "claude" on PATH)
 //   EXPERT_ALLOWED_TOOLS      Comma-separated tool allowlist (default: research + write-back set)
 //   EXPERT_TIMEOUT_MS         Per-question wall-clock budget (default: 1500000)
-//   EXPERT_MODEL              Optional model override passed to `claude --model`
+//   EXPERT_MODEL              Model the nested session runs on (default: opus). Without an
+//                             explicit --model the nested session resolves the `model` setting
+//                             from the caller's own settings.json — whatever `/model` last
+//                             wrote — so every question would bill at the rate the calling
+//                             session happens to be set to. Pinning it here keeps the cost of
+//                             a consultation independent of the caller.
 
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -50,7 +55,11 @@ const ALLOWED_TOOLS =
 // that has been silent for 30 minutes (CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT), so a budget
 // under that bound holds without asking every caller to reconfigure their end.
 const TIMEOUT_MS = Number(process.env.EXPERT_TIMEOUT_MS || 1500000);
-const MODEL = process.env.EXPERT_MODEL || "";
+const MODEL = process.env.EXPERT_MODEL || "opus";
+// Per-call overrides come from another agent, not a person, so they are checked against a
+// fixed set rather than forwarded to --model as given. EXPERT_MODEL is set by whoever
+// registers the server and stays free-form, so it can name a full model id.
+const CALLABLE_MODELS = new Set(["opus", "sonnet", "haiku"]);
 
 const SERVER_INFO = { name: "claude-code-expert", version: "0.1.0" };
 
@@ -125,13 +134,21 @@ const TOOL = {
           "Optional. The session_id from a previous ask_claude_code_expert call, " +
           "to continue that research conversation with its context retained.",
       },
+      model: {
+        type: "string",
+        enum: ["opus", "sonnet", "haiku"],
+        description:
+          "Optional. The model the research session runs on. Defaults to opus, which " +
+          "handles bundle research well. Pass sonnet for a simple lookup (a flag name, " +
+          "a setting key, a string that is either present or absent).",
+      },
     },
     required: ["question"],
     additionalProperties: false,
   },
 };
 
-function runExpert({ question, session_id }) {
+function runExpert({ question, session_id, model }) {
   const args = [
     "-p",
     question,
@@ -143,7 +160,8 @@ function runExpert({ question, session_id }) {
     SYSTEM_PROMPT,
   ];
   if (session_id) args.push("--resume", session_id);
-  if (MODEL) args.push("--model", MODEL);
+  const chosenModel = model && CALLABLE_MODELS.has(model) ? model : MODEL;
+  if (chosenModel) args.push("--model", chosenModel);
 
   // Start the nested session clean: drop the markers that tell a process it is
   // running inside a Claude Code session, so the child behaves like a fresh CLI
@@ -230,11 +248,13 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
     };
   }
   const session_id = req.params.arguments?.session_id;
+  const model = req.params.arguments?.model;
   log(
     `question (${question.length} chars)` +
-      (session_id ? ` [resume ${session_id}]` : ""),
+      (session_id ? ` [resume ${session_id}]` : "") +
+      ` [model ${model && CALLABLE_MODELS.has(model) ? model : MODEL}]`,
   );
-  const out = await runExpert({ question, session_id });
+  const out = await runExpert({ question, session_id, model });
   return {
     isError: out.isError,
     content: [{ type: "text", text: out.text }],

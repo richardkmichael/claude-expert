@@ -20,11 +20,15 @@ cheaper — the answer may already be sitting in `analysis/` rather than re-deri
 
 ## The tool
 
-    ask_claude_code_expert(question: string, session_id?: string) -> text
+    ask_claude_code_expert(question: string, session_id?: string, model?: string) -> text
 
 The reply ends with a `Research session_id:` line. Pass that value back as `session_id` on a later
 call to continue the same research conversation with its context retained — the calling Claude does
 this automatically when it wants a follow-up.
+
+`model` is one of `opus`, `sonnet` or `haiku`, and lets the caller drop a simple lookup onto a
+cheaper model. Anything else is ignored in favour of the server's own default, so a calling agent
+cannot dial the cost up.
 
 ## Runtime: bun
 
@@ -71,7 +75,7 @@ All optional, via environment variables on the server entry:
     EXPERT_ALLOWED_TOOLS       Comma-separated tool allowlist
                                (default: Read,Grep,Glob,Bash,WebFetch,Write,Edit,Agent)
     EXPERT_TIMEOUT_MS          Per-question wall-clock budget (default: 1500000)
-    EXPERT_MODEL               Optional model override passed to claude --model
+    EXPERT_MODEL               Model the nested session runs on (default: opus)
 
 The default allowlist lets the expert research (`Read`/`Grep`/`Glob`/`Bash`/`WebFetch`), write or
 edit `analysis/` docs directly (`Write`/`Edit`), and delegate the commit to a subagent (`Agent`).
