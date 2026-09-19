@@ -54,6 +54,12 @@ Style legend:
 | ---------- | ----------------------------------------------------- | -------- | -------- | --------------------------------------------------------------------- |
 | `HOOKS.md` | Hook event inventory, I/O schemas, relocation recipes | 2.1.220  | landmark | `hook_event_name`, `agent_id`, `PreToolUse`, `hook_additional_context` |
 
+## UI surfaces and plugin panes
+
+| Doc                            | Scope                                                                                               | Verified | Style    | Key landmarks                                                                                     |
+| ------------------------------ | --------------------------------------------------------------------------------------------------- | -------- | -------- | -------------------------------------------------------------------------------------------------- |
+| `PLUGIN_PANES_AND_COMPOSER.md` | `Pane` render site and `$` plugin API; composer `leadingPill`; drag-select-to-attach; pane focus keys | 2.1.277  | landmark | `leadingPill`, `diff_selection_attach`, `selected_lines_in_diff`, `abovePrompt:focus`, `onAskAboutSelection`, `panelFileView`, `copyOnSelect` |
+
 ## Sessions, context, and history
 
 | Doc                             | Scope                                                | Verified | Style    | Key landmarks                                                 |
