@@ -22,11 +22,9 @@ code is still shipped alongside the live tool.
 ### Locating it
 
 `rg -n -i 'skillify' work/<version>/package/cli.prettier.js` returns exactly one hit in every
-version checked (2.1.119 through 2.1.277): the first line of the prompt template, currently
-
-```javascript
-[source fragment removed]
-```
+version checked (2.1.119 through 2.1.277): the opening line of the prompt template, a returned
+template literal starting with the heading `# Skillify` followed immediately by the
+`{{userDescriptionBlock}}` placeholder.
 
 The enclosing function is the prompt getter. The no-op setup function is the next
 `function <name>() { return; }` immediately after the template's closing backtick.
@@ -62,14 +60,13 @@ This is not a runtime gate. The setup takes no arguments, checks no flag, and is
 `function` (not a reassignable binding), so there is no feature flag, server-side config, or env var
 that could switch it on. It is build-time-disabled code whose string constant survives minification.
 
-Skillify is one of several such slots. At 2.1.277 the skills module holds four
-`function <name>() { return; }` no-ops that the dispatcher calls. Two of them sit immediately after a
-complete but unreferenced prompt string, making the pairing legible: Skillify, and a `/stuck` session
-diagnostic (anchor: `# /stuck — diagnose frozen/slow Claude Code sessions`, likewise defined and
-never read). The other two have no prompt attached at all. The count and membership churn; re-derive
-them with the multiline search
-`rg -U 'function [A-Za-z_$]+\(\) \{\n  return;\n\}'` over the extracted module, then check what
-precedes each one.
+Skillify is one of several such slots. At 2.1.277 the skills module holds four `function <name>() {
+return; }` no-ops that the dispatcher calls. Two of them sit immediately after a complete but
+unreferenced prompt string, making the pairing legible: Skillify, and a `/stuck` session diagnostic
+(anchor: `# /stuck — diagnose frozen/slow Claude Code sessions`, likewise defined and never read).
+The other two have no prompt attached at all. The count and membership churn; re-derive them with
+the multiline search `rg -U 'function [A-Za-z_$]+\(\) \{\n  return;\n\}'` over the extracted module,
+then check what precedes each one.
 
 ### What the prompt does
 
@@ -96,9 +93,9 @@ A four-step, four-round flow, all user-facing and all inline:
 4. Confirm and save — show the complete SKILL.md as a yaml block, confirm via `AskUserQuestion`,
    write the file, report where it went and that it is invoked as `/<name> [arguments]`.
 
-So yes: Skillify is squarely about turning what the session just did into a skill. But it starts from
-the user having already decided — it is invoked, it does not volunteer. The noticing step is the
-model reading the conversation in Step 1, not a detector that fires on its own.
+So yes: Skillify is squarely about turning what the session just did into a skill. But it starts
+from the user having already decided — it is invoked, it does not volunteer. The noticing step is
+the model reading the conversation in Step 1, not a detector that fires on its own.
 
 ### The prompt lost its session-history plumbing
 
@@ -164,23 +161,23 @@ That second clause is the discovery step. It is model-driven judgment on the con
 memory evidence — there is no background detector, no counter, no cross-session mining job. The only
 machinery is the tool's availability and that instruction.
 
-Guardrails worth knowing: `validateInput` refuses an `improvement` whose target SKILL.md has not been
-read in full, or whose on-disk copy is newer than the copy in context, with a message that a saved
-proposal replaces the file entirely. An `improvement` can only target one of the user's own skills —
-a plugin skill or a bundled one must be proposed as a new skill under a different name, with a
-description saying when to use it instead of the original.
+Guardrails worth knowing: `validateInput` refuses an `improvement` whose target SKILL.md has not
+been read in full, or whose on-disk copy is newer than the copy in context, with a message that a
+saved proposal replaces the file entirely. An `improvement` can only target one of the user's own
+skills — a plugin skill or a bundled one must be proposed as a new skill under a different name,
+with a description saying when to use it instead of the original.
 
 ### Gating
 
 From the tool's `isEnabled`, in order:
 
-| Condition                                                              | Effect          |
-| ---------------------------------------------------------------------- | --------------- |
-| an internal suppression check                                          | off             |
-| neither an account-sync predicate nor `CLAUDE_CODE_SKILL_PROPOSALS`     | off             |
-| `CLAUDE_CODE_REMOTE_ENVIRONMENT_TYPE` unset                             | off             |
-| `CLAUDE_CODE_ENVIRONMENT_KIND` set without `CLAUDE_CODE_SKILL_PROPOSALS`| off             |
-| otherwise                                                               | on, unless a further per-session check refuses |
+| Condition                                                                | Effect                                         |
+| ------------------------------------------------------------------------ | ---------------------------------------------- |
+| an internal suppression check                                            | off                                            |
+| neither an account-sync predicate nor `CLAUDE_CODE_SKILL_PROPOSALS`      | off                                            |
+| `CLAUDE_CODE_REMOTE_ENVIRONMENT_TYPE` unset                              | off                                            |
+| `CLAUDE_CODE_ENVIRONMENT_KIND` set without `CLAUDE_CODE_SKILL_PROPOSALS` | off                                            |
+| otherwise                                                                | on, unless a further per-session check refuses |
 
 The `CLAUDE_CODE_REMOTE_ENVIRONMENT_TYPE` check is unconditional and sits ahead of every override
 path, so the tool is off in a local terminal session even with `CLAUDE_CODE_SKILL_PROPOSALS` set.
@@ -205,13 +202,13 @@ account skills, are a read-only cache: editing them does not change the user's s
 
 ## What the adjacent features do, and do not, do
 
-| Feature                    | Anchor                                                          | Discovery? |
-| -------------------------- | --------------------------------------------------------------- | ---------- |
-| `/skill-doctor`            | `Show which loaded skills are unused and costing context`        | No — reports on already-loaded skills |
-| `skill-creator` skill      | shipped skill, authors and evals a skill already decided on      | No |
-| `/init` Phase 6            | `## Phase 6: Suggest and create skills`                          | Partly — suggests skills from repo structure and an interview, not from observed behavior |
-| `SuggestSkills` / `SearchSkills` | `SuggestSkills`, `Use ListSkills for skills they already have` | No — recommends existing catalog skills to install |
-| `propose_skills`           | `Surface recurring multi-step procedures from this session`      | Yes — the only one |
+| Feature                          | Anchor                                                          | Discovery?                                                                                |
+| -------------------------------- | --------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `/skill-doctor`                  | `Show which loaded skills are unused and costing context`       | No — reports on already-loaded skills                                                     |
+| `skill-creator` skill            | shipped skill, authors and evals a skill already decided on     | No                                                                                        |
+| `/init` Phase 6                  | `## Phase 6: Suggest and create skills`                         | Partly — suggests skills from repo structure and an interview, not from observed behavior |
+| `SuggestSkills` / `SearchSkills` | `SuggestSkills`, `Use ListSkills for skills they already have`  | No — recommends existing catalog skills to install                                        |
+| `propose_skills`                 | `Surface recurring multi-step procedures from this session`     | Yes — the only one                                                                        |
 
 Skill-related telemetry in 2.1.277, for orientation: `tengu_propose_skills`, `tengu_skill_authored`,
 `tengu_skill_loaded`, `tengu_skill_file_changed`, `tengu_skill_tool_invocation`,
@@ -223,22 +220,22 @@ Skill-related telemetry in 2.1.277, for orientation: `tengu_propose_skills`, `te
 
 At 2.1.76 a separate pipeline detected user corrections during skill execution and offered to update
 the existing SKILL.md: a disabled no-op detector, a working apply function that round-tripped the
-SKILL.md through an LLM and read back `<updated_file>` tags, a `skillImprovement.suggestion` entry in
-the app state tree, and a UI component logging `tengu_skill_improvement_survey`.
+SKILL.md through an LLM and read back `<updated_file>` tags, a `skillImprovement.suggestion` entry
+in the app state tree, and a UI component logging `tengu_skill_improvement_survey`.
 
 All of it is gone. `tengu_skill_improvement_survey`, `skillImprovement`, `skill_improvement` and
-`<updated_file>` return zero hits in every locally held bundle from 2.1.119 onward, so it was removed
-in 2.1.77–2.1.119. Its function is now served, for remote sessions only, by `propose_skills` with
-`kind: "improvement"`.
+`<updated_file>` return zero hits in every locally held bundle from 2.1.119 onward, so it was
+removed in 2.1.77–2.1.119. Its function is now served, for remote sessions only, by `propose_skills`
+with `kind: "improvement"`.
 
 
 ## Version history
 
-| Versions          | Skillify                                                          | Discovery path                          |
-| ----------------- | ----------------------------------------------------------------- | --------------------------------------- |
-| 2.1.76            | Dead prompt with `{{sessionMemory}}` + `{{userMessages}}`; skill-improvement pipeline present | none                |
-| 2.1.119 – 2.1.207 | Dead prompt trimmed to `{{userDescriptionBlock}}`; improvement pipeline removed | none                   |
-| 2.1.220 – 2.1.277 | Unchanged dead prompt                                              | `propose_skills`, remote sessions only  |
+| Versions          | Skillify                                                                                      | Discovery path                          |
+| ----------------- | --------------------------------------------------------------------------------------------- | --------------------------------------- |
+| 2.1.76            | Dead prompt with `{{sessionMemory}}` + `{{userMessages}}`; skill-improvement pipeline present | none                                    |
+| 2.1.119 – 2.1.207 | Dead prompt trimmed to `{{userDescriptionBlock}}`; improvement pipeline removed               | none                                    |
+| 2.1.220 – 2.1.277 | Unchanged dead prompt                                                                         | `propose_skills`, remote sessions only  |
 
 
 ## Related
