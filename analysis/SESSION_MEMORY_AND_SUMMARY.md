@@ -68,7 +68,7 @@ conversation loop, a dispatcher iterated that array and called each registered h
 
 ### Trigger Conditions
 
-The pipeline callback the pipeline callback runs after each model response but only proceeds when
+The pipeline callback runs after each model response but only proceeds when
 all conditions are met:
 
 1. `querySource === "repl_main_thread"` -- only the main conversation, not subagents
@@ -229,7 +229,7 @@ instructions have to be honored by an actual model call. Same shape otherwise: n
 `compact` result immediately, null fell through.
 
 Both paths returned the same `compactionResult` shape. When the summary fast path succeeds, the
-standard the LLM compaction call LLM call is skipped entirely. When the summary fast path returns
+standard LLM compaction call is skipped entirely. When the summary fast path returns
 null (no summary, feature disabled, or summary would exceed the token threshold), the normal
 compaction runs as usual.
 
