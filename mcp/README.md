@@ -96,10 +96,3 @@ stdio MCP server that has gone 30 minutes without a response or a progress notif
 above that is cut short by the client unless the caller sets a per-server `timeout` in its
 `.mcp.json` or raises `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`. The 25-minute default sits under that
 bound deliberately. See `analysis/MCP.md`, "Tool-call timeouts and the idle watchdog".
-
-## Billing
-
-From 2026-06-15, `claude -p` on a subscription draws from a separate monthly Agent SDK credit pool,
-distinct from the interactive usage limits you spend while working. Every expert call is a full
-nested session, so it consumes that pool — point `CLAUDE_BIN` at a wrapper that sets
-`ANTHROPIC_API_KEY` if you would rather meter it as pay-per-token API usage instead.

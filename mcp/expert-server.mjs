@@ -19,9 +19,6 @@
 // Transport: MCP over stdio. stdout is the protocol channel and carries nothing but
 // protocol messages; all diagnostics go to stderr.
 //
-// Billing note: from 2026-06-15, `claude -p` on a subscription draws from the
-// separate monthly Agent SDK credit pool, not your interactive usage limits.
-//
 // Configuration (environment variables):
 //   CLAUDE_CODE_ANALYSIS_DIR  Repo root the expert explores (default: parent of this file)
 //   CLAUDE_BIN                Path to the claude binary (default: "claude" on PATH)
