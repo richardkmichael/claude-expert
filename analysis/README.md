@@ -59,9 +59,9 @@ re-checked against a later bundle. The doc's Version history section says which.
 
 ## UI surfaces and plugin panes
 
-| Doc                            | Scope                                                                                                 | Verified | Style    | Key landmarks                                                                                                                                 |
-| ------------------------------ | ----------------------------------------------------------------------------------------------------- | -------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PLUGIN_PANES_AND_COMPOSER.md` | `Pane` render site and `$` plugin API; composer `leadingPill`; drag-select-to-attach; pane focus keys | 2.1.277  | landmark | `leadingPill`, `diff_selection_attach`, `selected_lines_in_diff`, `abovePrompt:focus`, `onAskAboutSelection`, `panelFileView`, `copyOnSelect` |
+| Doc                            | Scope                                                                                                                                | Verified | Style    | Key landmarks                                                                                                                                                                                         |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ | -------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PLUGIN_PANES_AND_COMPOSER.md` | `Pane` render site and `$` plugin API; composer `leadingPill`; drag-select-to-attach; pane focus keys; pane/sidebar padding geometry | 2.1.277  | landmark | `leadingPill`, `diff_selection_attach`, `selected_lines_in_diff`, `abovePrompt:focus`, `onAskAboutSelection`, `panelFileView`, `copyOnSelect`, `composerSidebarBackground`, `chromeRows`, `DiffPanel` |
 
 ## Sessions, context, and history
 

@@ -327,8 +327,121 @@ draw are fixed; grep the component→site map with `rg -n 'AskUserQuestionPermis
 `Link`, `Code`, `Markdown`, `Client`, `Raster`, `Image`.
 
 
+## Vertical chrome: which surface owns the blank rows
+
+No shared container inserts a blank row. The fullscreen layout's side slots, the pane dock, and the
+pane host all add zero vertical padding, so every blank row above a panel's first line of content is
+drawn by that panel's own tree.
+
+### The layout's two side slots add width and a background, nothing else
+
+Grep `rg -n 'sidebarWidth'` — 2 hits, the prop and its single consumer, the fullscreen layout
+component. That component takes `sidebar` / `sidebarWidth` and `dock` / `dockWidth`, and wraps
+each in the same Box:
+
+```
+{ width, flexShrink: 0, flexDirection: "column", overflow: "hidden",
+  backgroundColor: "composerSidebarBackground" }
+```
+
+(the dock slot additionally sets `display: "flex" | "none"`). Relocate both by grepping
+`rg -n 'backgroundColor: "composerSidebarBackground"'` — 3 hits in the layout module: the sidebar
+slot, the dock slot, and the absolutely-positioned dock tail below the pane. None of the three sets
+`padding*`, `margin*` or `gap`.
+
+The transcript column is the one slot that insets itself. Its scroll box carries
+`paddingTop: <1, or 0 while a sticky prompt is showing>`. That row belongs to the transcript; the
+side slots never receive it.
+
+### The diff sidebar's blank top row is a `paddingY: 1` on its own header block
+
+The native diff panel body is the component that registers the base-cycling binding; find it with
+`rg -n 'context: "DiffPanel"'` (2 hits: the default keybinding table and the component). Its root
+is
+
+```
+Box { flexDirection: "column", width, height: "100%", onWheel, selectionScope: true }
+```
+
+with no padding, no margin and no gap, and exactly two children:
+
+| Child         | Props                                                              |
+| ------------- | ------------------------------------------------------------------ |
+| header block  | `flexDirection: "column", paddingX: 1, paddingY: 1, flexShrink: 0`  |
+| scroll region | `flexGrow: 1, flexDirection: "column", overflow: "hidden"`          |
+
+The `paddingY: 1` on the header block is the inset. It puts one blank row above the header's first
+line, the `<N> files changed` row built as
+`[Text{bold}[count, " ", plural("file")], " ", "changed", <+/- counts>]`, and one blank row below
+the block's last child. The base-mode line (`uncommitted (vs HEAD)`, `branch vs <base>`,
+`vs HEAD (no base branch)`, or `no commits yet — showing staged and new files`) is the header
+block's second child and sits directly under the count row with nothing between them.
+
+Relocate the header block from the base-mode label: `rg -nF 'uncommitted (vs HEAD)'` (1 hit) finds
+the label helper, whose sole caller is the header block's second child. Read up from that call to
+the enclosing Box carrying `paddingX: 1, paddingY: 1`.
+
+Below the header, the scroll region adds `paddingX: 1` only; the scrollable Box spreads its rest
+props straight into `style` and contributes no padding of its own. The empty-state branch
+(`Loading diff…`, `No uncommitted changes`, …) likewise sets `paddingX: 1` with no vertical
+padding.
+
+□ Tripwire: `rg -n 'paddingY' <bundle>` in the diff panel's component; if the header block loses
+  `paddingY: 1` in favour of `paddingTop`/`paddingBottom`, the top and bottom insets can diverge.
+
+### A plugin pane's tree starts on the first body row
+
+The dock chain is three components, all exported from one module's `Cs(...)` map — grep
+`rg -n 'PaneSite: \(\) =>'` and read the enclosing export list for `PaneDock`, `PaneHost`,
+`PaneSite`, `PaneTabs`, `chromeRows`, `DOCK_GRIP_COLUMNS`.
+
+`PaneDock` is a row Box, `flexGrow: 1`, holding the drag grip (`DOCK_GRIP_COLUMNS = 1`) and a plain
+`flexDirection: "column"` Box around `PaneHost`. `PaneHost` resolves the shown pane and renders
+`PaneSite` inside an error boundary. Neither adds padding.
+
+`PaneSite` is the chrome. Its outer Box:
+
+```
+Box {
+  flexDirection: "column", flexShrink: 0, width, height: <fill ? rows : undefined>,
+  borderStyle: <inline ? "round" : undefined>, borderDimColor: !isFocused,
+  borderTopDimColor: !isFocused && !lit, borderTopColor: <lit ? "suggestion" : undefined>,
+  paddingX: <inline ? 1 : 0>, onClick, onWheel, selectionScope: true,
+}
+```
+
+`inline` is `!fill`, and `fill` is what the `placement` prop reports: `placement: fill ? "dock" :
+"inline"`. So a docked pane gets `paddingX: 0` and no border at all. There is no `paddingY`,
+`paddingTop`, `marginTop` or `gap` on this Box in either placement.
+
+Its children, in order:
+
+| Child        | Condition         | Shape                                                        |
+| ------------ | ----------------- | ------------------------------------------------------------ |
+| `PaneTabs`   | 2+ panes open     | row Box, `height: 1`, `gap: 1`, `overflow: "hidden"`          |
+| viewport     | always            | `flexShrink: 0, maxHeight, overflowY: "hidden"`               |
+| close button | always            | `position: "absolute", top: 0, right: <inline ? 1 : 0>`       |
+
+The viewport wraps one inner Box, `marginTop: -<scroll offset>, flexDirection: "column",
+flexShrink: 0`, whose children are the plugin's rendered tree. That negative `marginTop` is the
+viewport's only vertical offset, and it is `0` at scroll offset 0. The close button is absolutely
+positioned and consumes no row. So the plugin's first row lands on the pane's first body row, with
+the single-row tab strip above it only when a second pane is open.
+
+The row budget agrees: `chromeRows = (hasTabs ? 1 : 0) + (inline ? 2 : 0)`, so a docked single pane
+reserves nothing. The column budget is `bodyColumns = columns - (inline ? 4 : 0)`: 4 for the round
+border plus `paddingX: 1` on both sides.
+
+To match the diff sidebar's look from a plugin pane, draw the blank row yourself: wrap the pane's
+header in a `Box` with `paddingY: 1` (and `paddingX: 1`, which a docked pane also does not get).
+
+□ Tripwire: `PaneSite`'s outer Box carries `paddingX` and no other spacing prop. If a `paddingY`
+  or `gap` appears there, docked plugin panes gain an inset and this section is stale.
+
 ## Version notes
 
+- 2.1.277: the pane dock adds no vertical padding; a plugin pane's tree starts on the first body
+  row. The diff sidebar's leading blank row is a `paddingY: 1` on its own header block.
 - 2.1.277: `diff` is a built-in plugin, off by default, requiring function hooks. When it owns the
   sidebar the native diff panel is unreachable, because `panelFileView` has no setter. Drag-select
   attachment therefore only reaches a user running the native sidebar (the mod off, or function
