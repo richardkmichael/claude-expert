@@ -16,6 +16,10 @@ with one another:
 The practical consequence: a third-party plugin drawing its own `Pane` cannot get the
 `[⧉ N lines from FILE]` behaviour. Nothing in the plugin API reaches it.
 
+`NATIVE_DIFF_SIDEBAR.md` is the full extraction of the second surface: the `/diff` command and its
+gating, the sidebar's component tree, the drag-to-attach path end to end, focus handling, and a
+capability-by-capability correspondence with the `$` API.
+
 
 ## The `diff` mod is a built-in plugin, and it displaces the native sidebar
 
@@ -33,6 +37,10 @@ Ownership handoff: find the predicate with
 things: whether the sidebar feature is on at all, and whether the `diff` plugin owns it. The
 ownership check requires the plugin to be available, function hooks on, the plugin in the enabled
 set, and its storage id live.
+
+The two surfaces answer to different flags: the native sidebar is on unless the kill switch
+`tengu_jazzy_ripple` is set, while `tengu_quiet_dolphin` gates the mod (off by default). Do not read
+`tengu_quiet_dolphin` as the `/diff` gate.
 
 Two consequences follow, both greppable:
 
