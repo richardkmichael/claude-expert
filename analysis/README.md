@@ -62,6 +62,7 @@ re-checked against a later bundle. The doc's Version history section says which.
 | Doc                            | Scope                                                                                                                                | Verified | Style    | Key landmarks                                                                                                                                                                                         |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ | -------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `PLUGIN_PANES_AND_COMPOSER.md` | `Pane` render site and `$` plugin API; composer `leadingPill`; drag-select-to-attach; pane focus keys; pane/sidebar padding geometry | 2.1.277  | landmark | `leadingPill`, `diff_selection_attach`, `selected_lines_in_diff`, `abovePrompt:focus`, `onAskAboutSelection`, `panelFileView`, `copyOnSelect`, `composerSidebarBackground`, `chromeRows`, `DiffPanel` |
+| `NATIVE_DIFF_SIDEBAR.md`       | Native `/diff`: command gating, sidebar tree, drag-to-attach, focus; plugin-API correspondence                                       | 2.1.277  | landmark | `tengu_jazzy_ripple`, `Diff panel shown`, `DiffPanel`, `useReleaseOnEdit`, `leadingPill`, `selected_lines_in_diff`, `app:cycleDiffBase`                                                               |
 
 ## Sessions, context, and history
 
@@ -104,11 +105,11 @@ not part of this family despite the name.
 
 ## API, networking, and MCP
 
-| Doc                      | Scope                                                                   | Verified                   | Style    | Key landmarks                                                                 |
-| ------------------------ | ----------------------------------------------------------------------- | -------------------------- | -------- | ----------------------------------------------------------------------------- |
-| `ANTHROPIC_API_USAGE.md` | API call sites and request-construction pipeline                        | 2.1.76                     | landmark | `beta.messages.stream`, `CLAUDE_CODE_EXTRA_BODY`, `DISABLE_PROMPT_CACHING`    |
-| `API_REFERENCE.md`       | What the bundled Anthropic SDK adds to an outgoing request              | 2.1.277                    | landmark | `/v1/messages`, `calculateNonstreamingTimeout`, `is deprecated`               |
-| `MCP.md`                 | MCP integration, tools/resources, scope, timeouts, backgrounding, tasks | 2.1.186 / 2.1.277          | landmark | `enabledMcpjsonServers`, `MCP tool idle timeout`, `tengu_mcp_auto_background` |
+| Doc                      | Scope                                                                   | Verified          | Style    | Key landmarks                                                                 |
+| ------------------------ | ----------------------------------------------------------------------- | ----------------- | -------- | ----------------------------------------------------------------------------- |
+| `ANTHROPIC_API_USAGE.md` | API call sites and request-construction pipeline                        | 2.1.76            | landmark | `beta.messages.stream`, `CLAUDE_CODE_EXTRA_BODY`, `DISABLE_PROMPT_CACHING`    |
+| `API_REFERENCE.md`       | What the bundled Anthropic SDK adds to an outgoing request              | 2.1.277           | landmark | `/v1/messages`, `calculateNonstreamingTimeout`, `is deprecated`               |
+| `MCP.md`                 | MCP integration, tools/resources, scope, timeouts, backgrounding, tasks | 2.1.186 / 2.1.277 | landmark | `enabledMcpjsonServers`, `MCP tool idle timeout`, `tengu_mcp_auto_background` |
 
 ## Observability
 
