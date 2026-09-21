@@ -751,7 +751,156 @@ Three engine-side releases exist and none of them is plugin-callable:
 | `useReleaseGoneHold`                                                    | the focused index outruns the focusable list        |
 
 
-## 5. Correspondence: native sidebar vs the plugin API
+## 5. The close mark
+
+Both surfaces draw a `✕` at their top-right, from the same hoisted glyph constant. The bundle
+stores it escaped, so relocate it with `rg -n 'u2715"'` (1 hit, the declaration) rather than by
+searching for the rendered character. They are different components with different hover styling,
+and only the pane's is reachable from the keyboard.
+
+### The plugin pane's close mark
+
+Drawn by the pane host, not by the plugin. `PaneSite` renders it as its last child, after the tab
+strip and the viewport (`cli.prettier.js:1215122`):
+
+```js
+e(URe, { inset: uo ? 1 : 0, isHeld: qn, onClose: Zi }),
+```
+
+`inset` is `1` for an inline pane (clearing the round border) and `0` for a docked one. The wrapper
+is absolutely positioned, so it costs no row (`cli.prettier.js:1214416`):
+
+```js
+var URe = (IE) => {
+  … FRe = e(gC.DimButton, { label: yCt, isHeld: IE.isHeld, onAction: IE.onClose })
+  … rmo = e(s, { position: "absolute", top: 0, right: IE.inset, onClick: imo, children: FRe })
+  return rmo;
+};
+function imo(fer) { return fer.stopImmediatePropagation(); }
+```
+
+The control itself is `DimButton` (`rg -nF 'DimButton: () =>'` finds the export;
+`cli.prettier.js:1213580`):
+
+```js
+function C1(M4n) {
+  let { label: gpt, onAction: ypt, isHeld: bpt } = M4n, ido = T(null);
+  let sdo = () => pl.releaseInkFocus(ido.current);
+  let xRe = (E4n) => {
+    let ado = E4n.hovered || bpt === !0;
+    return e(n, { dimColor: !ado, inverse: ado, children: gpt });
+  };
+  return e(s, {
+    ref: ido,
+    onClick: sdo,
+    children: e(GI, { tabIndex: -1, onAction: ypt, children: xRe }),
+  });
+}
+```
+
+So the styling is one expression: dim when neither hovered nor held, inverse when either. That
+inverse under the pointer is the highlight you see. `GI` is the engine's `Button` primitive
+(`rg -nF 'GI as Button'`); `tabIndex: -1` keeps it out of Ink's own tab order, and its `onClick`
+runs the same blur helper the plugin `Button` element uses (`releaseInkFocus`, aliasing the
+`hen` function in the Focus section).
+
+### It is a stop in the pane's focus ring
+
+`isHeld` is true when the ring's engine-stop index equals the tab count (`cli.prettier.js:1214886`):
+
+```js
+Cn = Q ? Yn(Tt) : null,
+qn = Cn === Fo,           // Fo = number of other open panes, i.e. the tab count
+…
+function Ln(fr) {
+  let Oi = ko[fr ?? Fo]?.id;
+  return fr === Fo ? "mark" : Oi === void 0 ? null : { tab: Oi };
+}
+```
+
+The engine names the stop `"mark"`. The ring counts it (`cli.prettier.js:1214652`):
+
+```js
+let we = E.focusables.length,
+    Pe = we + O.tabCount + 1;                                  // + 1 is the close mark
+function Qe(ft) { return ft === O.tabCount ? O.close() : O.pick(ft); }
+"abovePrompt:next": () => We(((Ne() ?? -1) + 1) % Pe),
+```
+
+In the `Pane` context `tab` / `shift+tab` are `abovePrompt:next` / `:previous` and `enter` is
+`abovePrompt:press`, so tabbing past the plugin's own `Button`/`Input`/`Select` elements lands on
+each other pane's tab and then on the close mark, which renders inverse while held. Pressing it
+closes the pane — the same path as `ctrl+x x` (`pane:close`).
+
+The hook-event schema calls this an engine stop rather than a plugin element. A `ui.focus` event
+carries `element: undefined` when the move names one, and a rewriting handler may not convert
+between the two (`cli.prettier.js:147523`):
+
+```js
+function Co(e, t) {
+  if (e !== void 0 && t === void 0)
+    return "an element where the move named none (one of the engine's stops)";
+  if (e === void 0 && t !== void 0)
+    return "no element where the move named one (a rewrite names another)";
+  …
+}
+```
+
+`$.ui.focus` cannot address it either: the argument validator requires a non-empty `key`
+(`cli.prettier.js:401235`), and the site check then requires `hasElement(plugin, key)` — the close
+mark is the engine's, not the plugin's, so there is no key that reaches it.
+
+### No plugin control over it
+
+Neither the open arguments nor the render props mention it.
+
+| Surface                | Fields                                                                   |
+| ---------------------- | ------------------------------------------------------------------------ |
+| `$.ui.open` arguments  | `id`, `title`, `focus`, `closeOnEscape`, `holdToasts`, `rows`, `columns` |
+| `ui.render` Pane props | `title`, `isFocused`, `bodyColumns`, `placement`, `scroll`, `view`       |
+
+`closeOnEscape` changes what `escape` does — close the pane rather than release focus — but does
+not hide or restyle the mark. There is no way to suppress it, relabel it, move it, or change its
+hover treatment, and because it is absolutely positioned at `top: 0` it will overdraw whatever the
+plugin puts in the top-right cell of its first body row.
+
+### The native sidebar's close mark
+
+A local component in the sidebar's own module, drawn as the last child of the header's first row
+(`cli.prettier.js:1280681`):
+
+```js
+function u8e(f8i) {
+  let { onClose: wQt } = f8i, [J4e, P8o] = g(!1);
+  let A8o = () => P8o(!0), M8o = () => P8o(!1);
+  const CQt = !J4e;
+  let X4e = e(n, { bold: J4e, dimColor: CQt, children: yCt });
+  return e(s, { onClick: wQt, onMouseEnter: A8o, onMouseLeave: M8o, children: X4e });
+}
+```
+
+It does track hover, contrary to a plain reading of the rendered output: `onMouseEnter` /
+`onMouseLeave` drive local state, and the glyph goes from `dimColor` to `bold`. What it does not do
+is invert. Dim-to-bold on a single `✕` is a far weaker cue than the pane's reversed cell, which is
+why the two read as "one highlights, one does not".
+
+The other differences follow from it being a plain `Box`, not a `DimButton`:
+
+| Aspect            | Plugin pane (`DimButton`)          | Native sidebar (local component)      |
+| ----------------- | ---------------------------------- | ------------------------------------- |
+| Hover styling     | `inverse: true`, undimmed          | `bold: true`, undimmed                |
+| Held styling      | same inverse, driven by `isHeld`   | none — it is never held               |
+| Focusable         | `Button` primitive, `tabIndex: -1` | none                                  |
+| In the focus ring | yes, as the engine stop `"mark"`   | no                                    |
+| Reachable by key  | `tab` to it, `enter` to press      | no; `ctrl+x b` is the only chord      |
+| Positioning       | `position: "absolute", top: 0`     | in flow, after a `flexGrow: 1` spacer |
+
+The sidebar has no focus ring at all — it registers only the `DiffPanel` context for one binding
+and owns no focusables — so there is nothing for its close mark to be a stop in, and no held state
+for it to render.
+
+
+## 6. Correspondence: native sidebar vs the plugin API
 
 The complete plugin op and hook-event inventory is two adjacent arrays; relocate with
 `rg -nF '"prompt.attachment"'` and read the enclosing arrays. Nothing in either names a selection, a
@@ -775,6 +924,8 @@ pill, or an attachment constructor.
 | Clear the selection on submit                | n/a without a selection                                                      | no                   |
 | Keep the keyboard after filling the draft    | only from a `Client` region, not from a `Button`                             | partial              |
 | Move focus from the composer into a pane     | no op does this                                                              | no                   |
+| Close mark hover styling                     | the host draws it and inverts it under the pointer; no prop restyles it      | n/a, engine-owned    |
+| Hide or relabel the close mark               | no; not in `$.ui.open` args nor in the Pane render props                     | no                   |
 
 ### Keybinding actions a plugin can reuse
 
@@ -868,6 +1019,10 @@ the composer draft is empty — which a preceding `$.prompt.fill` guarantees it 
 
 ## Version notes
 
+- 2.1.277: the pane host draws a `DimButton` close mark at `top: 0`, inverse under the pointer and
+  a stop named `"mark"` in the pane's focus ring; no plugin prop hides or restyles it. The native
+  sidebar's own close mark is a plain hover-tracking `Box` that goes dim-to-bold and is not
+  focusable.
 - 2.1.277: the native sidebar is gated by `tengu_jazzy_ripple` (a kill switch, on by default);
   `tengu_quiet_dolphin` gates the separate `diff` built-in plugin, which is off by default and
   requires function hooks. The sidebar holds no keyboard focus and registers only the `DiffPanel`
