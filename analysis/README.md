@@ -53,9 +53,9 @@ re-checked against a later bundle. The doc's Version history section says which.
 
 ## Hooks
 
-| Doc        | Scope                                                 | Verified | Style    | Key landmarks                                                          |
-| ---------- | ----------------------------------------------------- | -------- | -------- | ---------------------------------------------------------------------- |
-| `HOOKS.md` | Hook event inventory, I/O schemas, relocation recipes | 2.1.220  | landmark | `hook_event_name`, `agent_id`, `PreToolUse`, `hook_additional_context` |
+| Doc        | Scope                                                                             | Verified | Style    | Key landmarks                                                                                                           |
+| ---------- | --------------------------------------------------------------------------------- | -------- | -------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `HOOKS.md` | Hook event inventory, I/O schemas, matchers, hook process env, relocation recipes | 2.1.280  | landmark | `hook_event_name`, `agent_id`, `hook_additional_context`, `fieldToMatch`, `PreModelSwitch`, `CLAUDE_CODE_CHILD_SESSION` |
 
 ## UI surfaces and plugin panes
 
