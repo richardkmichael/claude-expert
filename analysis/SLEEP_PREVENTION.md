@@ -54,7 +54,8 @@ These do not hold the inhibitor:
 
 - Background Bash tasks (`run_in_background`, type `local_bash`), in the main session or started by
   a teammate.
-- Monitors (`monitor_mcp`, `monitor_ws`), MCP tasks (`mcp_task`), and `dream`.
+- Monitors. A Monitor-tool monitor is a `local_bash` task with `kind: "monitor"`. MCP and websocket
+  monitors (`monitor_mcp`, `monitor_ws`), MCP tasks (`mcp_task`) and `dream` do not hold it either.
 - Idle in-process teammates, and long-running remote agents.
 - A session that is waiting on a permission prompt or dialog (`waiting`).
 - An open Remote Control connection. Nothing in the remote-control path calls the inhibitor.
@@ -105,10 +106,43 @@ while background Bash or Monitor work is still running is expected behavior unde
 Workarounds, none of which Claude Code provides:
 
 - Wrap the long command itself: `caffeinate -i <command>`.
-- Hold an assertion for the life of the session: `caffeinate -i -w <claude PID>`.
+- Hold an assertion for the life of the session: `caffeinate -i -w <claude PID>`. Hook processes
+  receive that PID as `CLAUDE_PID`. A `PostToolUse` hook on `Bash|Agent|Monitor` can start the
+  assertion, and a `Stop` hook can release it once `background_tasks` is empty. See `HOOKS.md`,
+  "Background work and hooks".
 - Raise the AC idle-sleep timer (`pmset -c sleep`) so that a short gap in coverage does not put the
   Mac to sleep.
+
+## Related: the memory-pressure reaper
+
+A separate mechanism kills idle background shells. It is often confused with sleep problems because
+a `caffeinate` appears at the moment of each kill. Each running `local_bash` task listens for Bun's
+`memoryPressure` process event and kills itself (`status: killed`, stop cause `memory_pressure`)
+only when every one of these conditions is met:
+
+- The session is interactive and `CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP` is unset. The
+  variable is read when the listener is registered, so it has to be in Claude Code's own launch
+  environment.
+- The pressure level is `critical`.
+- There has been no user interaction for 30 minutes.
+- No turn is running, and no delegated work is active (the same predicate as the inhibitor).
+- The task did not start within 30 minutes of an earlier reap with no terminal input since.
+- Host memory is scarce. On Linux and WSL, `MemAvailable` is checked against `/proc/meminfo`. On
+  macOS and other platforms, the kernel's verdict is accepted as is.
+
+A reap enqueues a task notification. That starts a lead turn, the status becomes `busy`, and the
+inhibitor spawns `caffeinate`. This is why reporters see `caffeinate -i -t 300` start at the kill
+instant: the `caffeinate` is a result of the kill, not its cause.
+
+Relocation: `rg -n 'CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP|task_local_shell_pressure_reap'`.
+The debug log records a skip as `memory-pressure reap skipped: <reason>` (rate-limited per reason)
+and a kill as `reaped under critical memory pressure after <n>m idle`. The model-facing notification
+says `Claude Code stopped it because the system was critically low on memory while the session was
+idle`.
 
 ## Version history
 
 - 2.1.277: first documented. The inhibitor class and status mapping are the same in 2.1.280.
+- 2.1.193: memory-pressure reaper added (CHANGELOG).
+- 2.1.274: reaper restricted to `critical` pressure, with skip reasons logged (CHANGELOG). The
+  2.1.280 source matches.
