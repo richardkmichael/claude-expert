@@ -31,7 +31,6 @@
     { "$ref": "#/$defs/worktreeStateRecord" }
   ],
   "$defs": {
-
     "uuid": {
       "type": "string",
       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
@@ -148,10 +147,10 @@
     "toolUseContentBlock": {
       "type": "object",
       "properties": {
-        "type":   { "const": "tool_use" },
-        "id":     { "type": "string", "description": "Tool use ID, referenced by subsequent tool_result" },
-        "name":   { "type": "string", "description": "Tool name, e.g. \"Bash\", \"Read\", \"Grep\"" },
-        "input":  { "type": "object", "description": "Tool-specific input parameters" },
+        "type":  { "const": "tool_use" },
+        "id":    { "type": "string", "description": "Tool use ID, referenced by subsequent tool_result" },
+        "name":  { "type": "string", "description": "Tool name, e.g. \"Bash\", \"Read\", \"Grep\"" },
+        "input": { "type": "object", "description": "Tool-specific input parameters" },
         "caller": {
           "type": "object",
           "properties": {
@@ -174,10 +173,10 @@
       "type": "object",
       "description": "Token usage from the Anthropic API response",
       "properties": {
-        "input_tokens":                     { "type": "integer" },
-        "output_tokens":                    { "type": "integer" },
-        "cache_creation_input_tokens":      { "type": "integer" },
-        "cache_read_input_tokens":          { "type": "integer" },
+        "input_tokens":                { "type": "integer" },
+        "output_tokens":               { "type": "integer" },
+        "cache_creation_input_tokens": { "type": "integer" },
+        "cache_read_input_tokens":     { "type": "integer" },
         "cache_creation": {
           "type": "object",
           "properties": {
@@ -192,22 +191,21 @@
             "web_fetch_requests":  { "type": "integer" }
           }
         },
-        "service_tier":  { "type": ["string", "null"] },
-        "inference_geo": { "type": ["string", "null"] },
-        "iterations":    { "oneOf": [{ "type": "integer" }, { "type": "array" }, { "type": "null" }], "description": "Iteration count, or empty array" },
-        "speed":         { "oneOf": [{ "type": "number" }, { "type": "string" }, { "type": "null" }], "description": "Speed metric (number) or tier name (string, e.g. \"standard\")" }
+        "service_tier":                { "type": ["string", "null"] },
+        "inference_geo":               { "type": ["string", "null"] },
+        "iterations":                  { "oneOf": [{ "type": "integer" }, { "type": "array" }, { "type": "null" }], "description": "Iteration count, or empty array" },
+        "speed":                       { "oneOf": [{ "type": "number" }, { "type": "string" }, { "type": "null" }], "description": "Speed metric (number) or tier name (string, e.g. \"standard\")" }
       }
     },
-
 
     "userRecord": {
       "type": "object",
       "description": "Human turn or tool result.",
       "allOf": [{ "$ref": "#/$defs/envelope" }],
       "properties": {
-        "type":      { "const": "user" },
-        "uuid":      { "$ref": "#/$defs/uuid" },
-        "timestamp": { "$ref": "#/$defs/isoTimestamp" },
+        "type":                      { "const": "user" },
+        "uuid":                      { "$ref": "#/$defs/uuid" },
+        "timestamp":                 { "$ref": "#/$defs/isoTimestamp" },
         "message": {
           "type": "object",
           "properties": {
@@ -254,27 +252,24 @@
               },
               "additionalProperties": true
             },
-            {
-              "type": "string",
-              "description": "Plain string tool result (e.g. error output)"
-            },
-            {
-              "type": "array",
-              "items": { "type": "object" },
-              "description": "Array of content blocks (e.g. text blocks from web search results)"
-            }
+            { "type": "string", "description": "Plain string tool result (e.g. error output)" },
+            { "type": "array", "items": { "type": "object" }, "description": "Array of content blocks (e.g. text blocks from web search results)" }
           ]
         },
-        "mcpMeta":                 { "type": "object", "description": "MCP-related metadata" },
-        "imagePasteIds":           { "type": "array", "items": { "oneOf": [{ "type": "string" }, { "type": "integer" }] }, "description": "IDs of pasted images (string or integer)" },
-        "sourceToolUseID":         { "type": "string", "description": "Tool use ID that produced this result" },
-        "sourceToolAssistantUUID": { "$ref": "#/$defs/uuid", "description": "UUID of the assistant record that issued the tool call" },
-        "interruptedMessageId":    { "type": "string", "description": "Message ID interrupted by this turn" },
-        "permissionMode":          { "$ref": "#/$defs/permissionMode" },
-        "planContent":             { "type": "string", "description": "Plan text when submitted from plan mode" },
-        "promptSource":            { "type": "string", "description": "How the prompt was entered (observed: \"typed\", \"queued\", \"system\")" },
-        "promptId":                { "type": "string", "description": "Identifier for the originating prompt" },
-        "origin":                  { "type": "object", "description": "Prompt origin metadata", "additionalProperties": true },
+        "mcpMeta":                   { "type": "object", "description": "MCP-related metadata" },
+        "imagePasteIds": {
+          "type": "array",
+          "items": { "oneOf": [{ "type": "string" }, { "type": "integer" }] },
+          "description": "IDs of pasted images (string or integer)"
+        },
+        "sourceToolUseID":           { "type": "string", "description": "Tool use ID that produced this result" },
+        "sourceToolAssistantUUID":   { "$ref": "#/$defs/uuid", "description": "UUID of the assistant record that issued the tool call" },
+        "interruptedMessageId":      { "type": "string", "description": "Message ID interrupted by this turn" },
+        "permissionMode":            { "$ref": "#/$defs/permissionMode" },
+        "planContent":               { "type": "string", "description": "Plan text when submitted from plan mode" },
+        "promptSource":              { "type": "string", "description": "How the prompt was entered (observed: \"typed\", \"queued\", \"system\")" },
+        "promptId":                  { "type": "string", "description": "Identifier for the originating prompt" },
+        "origin":                    { "type": "object", "description": "Prompt origin metadata", "additionalProperties": true },
         "thinkingMetadata": {
           "type": "object",
           "properties": {
@@ -282,41 +277,39 @@
           },
           "description": "Present when extended thinking is active"
         },
-        "todos": { "type": "array", "description": "Todo list state snapshot" },
-
-        "parentUuid":        {},
-        "logicalParentUuid": {},
-        "isSidechain":       {},
-        "teamName":          {},
-        "agentName":         {},
-        "userType":          {},
-        "cwd":               {},
-        "sessionId":         {},
-        "version":           {},
-        "gitBranch":         {},
-        "agentId":           {},
-        "slug":              {},
-        "entrypoint":        {},
-        "forkedFrom":        {}
+        "todos":                     { "type": "array", "description": "Todo list state snapshot" },
+        "parentUuid":                {},
+        "logicalParentUuid":         {},
+        "isSidechain":               {},
+        "teamName":                  {},
+        "agentName":                 {},
+        "userType":                  {},
+        "cwd":                       {},
+        "sessionId":                 {},
+        "version":                   {},
+        "gitBranch":                 {},
+        "agentId":                   {},
+        "slug":                      {},
+        "entrypoint":                {},
+        "forkedFrom":                {}
       },
       "required": ["type", "uuid", "timestamp", "message"],
       "additionalProperties": true
     },
-
 
     "assistantRecord": {
       "type": "object",
       "description": "Model response. The same message.id may appear on two consecutive records (streaming artifact).",
       "allOf": [{ "$ref": "#/$defs/envelope" }],
       "properties": {
-        "type":      { "const": "assistant" },
-        "uuid":      { "$ref": "#/$defs/uuid" },
-        "timestamp": { "$ref": "#/$defs/isoTimestamp" },
-        "requestId": { "type": "string", "description": "Anthropic API request ID" },
-        "apiError":  { "type": "object", "description": "API error details" },
-        "apiErrorStatus":      { "type": "integer", "description": "HTTP status of an API error, e.g. 429, 529" },
-        "error":     { "oneOf": [{ "type": "object" }, { "type": "string" }], "description": "General error (object or error code string, e.g. \"rate_limit\")" },
-        "isApiErrorMessage": { "type": "boolean", "description": "Whether this record represents an API error" },
+        "type":                 { "const": "assistant" },
+        "uuid":                 { "$ref": "#/$defs/uuid" },
+        "timestamp":            { "$ref": "#/$defs/isoTimestamp" },
+        "requestId":            { "type": "string", "description": "Anthropic API request ID" },
+        "apiError":             { "type": "object", "description": "API error details" },
+        "apiErrorStatus":       { "type": "integer", "description": "HTTP status of an API error, e.g. 429, 529" },
+        "error":                { "oneOf": [{ "type": "object" }, { "type": "string" }], "description": "General error (object or error code string, e.g. \"rate_limit\")" },
+        "isApiErrorMessage":    { "type": "boolean", "description": "Whether this record represents an API error" },
         "attributionSkill":     { "type": "string", "description": "Skill credited with this turn's work" },
         "attributionPlugin":    { "type": "string", "description": "Plugin credited with this turn's work" },
         "attributionMcpServer": { "type": "string", "description": "MCP server credited with this turn's work" },
@@ -324,71 +317,61 @@
         "message": {
           "type": "object",
           "properties": {
-            "id":    { "type": "string", "description": "Anthropic message ID, e.g. msg_01..." },
-            "model": { "type": "string", "description": "Model ID, e.g. \"claude-opus-4-8\"" },
-            "role":  { "const": "assistant" },
-            "type":  { "const": "message" },
-            "stop_reason":   { "type": ["string", "null"], "enum": ["end_turn", "stop_sequence", "tool_use", "max_tokens", "refusal", null], "description": "null during streaming" },
-            "stop_sequence": { "type": ["string", "null"] },
+            "id":                 { "type": "string", "description": "Anthropic message ID, e.g. msg_01..." },
+            "model":              { "type": "string", "description": "Model ID, e.g. \"claude-opus-4-8\"" },
+            "role":               { "const": "assistant" },
+            "type":               { "const": "message" },
+            "stop_reason":        { "type": ["string", "null"], "enum": ["end_turn", "stop_sequence", "tool_use", "max_tokens", "refusal", null], "description": "null during streaming" },
+            "stop_sequence":      { "type": ["string", "null"] },
             "container":          { "type": "null", "description": "Reserved" },
             "context_management": { "oneOf": [{ "type": "null" }, { "type": "object" }], "description": "Context management data, or null" },
-            "content": {
-              "type": "array",
-              "items": { "$ref": "#/$defs/assistantContentBlock" },
-              "description": "Array of thinking, text, and/or tool_use blocks"
-            },
-            "usage": { "$ref": "#/$defs/usageObject" }
+            "content":            { "type": "array", "items": { "$ref": "#/$defs/assistantContentBlock" }, "description": "Array of thinking, text, and/or tool_use blocks" },
+            "usage":              { "$ref": "#/$defs/usageObject" }
           },
           "required": ["id", "role", "content"]
         },
-
-        "parentUuid":        {},
-        "logicalParentUuid": {},
-        "isSidechain":       {},
-        "teamName":          {},
-        "agentName":         {},
-        "userType":          {},
-        "cwd":               {},
-        "sessionId":         {},
-        "version":           {},
-        "gitBranch":         {},
-        "agentId":           {},
-        "slug":              {},
-        "entrypoint":        {},
-        "forkedFrom":        {}
+        "parentUuid":           {},
+        "logicalParentUuid":    {},
+        "isSidechain":          {},
+        "teamName":             {},
+        "agentName":            {},
+        "userType":             {},
+        "cwd":                  {},
+        "sessionId":            {},
+        "version":              {},
+        "gitBranch":            {},
+        "agentId":              {},
+        "slug":                 {},
+        "entrypoint":           {},
+        "forkedFrom":           {}
       },
       "required": ["type", "uuid", "timestamp", "message"],
       "additionalProperties": true
     },
-
 
     "progressRecord": {
       "type": "object",
       "description": "Tool/hook progress notification. normalizedMessages in data is always cleared to [] before writing.",
       "allOf": [{ "$ref": "#/$defs/envelope" }],
       "properties": {
-        "type":      { "const": "progress" },
-        "uuid":      { "$ref": "#/$defs/uuid" },
-        "timestamp": { "$ref": "#/$defs/isoTimestamp" },
-        "toolUseID":       { "type": "string", "description": "Tool use ID this relates to" },
-        "parentToolUseID": { "type": "string", "description": "Parent tool use ID" },
+        "type":              { "const": "progress" },
+        "uuid":              { "$ref": "#/$defs/uuid" },
+        "timestamp":         { "$ref": "#/$defs/isoTimestamp" },
+        "toolUseID":         { "type": "string", "description": "Tool use ID this relates to" },
+        "parentToolUseID":   { "type": "string", "description": "Parent tool use ID" },
         "data": {
           "type": "object",
           "description": "Progress payload, varies by progress type",
           "properties": {
-            "type":      { "type": "string", "description": "Progress type, e.g. \"hook_progress\"" },
-            "hookEvent": { "type": "string", "description": "\"PreToolUse\" or \"PostToolUse\"" },
-            "hookName":  { "type": "string", "description": "e.g. \"PreToolUse:Bash\"" },
-            "command":   { "type": "string", "description": "Hook script/command" },
-            "message":   { "type": "object", "description": "Serialized user message" },
-            "normalizedMessages": {
-              "type": "array",
-              "description": "Always [] in persisted records (cleared before write)"
-            }
+            "type":               { "type": "string", "description": "Progress type, e.g. \"hook_progress\"" },
+            "hookEvent":          { "type": "string", "description": "\"PreToolUse\" or \"PostToolUse\"" },
+            "hookName":           { "type": "string", "description": "e.g. \"PreToolUse:Bash\"" },
+            "command":            { "type": "string", "description": "Hook script/command" },
+            "message":            { "type": "object", "description": "Serialized user message" },
+            "normalizedMessages": { "type": "array", "description": "Always [] in persisted records (cleared before write)" }
           },
           "additionalProperties": true
         },
-
         "parentUuid":        {},
         "logicalParentUuid": {},
         "isSidechain":       {},
@@ -408,15 +391,14 @@
       "additionalProperties": true
     },
 
-
     "attachmentRecord": {
       "type": "object",
       "description": "Structured event/notification. Discriminated by attachment.type.",
       "allOf": [{ "$ref": "#/$defs/envelope" }],
       "properties": {
-        "type":      { "const": "attachment" },
-        "uuid":      { "$ref": "#/$defs/uuid" },
-        "timestamp": { "$ref": "#/$defs/isoTimestamp" },
+        "type":              { "const": "attachment" },
+        "uuid":              { "$ref": "#/$defs/uuid" },
+        "timestamp":         { "$ref": "#/$defs/isoTimestamp" },
         "attachment": {
           "type": "object",
           "description": "Payload object, discriminated by the 'type' field",
@@ -429,7 +411,6 @@
           "required": ["type"],
           "additionalProperties": true
         },
-
         "parentUuid":        {},
         "logicalParentUuid": {},
         "isSidechain":       {},
@@ -449,24 +430,22 @@
       "additionalProperties": true
     },
 
-
     "systemRecord": {
       "type": "object",
       "description": "System event.",
       "allOf": [{ "$ref": "#/$defs/envelope" }],
       "properties": {
-        "type":      { "const": "system" },
+        "type":                        { "const": "system" },
         "subtype": {
           "type": "string",
           "enum": ["compact_boundary", "microcompact_boundary", "local_command", "api_error", "stop_hook_summary", "turn_duration", "away_summary", "bridge_status", "scheduled_task_fire", "informational"],
           "description": "System event subtype"
         },
-        "uuid":      { "$ref": "#/$defs/uuid" },
-        "timestamp": { "$ref": "#/$defs/isoTimestamp" },
-        "level":     { "type": "string", "enum": ["info", "error", "suggestion", "warning"] },
-        "isMeta":    { "type": "boolean", "description": "Always true for system records" },
-        "content":   { "type": "string", "description": "Human-readable description" },
-
+        "uuid":                        { "$ref": "#/$defs/uuid" },
+        "timestamp":                   { "$ref": "#/$defs/isoTimestamp" },
+        "level":                       { "type": "string", "enum": ["info", "error", "suggestion", "warning"] },
+        "isMeta":                      { "type": "boolean", "description": "Always true for system records" },
+        "content":                     { "type": "string", "description": "Human-readable description" },
         "compactMetadata": {
           "type": "object",
           "description": "Present when subtype is \"compact_boundary\"",
@@ -478,26 +457,23 @@
           },
           "required": ["trigger", "preTokens"]
         },
-
         "microcompactMetadata": {
           "type": "object",
           "description": "Present when subtype is \"microcompact_boundary\"",
           "properties": {
-            "trigger":                 { "type": "string" },
-            "preTokens":               { "type": "integer" },
-            "tokensSaved":             { "type": "integer" },
-            "compactedToolIds":        { "type": "array", "items": { "type": "string" } },
-            "clearedAttachmentUUIDs":  { "type": "array", "items": { "type": "string" } }
+            "trigger":                { "type": "string" },
+            "preTokens":              { "type": "integer" },
+            "tokensSaved":            { "type": "integer" },
+            "compactedToolIds":       { "type": "array", "items": { "type": "string" } },
+            "clearedAttachmentUUIDs": { "type": "array", "items": { "type": "string" } }
           },
           "required": ["trigger", "preTokens", "tokensSaved", "compactedToolIds", "clearedAttachmentUUIDs"]
         },
-
-        "cause":        { "type": "object", "description": "Present when subtype is \"api_error\"" },
-        "error":        { "type": "object", "description": "Present when subtype is \"api_error\"" },
-        "retryInMs":    { "type": "number", "description": "Present when subtype is \"api_error\", may be fractional" },
-        "retryAttempt":  { "type": "integer", "description": "Present when subtype is \"api_error\"" },
-        "maxRetries":   { "type": "integer", "description": "Present when subtype is \"api_error\"" },
-
+        "cause":                       { "type": "object", "description": "Present when subtype is \"api_error\"" },
+        "error":                       { "type": "object", "description": "Present when subtype is \"api_error\"" },
+        "retryInMs":                   { "type": "number", "description": "Present when subtype is \"api_error\", may be fractional" },
+        "retryAttempt":                { "type": "integer", "description": "Present when subtype is \"api_error\"" },
+        "maxRetries":                  { "type": "integer", "description": "Present when subtype is \"api_error\"" },
         "durationMs":                  { "type": "number", "description": "Elapsed time in ms (e.g. on \"turn_duration\")" },
         "messageCount":                { "type": "integer" },
         "hasOutput":                   { "type": "boolean" },
@@ -511,26 +487,24 @@
         "toolUseID":                   { "type": "string" },
         "upgradeNudge":                { "type": "string", "description": "Upgrade-prompt text" },
         "url":                         { "type": "string" },
-
-        "parentUuid":        {},
-        "logicalParentUuid": {},
-        "isSidechain":       {},
-        "teamName":          {},
-        "agentName":         {},
-        "userType":          {},
-        "cwd":               {},
-        "sessionId":         {},
-        "version":           {},
-        "gitBranch":         {},
-        "agentId":           {},
-        "slug":              {},
-        "entrypoint":        {},
-        "forkedFrom":        {}
+        "parentUuid":                  {},
+        "logicalParentUuid":           {},
+        "isSidechain":                 {},
+        "teamName":                    {},
+        "agentName":                   {},
+        "userType":                    {},
+        "cwd":                         {},
+        "sessionId":                   {},
+        "version":                     {},
+        "gitBranch":                   {},
+        "agentId":                     {},
+        "slug":                        {},
+        "entrypoint":                  {},
+        "forkedFrom":                  {}
       },
       "required": ["type", "subtype", "uuid", "timestamp"],
       "additionalProperties": true
     },
-
 
     "customTitleRecord": {
       "type": "object",
@@ -679,12 +653,8 @@
           "type": "object",
           "properties": {
             "messageId":          { "$ref": "#/$defs/uuid" },
-            "trackedFileBackups": {
-              "type": "object",
-              "description": "Map of file paths to backup data",
-              "additionalProperties": true
-            },
-            "timestamp": { "$ref": "#/$defs/isoTimestamp" }
+            "trackedFileBackups": { "type": "object", "description": "Map of file paths to backup data", "additionalProperties": true },
+            "timestamp":          { "$ref": "#/$defs/isoTimestamp" }
           },
           "required": ["messageId", "trackedFileBackups", "timestamp"]
         }
