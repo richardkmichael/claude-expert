@@ -1,16 +1,22 @@
 # The Native `/diff` Sidebar, End to End
 
 Source: `cli.prettier.js` (`work/<version>/package/cli.prettier.js`)
-Verified: 2.1.277
+Verified: 2.1.281
 
 A reference extraction of the engine's own diff sidebar: the `/diff` command, the component tree,
 the drag-to-attach path, and focus handling. It exists to be compared against what a function-hooks
 plugin can reach through the `$` API, so the last section maps each native capability onto the
 plugin surface and says whether a plugin can do it.
 
-Line numbers in this document are for 2.1.277 only. Every section leads with a grep recipe; relocate
+Line numbers in this document are for 2.1.281 only. Every section leads with a grep recipe; relocate
 with that, not with the numbers. Minified identifiers are given in parentheses as a reading aid, not
 as anchors — they churn every release.
+
+Code quotes were taken verbatim from 2.1.277 and re-checked against 2.1.281. Where the logic is
+unchanged they keep their 2.1.277 identifiers, so a quote can show a name (`kV`, `NRe`, `e4e`)
+that differs from the one at the cited 2.1.281 line. The quotes for the parts that changed — the
+gates, the pill label builder, the submit-time selection handling, `$.telemetry` — are 2.1.281
+verbatim.
 
 Companion doc: `PLUGIN_PANES_AND_COMPOSER.md` covers the pane/dock chrome geometry, the `$` noun
 table, and the `diff` built-in plugin that can displace this sidebar.
@@ -21,10 +27,10 @@ table, and the `diff` built-in plugin that can displace this sidebar.
 The sidebar described here is the engine's native Ink component. It is not the `diff` built-in
 plugin, and the two are gated by different flags.
 
-| Surface                      | Gate                                                    | Default |
-| ---------------------------- | ------------------------------------------------------- | ------- |
-| Native diff sidebar          | `!flag("tengu_jazzy_ripple", false)` — a kill switch    | on      |
-| `diff` built-in plugin (mod) | `functionHooksOn && flag("tengu_quiet_dolphin", false)` | off     |
+| Surface                      | Gate                                                 | Default |
+| ---------------------------- | ---------------------------------------------------- | ------- |
+| Native diff sidebar          | `!flag("tengu_jazzy_ripple", false)` — a kill switch | on      |
+| `diff` built-in plugin (mod) | `pinnedFlag("tengu_quiet_dolphin", false)`           | off     |
 
 Relocate with `rg -nF 'tengu_jazzy_ripple'` (1 hit, inside the sidebar's enable predicate) and
 `rg -nF 'tengu_quiet_dolphin'` (1 hit, inside the mod's `isAvailable`). The mod's module also
@@ -32,20 +38,40 @@ declares `isOnByDefault = false` and the description
 `The diff panel as a plugin pane: /diff, the changed files and their hunks beside the transcript,
 refreshed as Claude edits`.
 
+A `--plugin-dir` copy of a plugin named `diff` is not refused by name at admission. The hooks
+loader applies one same-name rule: plugins are ranked by tier (`prepend`, `user`, `append`,
+`builtin`, `core`), and the first plugin of a name to rank wins; any later one gets
+`hooks module <id> not loaded: another plugin of that name loads first (a managed one, or an
+earlier source)`. A `--plugin-dir` plugin sits in the `user` tier, ahead of `builtin`, so it wins
+over an enabled built-in `diff`. It is refused only behind a managed plugin of the same name, or
+when hooks modules are off for installed plugins altogether — which 2.1.281 words as
+`hooks modules are not turned on for installed plugins in this process (early access: set
+CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 in its environment to load them); built-in plugins load
+regardless` (2.1.277 named the `tengu_plugin_hooks_modules` rollout flag instead). New in 2.1.281:
+both refusals are also written to stderr for a `--plugin-dir` plugin, not only to the debug log.
+The one hard name refusal is `claude plugin test` in the `builtin` tier:
+`<name> cannot load in the builtin tier: this Claude Code bundles a plugin of that name, and would
+load its copy`, unchanged since 2.1.277.
+
 Everything below — the `paddingY: 1` header, `setIdeSelection({ source: "diff" })`, the
 `selected_lines_in_diff` attachment — belongs to the native sidebar. The mod has none of it; its
 own attach is a whole-file append through the `prompt.submit` hook.
 
 ```js
-// cli.prettier.js:451065
-function XCe() {
-  return !P("tengu_jazzy_ripple", !1);
+// cli.prettier.js:203121
+function wbe() {
+  return !x("tengu_jazzy_ripple", !1);
 }
-// cli.prettier.js:1410306
-var Rr = () => "tengu_quiet_dolphin";
-var bt = !1;
-var At = () => aX() && ql(Rr(), bt);
+// cli.prettier.js:1439694
+var Me = () => "tengu_quiet_dolphin";
+var ot = !1;                        // isOnByDefault
+var Nr = () => na(Me(), ot);        // isAvailable: the flag, pinned for the session
 ```
+
+In 2.1.277 `isAvailable` carried one more term, `hooksNotSuppressed()` (not `--bare`, hooks not
+turned off, not safe mode), and so did the sidebar-ownership predicate. 2.1.281 drops it from both,
+matching the rule the hooks loader now states for every built-in: "built-in plugins load
+regardless".
 
 
 ## 1. The `/diff` command and its gating
@@ -56,7 +82,7 @@ var At = () => aX() && ql(Rr(), bt);
 the mod's copy of the same string.
 
 ```js
-// cli.prettier.js:451072  — the built-in command descriptor
+// cli.prettier.js:489525  — the built-in command descriptor
 var g3e = {
   type: "local-jsx",
   name: "diff",
@@ -75,7 +101,7 @@ var g3e = {
 command then disables itself. `kWt(presentation, dispatchedAsImmediate)` picks the surface:
 
 ```js
-// cli.prettier.js:451068
+// cli.prettier.js:310226
 function kWt(e, n = !1) {
   if (Nt() || e !== "fullscreen") return "inline";
   return XCe() || n ? "fullscreen" : "inline";
@@ -83,7 +109,7 @@ function kWt(e, n = !1) {
 ```
 
 Fullscreen resolves to the docked sidebar; inline falls back to a modal `DiffDialog`. The command
-body picks between them (`cli.prettier.js:1590739`):
+body picks between them (`cli.prettier.js:1656718`):
 
 ```js
 var s = async (a, l) => (
@@ -100,12 +126,12 @@ var C = (a, l, o, m) =>
 
 `toggleDiffPanel` is supplied by the REPL host (`rg -nF 'toggleDiffPanel'` — 2 hits, the provider
 and the command). It calls the toggle helper, waits up to 2000 ms for the first diff to settle, and
-returns the status text (`cli.prettier.js:1265620`).
+returns the status text (`cli.prettier.js:1319392`).
 
 ### The toggle helper and its four outcomes
 
 `rg -nF '"Diff panel shown"'` — 2 hits: the constant and the mod's copy. The helper lives beside it
-(`cli.prettier.js:1126838`):
+(`cli.prettier.js:1177562`):
 
 ```js
 function FPt({ host: t, getReplTab: r, setAppState: o, columns: s, trackSequence: i, storageV5: a }) {
@@ -138,7 +164,7 @@ the toggle arrives by keybinding rather than by command (`app:toggleReplTab`, si
 `rg -nF 'var zZ = 110'` — the two constants sit together:
 
 ```js
-// cli.prettier.js:325768
+// cli.prettier.js:201120
 var zZ = 110,
   P9e = 144;
 ```
@@ -147,7 +173,7 @@ var zZ = 110,
 already opened it once (`diffSidebarOpen === true`), in which case `110` applies:
 
 ```js
-// cli.prettier.js:1126804
+// cli.prettier.js:1177528
 function HLn(t) {
   let r = ae().diffSidebarOpen;
   if (r === !1) return !1;
@@ -158,7 +184,7 @@ function HLn(t) {
 The same two numbers gate plugin pane placement, and the telemetry buckets are
 `under_110` / `110_to_143` / `144_to_199` / `200_plus` (`rg -nF 'under_110'`).
 
-The full mount predicate (`cli.prettier.js:1126794`):
+The full mount predicate (`cli.prettier.js:1177518`):
 
 ```js
 function JQt({ enabled: t, fullscreen: r, columns: o, isThinClient: s, isMainFocused: i, hasGitRepo: a }) {
@@ -169,7 +195,7 @@ function JQt({ enabled: t, fullscreen: r, columns: o, isThinClient: s, isMainFoc
 ### Telemetry
 
 `tengu_repl_diff_panel_shown` with `trigger: "auto_open" | "manual"` and
-`terminal_width_bucket`, logged once per session id (`cli.prettier.js:1279652`). Tab switches log
+`terminal_width_bucket`, logged once per session id (`cli.prettier.js:1333922`). Tab switches log
 `repl_tab_switch`; base cycling logs `repl_diff_base_switch`.
 
 
@@ -178,31 +204,31 @@ function JQt({ enabled: t, fullscreen: r, columns: o, isThinClient: s, isMainFoc
 Relocate the panel body with `rg -n 'context: "DiffPanel"'` — 2 hits, the default keybinding table
 and the component that registers the base-cycling binding.
 
-| Role                    | Symbol | Lines (2.1.277) |
+| Role                    | Symbol | Lines (2.1.281) |
 | ----------------------- | ------ | --------------- |
-| auto-open baseline hook | `Vge`  | 1279748–1279784 |
-| sidebar host            | `Kge`  | 1279785–1279951 |
-| panel body              | `c8e`  | 1279952–1280535 |
-| base-mode label         | `HQt`  | 1280538–1280552 |
-| pre-session block       | `$9`   | 1280553–1280680 |
-| close button            | `u8e`  | 1280681–1280714 |
-| noise-filter toggle     | `m8e`  | 1280715–1280766 |
-| file-list row           | `p8e`  | 1280767–1280866 |
-| per-file diff block     | `Bbe`  | 1279323–1279632 |
-| drag-attach hook        | `e4e`  | 1279275–1279306 |
-| row → path resolver     | `b4e`  | 1279670–1279684 |
+| auto-open baseline hook | `cX`   | 1334018–1334054 |
+| sidebar host            | `uX`   | 1334055–1334219 |
+| panel body              | `Zye`  | 1334220–1334781 |
+| base-mode label         | `HZe`  | 1334782–1334797 |
+| pre-session block       | `NU`   | 1334798–1334917 |
+| close button            | `eSe`  | 1334918–1334948 |
+| noise-filter toggle     | `tSe`  | 1334949–1334997 |
+| file-list row           | `oSe`  | 1334998–1335049 |
+| per-file diff block     | `Tke`  | 1333589–1333901 |
+| drag-attach hook        | `mye`  | 1333538–1333568 |
+| row → path resolver     | `wye`  | 1333940–1333954 |
 
 ### Host
 
 The host does the gating and nothing else — no wrapper Box, so the panel body is the sidebar
-(`cli.prettier.js:1279944`):
+(`cli.prettier.js:1334212`):
 
 ```js
 H4o = e(c8e, { width: Mge, minCol: O2t, onAskAboutSelection: A2t });
 ```
 
 `minCol` is `terminalColumns − sidebarWidth`, the left edge used by the attach hook.
-`onAskAboutSelection` is `undefined` whenever a modal slot is active (`cli.prettier.js:1282973`):
+`onAskAboutSelection` is `undefined` whenever a modal slot is active (`cli.prettier.js:1337237`):
 
 ```js
 onAskAboutSelection: cz ? void 0 : Tu.setIdeSelection,
@@ -214,12 +240,12 @@ padding (`rg -n 'backgroundColor: "composerSidebarBackground"'`).
 ### Root and header
 
 ```js
-// cli.prettier.js:1280520 — panel root
+// cli.prettier.js:1334764 — panel root
 r(sQt, { ref: K2t, flexDirection: K4i, width: C4e, height: z4i,
          onWheel: L4e, selectionScope: Q4i, children: [$4e, W4e] })
 // sQt = Box, K4i = "column", z4i = "100%", Q4i = true
 
-// cli.prettier.js:1280392 — header block
+// cli.prettier.js:1334636 — header block
 $4e = r(s, {
   flexDirection: "column",
   paddingX: 1,
@@ -241,7 +267,7 @@ Header children, in order:
 | `j4e` | todo progress bar, `marginTop: 1, gap: 1`, drawn only when the session has todos |
 | `mQt` | the file list, `marginTop: 1`                                                    |
 
-The count row (`cli.prettier.js:1280257`):
+The count row (`cli.prettier.js:1334501`):
 
 ```js
 F4e = !mH && fR === null &&
@@ -255,7 +281,7 @@ F4e = !mH && fR === null &&
   })
 ```
 
-The base-mode line (`cli.prettier.js:1280538`):
+The base-mode line (`cli.prettier.js:1334782`):
 
 ```js
 function HQt(h, E, O) {
@@ -311,7 +337,7 @@ Below the rows sit two toggles:
 `Bbe` draws one file. Its short-circuit branches, in order: read-denied
 (`Content restricted by read-permission rules`), untracked (`New file not yet staged.` plus
 ``Run `git add :/<path>` to see line counts.``), binary, large. The normal path is a bold path, a
-rule, then one hunk block per hunk (`cli.prettier.js:1279575`):
+rule, then one hunk block per hunk (`cli.prettier.js:1333845`):
 
 ```js
 AN = t4e.length === 0
@@ -365,7 +391,7 @@ correspondence section.
 ### Scrolling
 
 The body is the engine's scroll box with `stickyScroll: false` and `paddingX: 1`
-(`cli.prettier.js:1280446`). Three inputs drive it:
+(`cli.prettier.js:1334690`). Three inputs drive it:
 
 - `onWheel` on the panel root: `scrollBy(deltaY * 3)`, then `preventDefault` + `stopPropagation`.
 - Clicking a file-list row: `scrollToElement(node)` against a `Map<path, inkNode>` that each file
@@ -382,7 +408,7 @@ The file list has its own independent window offset, clamped to `files.length �
 ### The terminal selection store
 
 One accessor wraps the terminal's own mouse-selection state (`rg -nF 'subscribeToSelectionChange'`,
-`cli.prettier.js:705144`):
+`cli.prettier.js:762112`):
 
 ```js
 {
@@ -391,13 +417,14 @@ One accessor wraps the terminal's own mouse-selection state (`rg -nF 'subscribeT
 }
 ```
 
-`getSelectedText` has exactly 3 hits in the bundle: the store method, this wrapper, and one
-consumer — the diff attach hook. Nothing else in the application reads selected text.
+`getSelectedText` has 5 hits in the bundle: the store method and the store's own internal call,
+the accessor's null-object stub and its live wrapper, and one consumer — the diff attach hook.
+Nothing else in the application reads selected text.
 
 ### The attach hook
 
 ```js
-// cli.prettier.js:1279275
+// cli.prettier.js:1333538
 function e4e(h, E, O, Q) {
   let ee = ZC(), be = T("");
   let ke = Nr(() => {
@@ -429,12 +456,12 @@ Exclusions, in order: no callback (a modal is open), mid-drag, no selection, mis
 do), either column left of `minCol`, either row below the panel's last row, blank or unchanged text.
 
 `getMaxRow` walks `getComputedTop()` up the parent chain and adds the panel's computed height minus
-one — the panel's own last row (`cli.prettier.js:1280049`).
+one — the panel's own last row (`cli.prettier.js:1334315`).
 
 ### Row → path
 
 ```js
-// cli.prettier.js:1279670
+// cli.prettier.js:1333940
 function b4e(h, E, O) {
   let Q = 0;
   for (let ee = E ?? void 0; ee; ee = ee.parentNode) Q += ee.yogaNode?.getComputedTop() ?? 0;
@@ -465,7 +492,7 @@ attaching does not suppress copying and copying does not suppress attaching. Def
 ### State: `setIdeSelection({ source: "diff" })`
 
 ```js
-// cli.prettier.js:1269963
+// cli.prettier.js:1323857
 setIdeSelection = (h) => {
   if (((this.#c = null), Object.is(h, this.#r.ideSelection))) return;
   this.#s({ ...this.#r, ideSelection: h });
@@ -489,36 +516,39 @@ the IDE MCP path, which yields `source`-less selections and defers to a live dif
 ### The composer pill
 
 The pill is a prefix rendered ahead of the draft, not text in the draft. It is built in two steps
-(`rg -nF 'from diff'`, `cli.prettier.js:1233443`):
+(`rg -nF 'from diff'`, `cli.prettier.js:1288860`):
 
 ```js
-function HBe(h, E) {
-  if (!E) return null;
-  let O = E.source === "diff";
-  if (!O && h !== "connected") return null;
-  if (E.text && E.lineCount > 0) {
-    let Q = E.lineCount,
-      ee = O && E.filePath ? `from ${C_t(E.filePath)}` : O ? "from diff" : "selected";
-    return `⧉ ${Q} ${Q === 1 ? "line" : "lines"} ${ee}`;
+var Ix = "\u29C9 ";
+function tM(h, v) {
+  if (!v) return null;
+  let D = v.source === "diff";
+  if (!D && h !== "connected") return null;
+  if (v.text && v.lineCount > 0) {
+    let Y = v.lineCount,
+      ee = D && v.filePath ? `from ${NNe(v.filePath)}` : D ? "from diff" : "selected";
+    return `${Ix}${Y} ${Y === 1 ? "line" : "lines"} ${ee}`;
   }
-  if (!O && E.filePath) return `⧉ In ${C_t(E.filePath)}`;
+  if (!D && v.filePath) return `${Ix}In ${NNe(v.filePath)}`;
   return null;
 }
-var eRo = 32;
-function jBe(h) {
-  let E = h.replace(/]/g, ")").replace(/[\r\n]/g, " ");
-  return `[${Om(E, eRo, "truncate-middle")}] `.normalize("NFC");
+var YEt = 32;
+function qre(h) {
+  let v = h.replace(/]/g, ")").replace(/[\r\n]/g, " ");
+  return `[${Tm(v, YEt, "truncate-middle")}] `.normalize("NFC");
 }
 ```
 
-`C_t` is basename. So a diff selection renders `[⧉ 3 lines from README.md] `, middle-truncated at 32
-characters, with `]` inside the label rewritten to `)` so the brackets stay balanced. The glyph `⧉`
-is a hoisted constant, which is why grepping for the whole rendered string finds nothing.
+`NNe` is basename. So a diff selection renders `[⧉ 3 lines from README.md] `, middle-truncated at 32
+characters, with `]` inside the label rewritten to `)` so the brackets stay balanced. The glyph and
+its trailing space are a hoisted constant (`rg -n '= "\\u29C9 ";'`, 1 hit), which is why grepping
+for the whole rendered string finds nothing. In 2.1.277 the glyph was written inline in each
+template (`` `\u29C9 ${Q} …` ``); the rendered label is the same.
 
 The pill object is `{ text, onDelete }` with `onDelete = dismissIdeSelection`
-(`cli.prettier.js:1235701`).
+(`cli.prettier.js:1291106`).
 
-Its colour is a highlight range, not a prop on a Text node (`cli.prettier.js:709286`):
+Its colour is a highlight range, not a prop on a Text node (`cli.prettier.js:773293`):
 
 ```js
 q = f.leadingPill?.text ?? "",
@@ -546,7 +576,7 @@ clamped so it cannot enter the pill. Backspacing past offset 0 clears the prefix
 
 ### The attachment
 
-Creation (`cli.prettier.js:506281` is the renderer; creation is at `cli.prettier.js:476666`):
+Creation (`cli.prettier.js:538463` is the renderer; creation is at `cli.prettier.js:507506`):
 
 ```js
 async function BUo(e, n) {
@@ -573,17 +603,49 @@ This may or may not be related to the current task.`,
 
 marked as a meta message. The transcript row reads `⧉ Selected <N> lines from diff view`.
 
-Clearing: the attachment fires exactly once. On submit
-(`cli.prettier.js:1270222`):
+Clearing: the attachment fires once per prompt, and since 2.1.278–2.1.281 a submit consumes the
+selection rather than discarding it. On submit (`cli.prettier.js:1324122`):
 
 ```js
-if ((Qe.setMode("prompt"), Fo?.source !== "diff" || (!Ho && Eo !== "bash")))
-  ft.setIdeSelection(void 0);
+let To = h.trim().startsWith("/"),
+  Oo = yto(),                                        // the prompt's uuid
+  Ao = D?.inputModeOverride === void 0 &&
+       (Fo?.source !== "diff" || (!To && eo !== "bash"));
+if (Ho && D?.inputModeOverride === void 0) {
+  if ((Je.setMode("prompt"), Ao)) bt.consumeIdeSelection(Oo);
+}
 ```
 
-so the selection survives only when the submitted text is a slash command or a bash-mode line;
-otherwise it is cleared as the turn starts. It is also cleared by backspacing the pill away, and by
-`setIdeSelection(undefined)` from the modal-slot path.
+The same exception as before holds: a diff selection survives a slash command or a bash-mode line.
+Otherwise `consumeIdeSelection` clears it and records `{ selection, promptUuid }`
+(`rg -nF 'consumeIdeSelection = '`, `cli.prettier.js:1323874`):
+
+```js
+consumeIdeSelection = (h) => {
+  let v = this.#n.ideSelection;
+  if ((this.setIdeSelection(void 0), v && h))
+    this.#a = { selection: v, promptUuid: h };
+};
+restoreIdeSelectionConsumedBy = (h, v) => {
+  if (v !== void 0) this.returnIdeSelection(v);
+  else if (this.#a?.promptUuid === h) this.returnIdeSelection(this.#a.selection);
+};
+returnIdeSelection = (h) => {
+  let v = this.#n.ideSelection;
+  if (h !== void 0 && !v?.text && v?.source !== "diff") this.setIdeSelection(h);
+};
+```
+
+The selection comes back, pill and all, when its prompt returns to the composer: the prompt is
+handed back instead of run (`onPromptHandedBack`), a draft is restored from it
+(`restoreDraftFrom`), or a queued prompt is pulled back for editing (`popQueuedIntoDraft`, and the
+up-arrow pull). Queued prompts now carry their own `ideSelection`, recorded against their uuid when
+they are dispatched. A return never overwrites a live selection: if the person has already made a
+new diff selection, or any selection with text, the old one is dropped.
+
+It is still cleared outright by backspacing the pill away (`dismissIdeSelection`) and by
+`setIdeSelection(undefined)` from the modal-slot path. Any `setIdeSelection` call also forgets the
+consumed record.
 
 
 ## 4. Focus
@@ -607,7 +669,7 @@ panes take the keyboard by intercepting keys through their contexts, not by unfo
 | above-prompt band              | local state                         | the band's focus index        |
 | Client region store| `FHt(id)` | a `Client` region that accepts keys |                               |
 
-The pane setter (`rg -nF 'focusPane'`, `cli.prettier.js:325756`):
+The pane setter (`rg -nF 'focusPane'`, `cli.prettier.js:335936`):
 
 ```js
 var W4 = (e) =>
@@ -621,7 +683,7 @@ var W4 = (e) =>
   });
 ```
 
-Region store and setter (`cli.prettier.js:782051`):
+Region store and setter (`cli.prettier.js:820151`):
 
 ```js
 var dEe = vn(Bs({ focusedId: null }), …);
@@ -642,7 +704,7 @@ This is the mechanism behind the measured difference between the Button path and
 The hook is named for what it does (`rg -nF 'useReleaseOnEdit'`):
 
 ```js
-// cli.prettier.js:1213931
+// cli.prettier.js:1269934
 var NRe = (h, E, O) =>
   C(() => {
     if (E === null) return;
@@ -653,7 +715,7 @@ var NRe = (h, E, O) =>
   }, [E, h, O]);
 ```
 
-One call site, in the always-mounted above-prompt band (`cli.prettier.js:1214242`):
+One call site, in the always-mounted above-prompt band (`cli.prettier.js:1270245`):
 
 ```js
 let Ei = oe(() => { (Pe(null), W4(null)); }, []);
@@ -665,7 +727,7 @@ let Ei = oe(() => { (Pe(null), W4(null)); }, []);
 and, on the first change to `value`, clears the band index and calls `focusPane(null)`.
 
 `$.prompt.fill` changes `value`. Its implementation does no focus work of its own
-(`cli.prettier.js:1270509`):
+(`cli.prettier.js:1324432`):
 
 ```js
 fillDraft = (h, E) => {
@@ -685,8 +747,15 @@ So the sequence for the Button path is: the pane holds the keyboard (`focusedId 
 a Button is only pressable once the pane is focused → the handler calls `$.prompt.fill` → the draft
 store emits → release-on-edit fires → `focusPane(null)` → the keyboard is back at the composer.
 
+Since 2.1.278–2.1.281 the `$.ui.focus` op first waits, for up to 3000 ms, for the site to settle:
+while its own pane has a pending `focusRequest`, or while the site holds the keyboard but the named
+element is not drawn yet. `rg -nF 'focusSiteDraws'` finds the store it re-checks on; the predicate
+reads `focusRequest`, `placements` and `shownId`. The wait exists for `$.ui.open({ focus: true })`
+followed at once by `$.ui.focus`. It returns immediately when the site does not hold the keyboard,
+so it does not change the outcome after a fill.
+
 A later `$.ui.focus` is then denied, because the site check reads the same store
-(`rg -nF 'that site does not hold the keyboard'`, `cli.prettier.js:326211`):
+(`rg -nF 'that site does not hold the keyboard'`, `cli.prettier.js:381870`):
 
 ```js
 function kV(e) {
@@ -708,14 +777,14 @@ release-on-edit has just set to `null`.
 Two reasons, both structural.
 
 First, a `Client` is not a focusable. The focusable collector takes only three element types
-(`cli.prettier.js:1213670`):
+(`cli.prettier.js:1269673`):
 
 ```js
 if (h.type === "Button" || h.type === "Input" || h.type === "Select") { … }
 ```
 
 Second, a region that accepts keys holds the keyboard in its own store and explicitly drops the pane
-focus when it takes it (`cli.prettier.js:1017722`):
+focus when it takes it (`cli.prettier.js:1060195`):
 
 ```js
 function D(R) {
@@ -728,7 +797,7 @@ Pointer-down on a key-accepting region sets `focusPane(null)` and `FHt(regionId)
 `panesStore.focusedId` is already `null`, so release-on-edit's `E` argument is `null`, the
 subscription never mounts, and a `$.prompt.fill` from the region's `ui.message` handler changes the
 draft without touching region focus. The region's key routing is a separate interceptor keyed on
-`dEe.getState().focusedId === regionId` (`cli.prettier.js:1017683`), and the only things that
+`dEe.getState().focusedId === regionId` (`cli.prettier.js:1060156`), and the only things that
 release it are `escape` / `ctrl+c` / `ctrl+d`, a click elsewhere, or the pane taking focus back.
 
 ### Moving focus back
@@ -740,7 +809,16 @@ holds; it cannot acquire focus. Its five denials are `no such site`, `not this p
 
 The one adjacent affordance is `$.ui.open({ focus: true })`, which records a `focusRequest` the chat
 component honours only when the composer draft is empty, no dialog is open, no footer or agent-view
-selection is active, and at least one pane is placed. Filling the composer therefore blocks it.
+selection is active, and at least one pane is placed. Filling the composer therefore blocks it. A
+request that fails that check is dropped, not deferred.
+
+In 2.1.281 `$.ui.open` resolves to `{ isPlaced, reason? }` (`rg -nF 'waits unplaced ('`). The
+placement rule is the one 2.1.277 already applied: an asked open (one a person started) is placed
+at any width, while an unasked open is placed only at 110 columns if the person has opened that id
+before, else 144. What is new is that the caller learns the result, plus one new unplaced reason:
+surfaces are attached but none of them places panes. Focus handling did not change. A
+`focus: true` request is recorded only if the pane is placed at open; an unplaced pane's request is
+dropped, in both versions, and placing it later carries only the store's then-current request.
 
 Three engine-side releases exist and none of them is plugin-callable:
 
@@ -761,14 +839,14 @@ and only the pane's is reachable from the keyboard.
 ### The plugin pane's close mark
 
 Drawn by the pane host, not by the plugin. `PaneSite` renders it as its last child, after the tab
-strip and the viewport (`cli.prettier.js:1215122`):
+strip and the viewport (`cli.prettier.js:1271121`):
 
 ```js
 e(URe, { inset: uo ? 1 : 0, isHeld: qn, onClose: Zi }),
 ```
 
 `inset` is `1` for an inline pane (clearing the round border) and `0` for a docked one. The wrapper
-is absolutely positioned, so it costs no row (`cli.prettier.js:1214416`):
+is absolutely positioned, so it costs no row (`cli.prettier.js:1270419`):
 
 ```js
 var URe = (IE) => {
@@ -780,7 +858,7 @@ function imo(fer) { return fer.stopImmediatePropagation(); }
 ```
 
 The control itself is `DimButton` (`rg -nF 'DimButton: () =>'` finds the export;
-`cli.prettier.js:1213580`):
+`cli.prettier.js:1269584`):
 
 ```js
 function C1(M4n) {
@@ -806,7 +884,7 @@ runs the same blur helper the plugin `Button` element uses (`releaseInkFocus`, a
 
 ### It is a stop in the pane's focus ring
 
-`isHeld` is true when the ring's engine-stop index equals the tab count (`cli.prettier.js:1214886`):
+`isHeld` is true when the ring's engine-stop index equals the tab count (`cli.prettier.js:1270924`):
 
 ```js
 Cn = Q ? Yn(Tt) : null,
@@ -818,7 +896,7 @@ function Ln(fr) {
 }
 ```
 
-The engine names the stop `"mark"`. The ring counts it (`cli.prettier.js:1214652`):
+The engine names the stop `"mark"`. The ring counts it (`cli.prettier.js:1270649`):
 
 ```js
 let we = E.focusables.length,
@@ -834,7 +912,7 @@ closes the pane — the same path as `ctrl+x x` (`pane:close`).
 
 The hook-event schema calls this an engine stop rather than a plugin element. A `ui.focus` event
 carries `element: undefined` when the move names one, and a rewriting handler may not convert
-between the two (`cli.prettier.js:147523`):
+between the two (`cli.prettier.js:152627`):
 
 ```js
 function Co(e, t) {
@@ -847,7 +925,7 @@ function Co(e, t) {
 ```
 
 `$.ui.focus` cannot address it either: the argument validator requires a non-empty `key`
-(`cli.prettier.js:401235`), and the site check then requires `hasElement(plugin, key)` — the close
+(`cli.prettier.js:436061`), and the site check then requires `hasElement(plugin, key)` — the close
 mark is the engine's, not the plugin's, so there is no key that reaches it.
 
 ### No plugin control over it
@@ -867,7 +945,7 @@ plugin puts in the top-right cell of its first body row.
 ### The native sidebar's close mark
 
 A local component in the sidebar's own module, drawn as the last child of the header's first row
-(`cli.prettier.js:1280681`):
+(`cli.prettier.js:1334918`):
 
 ```js
 function u8e(f8i) {
@@ -926,12 +1004,14 @@ pill, or an attachment constructor.
 | Move focus from the composer into a pane     | no op does this                                                              | no                   |
 | Close mark hover styling                     | the host draws it and inverts it under the pointer; no prop restyles it      | n/a, engine-owned    |
 | Hide or relabel the close mark               | no; not in `$.ui.open` args nor in the Pane render props                     | no                   |
+| Copy text to the clipboard                   | `$.ui.copy({ text, surface? })`, write-only                                  | yes                  |
+| Log first-party telemetry                    | `$.telemetry.log` / `.mark` refuse non-built-in callers                      | no                   |
 
 ### Keybinding actions a plugin can reuse
 
 A plugin `Button` may carry an `action` naming one of the engine's keybinding actions — including
 all six diff-panel actions. The validator (`rg -nF 'is not one of the engine'`,
-`cli.prettier.js:431158`):
+`cli.prettier.js:468507`):
 
 ```js
 if (w !== void 0 && (typeof w !== "string" || !kzr(w))) {
@@ -945,11 +1025,53 @@ if (typeof w === "string" && Rzr(w))
 So a plugin can surface a button that dispatches `app:cycleDiffBase`, and the user can rebind that
 action's chord. What a plugin cannot do is declare a chord of its own in a context it owns.
 
+### Plugin surface added between 2.1.277 and 2.1.281
+
+Diffing the op and hook-event arrays (`rg -nF '"prompt.attachment"'` and read the enclosing array)
+gives five new ops and one new hook event, `session.send`, which is also callable. None creates a
+pill or an attachment, and none reads the terminal selection.
+
+| Added                    | Kind       | What it does                                                      |
+| ------------------------ | ---------- | ----------------------------------------------------------------- |
+| `ui.copy`                | op         | writes plugin-supplied text to the clipboard                      |
+| `process.spawn`          | op         | starts a process from `argv`, with optional `cwd`, `env`, `input` |
+| `session.version`        | op         | `$.session.version()`, no arguments                               |
+| `state.get`, `state.set` | op         | plugin state reads and writes                                     |
+| `session.send`           | event + op | `$.session.send({ to, text })`: plain text to another session     |
+
+`$.ui.copy({ text, surface? })` resolves to `{ isCopied: true }` or
+`{ isCopied: false, reason: "no-surface" | "no-clipboard" }` (`rg -nF 'no clipboard path to'`,
+`cli.prettier.js:436029`). Its input is the `text` argument alone. It writes through the same
+clipboard helper copy-on-select uses — native (`pbcopy` and the like), a tmux buffer, or OSC 52,
+bounded at 1 MiB for the OSC write — and only on the `terminal` surface. Nothing in it reads the
+selection store, so it adds a copy path, not an observation path.
+
+`$.telemetry.log` / `$.telemetry.mark` are not engine ops. They come from a new built-in plugin
+named `telemetry`, which hooks the `telemetry.*` namespace and refuses callers outside the
+`builtin` and `core` tiers (`rg -nF 'serves the plugins built into Claude Code alone'`,
+`cli.prettier.js:1445341`):
+
+```js
+var h = { deny: "$.telemetry serves the plugins built into Claude Code alone" };
+var Ne = ["builtin", "core"];
+function tt(e, t) {
+  if (t.origin?.tier === void 0) throw Error("$.telemetry: the call names no origin");
+  return Ne.includes(t.origin.tier) ? t(e) : h;
+}
+// registered as: e("telemetry.*", (n, i, a) => tt(i, a)).catch((n, i, a) => et(i, a))
+```
+
+The check is in the providing plugin, not the engine's op table, and it is the only op reserved
+this way. The other tier logic in the bundle predates 2.1.281 and is policy, not reservation: the
+`sec-default` built-in denies `tool.register` from `user`-tier plugins when a setting asks it to,
+and `command.run` notes whether every handler is built-in. The built-in list grew by two in
+2.1.281: `telemetry` and `responsive-mode`.
+
 ### (a) Composer pill styling
 
 Confirmed: no `$` op creates a `leadingPill`, and none creates an attachment.
 
-- The pill prop is engine-internal. `rg -nF 'leadingPill'` returns 6 hits, all inside the composer:
+- The pill prop is engine-internal. `rg -nF 'leadingPill'` returns 7 hits, all inside the composer:
   the prop forwarded through the text-input hook, the highlight computation, two memo comparisons,
   and the construction site. It is never reachable from plugin code.
 - The highlight is `{ start: 0, end: pillText.length - 1, color: "ide", priority: 30 }`. The theme
@@ -970,8 +1092,9 @@ Confirmed: no `$` op creates a `leadingPill`, and none creates an attachment.
 
 Confirmed: no hook and no `$` op observes the terminal selection store.
 
-- `getSelectedText` has 3 hits: the store method, the accessor wrapper, and the diff attach hook.
-  There is no fourth consumer, and none of the three is reachable from plugin code.
+- `getSelectedText` has 5 hits: the store method and its own internal call, the accessor's
+  null-object stub and live wrapper, and the diff attach hook. The attach hook is the only
+  consumer, and none of the five is reachable from plugin code.
 - The full hook-event list contains no selection event. The pointer-shaped events that do exist are
   `ui.press`, `ui.input`, `ui.select` and `ui.message`, all keyed to a specific element the plugin
   drew.
@@ -1012,13 +1135,26 @@ There is no `$` op that moves focus from the composer back into a pane. `$.ui.fo
 focus within a site that already holds it, and `$.ui.open({ focus: true })` is honoured only while
 the composer draft is empty — which a preceding `$.prompt.fill` guarantees it is not.
 
-□ Tripwire: `rg -nF 'useReleaseOnEdit'` has 2 hits (the export and the definition) and exactly one
-  call site. If a second call site appears, or if the gate stops including the pane store, the
-  Button-path behaviour changes.
+□ Tripwire: `rg -nF 'useReleaseOnEdit'` has 1 hit, the export (`useReleaseOnEdit: () => <sym>`);
+  the definition and its single call site are found through `<sym>` inside that module. If a
+  second call site appears, or if the gate stops including the pane store, the Button-path
+  behaviour changes.
 
 
 ## Version notes
 
+- 2.1.281: re-verified. Unchanged: release-on-edit and the `that site does not hold the keyboard`
+  denial; the empty-draft rule for `$.ui.open({ focus: true })`; the attach path through
+  `setIdeSelection` and the `ide`-coloured `leadingPill`; `tengu_jazzy_ripple`; the close marks and
+  the `paddingY: 1` header; the sidebar's strings and keybindings. Changed: submit now consumes the
+  diff selection and returns it if the prompt comes back to the composer; `$.ui.focus` waits up to
+  3000 ms for a pending focus request or undrawn element; `$.ui.open` resolves to
+  `{ isPlaced, reason? }`; the `diff` mod's `isAvailable` and the ownership predicate no longer
+  require hooks to be unsuppressed; the pill glyph is a hoisted `"\u29C9 "` constant. New:
+  `$.ui.copy` (write-only), `process.spawn`, `session.version`, `state.get`/`set`,
+  the `session.send` event, and a built-in-only `$.telemetry` from the new `telemetry` built-in.
+  Corrected counts carried over from 2.1.277: `getSelectedText` 5 hits, `leadingPill` 7,
+  `useReleaseOnEdit` 1.
 - 2.1.277: the pane host draws a `DimButton` close mark at `top: 0`, inverse under the pointer and
   a stop named `"mark"` in the pane's focus ring; no plugin prop hides or restyles it. The native
   sidebar's own close mark is a plain hover-tracking `Box` that goes dim-to-bold and is not
