@@ -146,21 +146,36 @@ When `cli.prettier.js` changes, re-verify against the new version using the work
 ## Transcript schema
 
 `transcript.schema.json` validates a single line of a Claude Code session transcript JSONL file
-(`~/.claude/projects/<encoded-cwd>/<sessionId>.jsonl`). The top level is a `oneOf` over every record
-type (`user`, `assistant`, `progress`, `attachment`, `system`, and the metadata-only records), with
-shared `$defs` for the envelope, content blocks, and the usage object. It carries an
-`x-schema-version` (semver). Behavioral reference: `analysis/SESSION_TRANSCRIPT.md`.
+(`~/.claude/projects/<encoded-cwd>/<sessionId>.jsonl`, and subagent transcripts beside it). The top
+level is a `oneOf` over every record type (`user`, `assistant`, `progress`, `attachment`, `system`,
+and the metadata-only records), with shared `$defs` for the envelope, content blocks, and the usage
+object. An attachment record's payload is checked per subtype: its `allOf` holds one `if`/`then`
+entry per `attachment.type`, each pointing at an `attachment_<subtype>` $def. Unknown subtypes still
+validate. The schema carries an `x-schema-version` (semver) and an `x-claude-code` block recording
+the bundle version it was analyzed against and the version range of the transcripts that validate.
+Behavioral reference: `analysis/SESSION_TRANSCRIPT.md`.
 
-Unlike the frontmatter schema, this one is evolved from real data rather than hand-written from a
-single bundle read. `bin/generate-transcript-schema.py` samples JSONL files from
-`~/.claude/projects/` across Claude Code versions and folds in newly observed record types, fields,
-and enum values, bumping `x-schema-version` (minor for a new record type, patch for new enum values
-only).
+The schema is source-authoritative. Record types, fields, required lists and enum domains come from
+reading the bundle. Real transcripts are a floor: they prove what the schema must accept, not what
+it means.
+
+`bin/generate-transcript-schema.py` measures the gap between the two. It scans every transcript
+under `~/.claude/projects/` in parallel, validates each record, and reports what the schema lacks
+for record types, attachment subtypes, and content blocks: missing $defs, missing fields, JSON type
+widenings, and new enum values. `--apply` writes only the enum values and the observed version
+range. The other items need their rules read from the bundle and are edited by hand. The script's
+docstring describes the mechanism and the refresh workflow in full.
 
 ```bash
-# dry run (show what would change)
+# dry run: validation failures and the delta against the schema
 uv run --with jsonschema python3 bin/generate-transcript-schema.py
 
-# apply changes to transcript.schema.json
+# machine-readable delta for the source-review step
+uv run --with jsonschema python3 bin/generate-transcript-schema.py --report delta.json
+
+# append observed enum values, refresh coverage, rewrite in the canonical layout
 uv run --with jsonschema python3 bin/generate-transcript-schema.py --apply
 ```
+
+The file is kept in a compact canonical layout that `--apply` and `--format-only` reproduce, so
+hand edits should be followed by `--format-only`.
