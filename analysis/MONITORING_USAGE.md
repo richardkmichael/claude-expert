@@ -3,8 +3,9 @@
 Behavioral model verified against 2.1.220, with the window-geometry, feature-flag, and monthly-spend
 sections re-verified against 2.1.226, the cap-reached behavior (grace windows, the injected
 wrap-up messages, the continue-after-reset affordance, the retry watchdog) against 2.1.231, and the
-`/usage` plan-limit bars and limits-attribution block against 2.1.263. This
-document follows the landmark style in
+`/usage` plan-limit bars and limits-attribution block against 2.1.263, and what reaches the model's
+context (the injected usage-limit notes, the auto-continue resume prompt, and the UI-only notices)
+against 2.1.286. This document follows the landmark style in
 `GUIDELINES.md`: it anchors on version-stable strings (slash-command names, `tengu_*` event names,
 env var names, OTEL metric/attribute names, literal UI strings, JSONL field names, behavioral logic)
 with grep re-location recipes, not on minified symbol names or line numbers, which churn every
@@ -627,14 +628,16 @@ calibration, and no statusLine samples, since nothing is configured to run there
 
 Everything needed to reason about *pace* — not just current utilization — is derivable client-side,
 because the window lengths are compiled-in constants while only the utilization fraction comes from
-the server. Grep `claimAbbrev: "5h"` for the table:
+the server. Grep `windowSeconds: 18000` for the table:
 
-| Window      | `claimAbbrev` | `windowSeconds` | Warn thresholds (`utilization`, `timePct`) |
-| ----------- | ------------- | --------------- | ------------------------------------------ |
-| `five_hour` | `5h`          | 18000           | (0.90, 0.72)                               |
-| `seven_day` | `7d`          | 604800          | (0.75, 0.60), (0.50, 0.35), (0.25, 0.15)   |
+| Window      | `windowSeconds` | Warn thresholds (`utilization`, `timePct`) |
+| ----------- | --------------- | ------------------------------------------ |
+| `five_hour` | 18000           | (0.90, 0.72)                               |
+| `seven_day` | 604800          | (0.75, 0.60), (0.50, 0.35), (0.25, 0.15)   |
 
-Byte-identical in 2.1.220 and 2.1.226, so treat the two window lengths as stable constants.
+Values unchanged from 2.1.220 through 2.1.286, so treat the two window lengths as stable constants.
+Up to 2.1.226 each row also carried a `claimAbbrev` (`5h`, `7d`). By 2.1.286 the rows are keyed by
+`rateLimitType` alone.
 
 `timePct` is the fraction of the window elapsed, computed from the reset timestamp alone (grep the
 small helper that computes `resets_at - windowSeconds` and clamps the result to 0..1):
@@ -683,48 +686,113 @@ consumer sees only its side effects.
 
 ### The model is told about the cap, in the conversation
 
-Two meta messages are injected into the message array as `isMeta` records, which is why a model can
-discuss a cap it is standing on top of. Both are edge-triggered, consumed once, and cleared rather
-than delivered at the start of a fresh turn chain, so they land on a continuation request inside a
-turn. Both are gated, both default off, and both are 5-hour-window logic:
+The system prompt carries no plan-limit section, and nothing numeric reaches the model: no
+utilization percentage, no reset timestamp, no `anthropic-ratelimit-unified-*` header value, and
+none of the statusLine `rate_limits` object. What the model receives is a small set of fixed
+bracketed notes, injected into the message array as `isMeta` user records (tagged internally with a
+`usageLimitNote` of `wrap_up`, `near_limit` or `release`), plus one queued resume prompt. Re-locate
+the injector by grepping `usage_limit_near_wrapup`; it runs for the main loop and for `agent:*`
+subagents, never for teammates or when resuming a session.
 
-| Trigger                                              | Gate                      | Message (grep)             |
-| ---------------------------------------------------- | ------------------------- | -------------------------- |
-| `five_hour` utilization at or past 0.95              | `tengu_vellum_anchor`     | `Usage limit approaching`  |
-| grace-zone utilization above zero (cap reached)      | `tengu_lantern_wick_mode` | `grace window active`      |
+| Note          | Gate (default)                      | Text (grep)               |
+| ------------- | ----------------------------------- | ------------------------- |
+| near-limit    | `tengu_vellum_anchor` (off)         | `Usage limit approaching` |
+| grace wrap-up | `tengu_lantern_wick_mode` (`off`)   | `grace window active`     |
+| release       | `tengu_lantern_wick_release` (none) | server-supplied only      |
+| resume        | `autoContinueAtUsageLimit` (on)     | `usage limit has reset`   |
 
-`tengu_lantern_wick_mode` is three-valued — `off`, `wrap-up`, `next-steps` — and the two live
-values select between two texts. Both open with `[Usage limit reached — grace window active.` and
-forbid subagents and long-running work; `next-steps` additionally asks for up to three bullets of
-the most impactful remaining work. The near-limit message uses that same next-steps wording.
+Near-limit. The threshold is 0.95, raised to 0.99 for `default_claude_max_5x` and 0.9975 for
+`default_claude_max_20x` (grep `case "default_claude_max_5x"` next to the `0.9975`). It arms once
+per 5-hour window, keyed on that window's `resets_at`, and does not arm when the
+`anthropic-ratelimit-unified-overage-status` header is `allowed` or `allowed_warning` (extra usage
+would absorb the overrun) or while lower-priority mode is active. It is delivered only on a
+continuation request inside a turn (query-chain depth above zero), alongside a UI notice,
+`Approaching your 5-hour usage limit — Claude will wrap up the current step.`, and a
+`performRateLimitCheckpoint` of the todo list. The 7-day window has no near-limit note at all.
 
-Neither message mentions resuming, and neither carries the reset timestamp. A model that names a
-reset time learned it from ordinary text: the cap line quoted below is what a failed subagent,
-workflow stage, or teammate session reports back as its failure reason, and that text reaches the
-conversation as a tool result.
+Grace wrap-up. `tengu_lantern_wick_mode` is three-valued (`off`, `wrap-up`, `next-steps`). Both live
+texts open with `[Usage limit reached — grace window active.` and forbid subagents and long-running
+work; `next-steps` additionally asks for up to three bullets of the most impactful remaining work,
+the same wording the near-limit note uses. A server-supplied string replaces the built-in text:
+`tengu_lantern_wick_text_by_model` (an object keyed by model, canonical model name, or `default`),
+falling back to `tengu_lantern_wick_text`. The note is owed at most once per user turn, and not at
+all when the grace usage is covered by extra usage (overage status `allowed`/`allowed_warning`, or
+`anthropic-ratelimit-unified-overage-in-use: true`). Subagents get it only under
+`tengu_lantern_wick_braid` (default false), with their own text override
+`tengu_lantern_wick_braid_text`.
+
+Release. After a wrap-up or near-limit note, the next user turn carries a release note once the
+grace zone has ended or become covered by extra usage. It has no built-in text: the content comes
+only from `tengu_lantern_wick_release_by_model` / `tengu_lantern_wick_release` (subagents:
+`tengu_lantern_wick_braid_release`), so with no server value nothing is injected.
+
+Resume. See "Continuing after a cap" below. It is the only one of the four that runs by default.
+
+UI-only, never in the model's context:
+
+- The threshold warning `You've used N% of your <limit> · resets …` (grep
+  `` `You've used ${ `` for the builder, `rate-limit-warning` for the notification key), shown when
+  the server reports `allowed_warning` and utilization is at least 0.7. Limit names come from the
+  label map (`session limit`, `weekly limit`, `Opus limit`, `Sonnet limit`, `Fable limit`,
+  `usage credits`). So is its overage sibling, `You're close to your usage credit limit`.
+- The cap line `You've hit your <limit> · resets …` and the throttle line
+  `Server is temporarily limiting requests (not your usage limit)`. Both are synthetic assistant
+  records (`isApiErrorMessage: true`, model `<synthetic>`), rendered and persisted to the
+  transcript (Surface 5), but the API message normalizer drops them from every request: the
+  exclusion predicate that skips `progress` and non-`local_command` system records also skips any
+  assistant record that is an API error on the synthetic model. A 429 during a turn therefore ends
+  or retries the turn without the model learning why. Retries, including the
+  `CLAUDE_CODE_RETRY_WATCHDOG` wait, add nothing to the conversation either.
+- Overage and model-scoped notices: the Fable credits dialog
+  (`You've used your included Fable usage for this week`), the
+  `is now using usage credits instead of your plan limits` notification, and the spend-limit and
+  shared-budget messages.
+
+A parent model can still read cap text indirectly. The cap line is what a failed subagent, workflow
+stage, or teammate session reports back as its failure reason, and that text reaches the parent as a
+tool result. That is the one route by which a reset time enters a conversation (last checked at
+2.1.231).
 
 ### Continuing after a cap
 
-There is a first-party resume affordance, and it is manual. Grep `to continue after reset` for the
-hint line (rendered as `Press ⏎ to continue after reset`) and
-`prefillRateLimitAutoQueueContinue` for the mechanism: on hitting the cap the client writes the
-literal word `continue` into the prompt buffer, and the user submits it once the window rolls over.
-Nothing schedules the submission — no timer is armed from `resetsAt`, and the reset time is used
-only to render the hint and to dedupe the arming.
+The client now resumes by itself (absent in 2.1.231, present by 2.1.263). The setting
+`autoContinueAtUsageLimit` (shown in `/config` as `Continue automatically at usage limit`, default
+on; described as "wait for the limit to reset and continue the task automatically") arms a wait
+when a claude.ai limit rejects the session. Arming requires a `rejected` status with a finite
+`resetsAt`, no overage in use, a subscription that is not `usage_based`, a reset within 24 hours,
+and the remote kill switch `tengu_marble_heron` (default enabled). Unlike the older prefill path,
+it is not restricted to the 5-hour window, though automatic arming skips an Opus-only or
+Sonnet-only weekly cap that the selected model is not bound by. It also arms after a grace wrap-up
+note was placed and the turn completed.
 
-It is narrowly gated. The path requires `tengu_vellum_anchor`, a `rejected` status with a finite
-`resetsAt`, `rateLimitType === "five_hour"`, and no overage in play — a weekly cap, a model-scoped
-cap, a `credits_required` error, or an org spend-cap block all skip it. Telemetry:
+It fires at `resetsAt` plus 30 to 90 seconds of jitter by enqueueing an `isMeta` prompt, so the
+model receives this text as a user turn:
+
+```
+Your claude.ai usage limit has reset. Continue the task you were working on when the limit was
+reached; do not repeat work that is already complete.
+```
+
+A server override keyed by model comes from `tengu_lantern_wick_resume_by_model`. When a quota probe
+finds usage available before the reset, the early variant is sent instead:
+`Your claude.ai usage is available again before the usage-limit reset. Continue the task …`.
+Neither text carries a time or percentage. Escape, Ctrl-C, a manual submit, turning the setting off,
+an account switch, or a relaunch cancels the wait; a machine that slept through the reset goes to a
+`stale` state instead of firing. Telemetry: `tengu_quota_auto_resume_armed`, `_fired`, `_cancelled`
+(with a reason), `_stale`, `_stale_resumed`, `_offer_armed`, `_setting_changed`.
+
+The older manual affordance remains. Grep `to continue after reset` for the hint line (rendered as
+`Press ⏎ to continue after reset`) and `prefillRateLimitAutoQueueContinue` for the mechanism: on
+hitting the cap the client writes the literal word `continue` into the prompt buffer for the user to
+submit. As of 2.1.231 it required `tengu_vellum_anchor`, a `rejected` status with a finite
+`resetsAt`, `rateLimitType === "five_hour"`, and no overage in play. Telemetry:
 `tengu_rl_checkpoint_auto_continue_queued` and `tengu_rl_checkpoint_copy_shown` on arming,
 `tengu_rl_checkpoint_auto_continue_cancelled_by_upsell` when the user picks an upsell option
 instead, which also clears the prefilled word. The same gate appends ` · progress saved` to the cap
-line (grep `progressSavedSuffix`).
+line (grep `progressSavedSuffix`). `/rate-limit-options` carries a `Wait for limit to reset` entry
+that triggers the prefill.
 
-Separately, `/rate-limit-options` has carried a `Wait for limit to reset` entry across many
-releases. Before the auto-continue path existed it only dismissed the menu; it now also triggers the
-prefill.
-
-A model can nonetheless resume itself at the reset, and this predates every gate above. It needs
+Before the auto-continue setting existed, a model could still resume itself at the reset. It needs
 only two ordinary primitives: the reset time, read as text out of a failed subagent or workflow
 stage, and a backgrounded shell command that exits at that time. Background completion wakes an idle
 session and re-invokes the model, which is the Bash tool's documented contract (grep
@@ -1109,6 +1177,21 @@ half is source-verifiable.
 
 ## Per-release appendix
 
+- 2.1.286: partial re-verification, covering which plan-limit signals reach the model's context.
+  Established as negative results: the system prompt has no plan-limit section; no utilization
+  figure, reset time, `anthropic-ratelimit-unified-*` header value, or statusLine `rate_limits`
+  field is ever sent to the model; the `You've used N%` threshold warning and the overage notices
+  are UI-only; and the `You've hit your …` cap line and the server-throttle line are synthetic
+  API-error records that the API message normalizer drops from every request. Documented from this
+  release but older than it: the `autoContinueAtUsageLimit` setting (default on, kill switch
+  `tengu_marble_heron`, absent in 2.1.231 and present by 2.1.263), which waits for the reset and
+  sends the model an `isMeta` prompt beginning `Your claude.ai usage limit has reset.`; the
+  `release` note, whose text exists only as a server value; the per-model text overrides
+  (`tengu_lantern_wick_text_by_model`, `_release_by_model`, `_resume_by_model`); and the subagent
+  variant of the grace note under `tengu_lantern_wick_braid`. Corrected: the near-limit threshold is
+  0.95 only by default (0.99 on `default_claude_max_5x`, 0.9975 on `default_claude_max_20x`), and it
+  does not arm when extra usage would cover the overrun. The window-geometry table lost its
+  `claimAbbrev` key, so the landmark is now `windowSeconds: 18000`. Values are unchanged.
 - 2.1.263: partial re-verification, covering the `/usage` plan-limit bars and the limits-attribution
   block. Corrected a claim that had been wrong since it was written: `/usage` does attribute usage
   to named skills, subagents, plugins and MCP servers, in both the dialog and the non-interactive
