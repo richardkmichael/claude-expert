@@ -371,6 +371,17 @@ messages, which changes `lastAssistantMessageId` and `tokenUsage`, so the next r
 300 ms later with the new ID. `/clear` on a session with no assistant reply yet may not re-run the
 command until one of those inputs changes. Relocate with `rg -n '"tengu_status_line_mount"'`.
 
+The statusLine command is spawned per run through the command-hook executor (event name
+`StatusLine`), so its env is the hook process env from `HOOKS.md`: `CLAUDE_CODE_SESSION_ID` set
+from that run's payload `session_id`, `CLAUDE_PID`, `CLAUDECODE`, `CLAUDE_CODE_CHILD_SESSION`,
+`CLAUDE_CODE_SESSION_ATTENDED`, `CLAUDE_PROJECT_DIR`, `CLAUDE_EFFORT` when the payload carries an
+effort, `TRACEPARENT` under OTel, and `COLUMNS` / `LINES` on a TTY. After `/clear` its
+`CLAUDE_CODE_SESSION_ID` is the new ID on the next run. The stdio server env, by contrast, is built
+from the scrubbed subprocess env with `CLAUDE_CODE_CHILD_SESSION` removed, then
+`CLAUDE_PROJECT_DIR`, `CLAUDE_CODE_SESSION_ID` and `CLAUDECODE`, then the server's configured
+`env` (which can override all three). Relocate the statusLine side with
+`rg -n 'Skipping StatusLine command execution'`.
+
 Keying a server to its session therefore needs a side channel: a SessionStart hook (sources
 `clear`, `resume`, `fork`) writing its `session_id` to a file keyed by `CLAUDE_PID`, read by the
 server via its parent pid. The published docs do not document `CLAUDE_CODE_SESSION_ID` in the
