@@ -216,6 +216,14 @@ model has no task list to show. Anchors: `CLAUDE_CODE_ENABLE_TODO_TOOLS`, `"clau
 `shouldDefer`, so under tool search they appear by name until loaded. The `todoFeatureEnabled`
 setting ("Enable the todo / task tracking panel") defaults to true.
 
+The source carries no comment giving the reason for the model list. The published docs do: the
+Agent SDK todo-tracking page (`/en/agent-sdk/todo-tracking`, "Model availability") says newer
+models keep track of multi-step work without a written checklist, and the tool definitions and
+reminders cost context. The same page says the default set applies from 2.1.268 and that a model ID
+Claude Code does not recognize, such as a custom name behind an LLM gateway, is treated as outside
+the list. Its opt-ins match the source: name a tool in `allowedTools` or `tools`, or set
+`CLAUDE_CODE_ENABLE_TODO_TOOLS=1`. The opt-in variable first appears in the local bundles at 2.1.263.
+
 Worktree mode — hardcoded true. Anchor: `isWorktreeModeEnabled`.
 
 Tool search enabled — driven by `ENABLE_TOOL_SEARCH`, default on for first-party
