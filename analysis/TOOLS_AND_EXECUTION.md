@@ -78,16 +78,16 @@ entry is an additive spread.
 
 ### Agent and Task Management
 
-| Tool         | Condition     | Aliases                 |
-| ------------ | ------------- | ----------------------- |
-| `Agent`      | Always        | `Task`                  |
-| `Skill`      | Always        |                         |
-| `TaskCreate` | Tasks enabled |                         |
-| `TaskGet`    | Tasks enabled |                         |
-| `TaskUpdate` | Tasks enabled |                         |
-| `TaskList`   | Tasks enabled |                         |
-| `TaskStop`   | Always        | `KillShell`, `KillBash` |
-| `TaskOutput` | Always        | see below               |
+| Tool         | Condition       | Aliases                 |
+| ------------ | --------------- | ----------------------- |
+| `Agent`      | Always          | `Task`                  |
+| `Skill`      | Always          |                         |
+| `TaskCreate` | Task list tools |                         |
+| `TaskGet`    | Task list tools |                         |
+| `TaskUpdate` | Task list tools |                         |
+| `TaskList`   | Task list tools |                         |
+| `TaskStop`   | Always          | `KillShell`, `KillBash` |
+| `TaskOutput` | Always          | see below               |
 
 `Agent` is the primary name; `Task` is retained as an alias. `TaskStop` and `TaskOutput` replace
 the former `KillShell` and `BashOutput` tools, keeping the old names as aliases. `TaskOutput`
@@ -152,7 +152,7 @@ MCP servers also provide tools dynamically, named `mcp__<servername>__<toolname>
 
 | Tool                       | Condition                                        |
 | -------------------------- | ------------------------------------------------ |
-| `TodoWrite`                | Always                                           |
+| `TodoWrite`                | Legacy todo tool (see Condition gates)           |
 | `LSP`                      | Always (gate is a literal — see Condition gates) |
 | `ReportFindings`           | Always                                           |
 | `REPL`                     | Always                                           |
@@ -192,8 +192,29 @@ it on turns embedded search off. Anchor: `setSearchToolsOptIn`.
 Bash-capable shell — true on any non-Windows platform; on Windows, only if git-bash is found, via
 `CLAUDE_CODE_GIT_BASH_PATH` or the standard install locations. Anchor: `CLAUDE_CODE_GIT_BASH_PATH`.
 
-Tasks enabled — default on. Only `CLAUDE_CODE_ENABLE_TASKS` set to a false-y value disables it.
-Anchor: `CLAUDE_CODE_ENABLE_TASKS`.
+Task list flavor — default on. Only `CLAUDE_CODE_ENABLE_TASKS` set to a false-y value turns it off.
+When on, the session checklist is `TaskCreate` / `TaskGet` / `TaskUpdate` / `TaskList`. When off,
+it is the single legacy `TodoWrite` tool. Anchor: `CLAUDE_CODE_ENABLE_TASKS`.
+
+Todo tools available — a second gate, independent of the flavor. Neither `TodoWrite` nor the Task
+tools are registered unless it passes. `TaskCreate` and its siblings require flavor on and this
+gate; `TodoWrite` requires flavor off and this gate. It passes when any of these holds:
+
+- The session is a background (`bg`) or job session.
+- `--tools` or `--allowedTools` names any of `TodoWrite`, `TaskCreate`, `TaskGet`, `TaskUpdate`,
+  `TaskList` (launch-time opt-in).
+- The main-loop model is not resolved yet, or is a Bedrock `application-inference-profile` ID.
+- The main-loop model is in a fixed list of older families: the Claude 3 and 3.5/3.7 models, Opus
+  4.0 through 4.7, Sonnet 4.0 through 4.6, and Haiku 4.5. Later model families, such as the
+  Claude 5 models, are not in the list.
+- `CLAUDE_CODE_ENABLE_TODO_TOOLS` is set to a true-y value.
+
+On a model outside the list, with no opt-in, the session has no checklist tool at all, and the
+model has no task list to show. Anchors: `CLAUDE_CODE_ENABLE_TODO_TOOLS`, `"claude-haiku-4-5"`
+(end of the model list), and the tool search hints `"manage the session task checklist"`
+(`TodoWrite`) and `"create a task in the task list"` (`TaskCreate`). All five tools set
+`shouldDefer`, so under tool search they appear by name until loaded. The `todoFeatureEnabled`
+setting ("Enable the todo / task tracking panel") defaults to true.
 
 Worktree mode — hardcoded true. Anchor: `isWorktreeModeEnabled`.
 
@@ -370,3 +391,11 @@ which already has the behavior, so these introduction points cannot be bisected 
 - 2.1.117: native builds moved file search into the Bash tool and dropped `Glob`/`Grep` from the
   registry.
 - 2.1.162: naming `Glob`/`Grep` in `--tools` / `--allowedTools` restores the dedicated tools.
+
+## Version history
+
+- 2.1.283: the task-list gating in "Condition gates" was re-checked against this bundle, and the
+  gate and model list were spot-checked in the 2.1.285 binary. Earlier text in this doc listed
+  `TodoWrite` as always registered and the task tools as gated only by `CLAUDE_CODE_ENABLE_TASKS`.
+  Both were incomplete: a model-family list and `CLAUDE_CODE_ENABLE_TODO_TOOLS` gate the whole
+  group, so sessions on newer model families have no checklist tool unless opted in.
