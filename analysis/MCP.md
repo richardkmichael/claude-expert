@@ -307,6 +307,80 @@ options object still built without a `task` field □ `taskSupport` still gates 
 `"optional"` □ poll default still 2000 ms, clamp still [100, 60000], failure limit still 10 □ both
 drive modes still present □ the three `mcp_task_*` telemetry names still present.
 
+## Session identity visible to MCP servers
+
+Verified against `cli.prettier.js` 2.1.283 (2026-09-30). This section is newer than the rest of the
+document (see the `Source:` line) and follows the landmark style.
+
+A stdio server's spawn env carries `CLAUDE_PROJECT_DIR`, `CLAUDE_CODE_SESSION_ID` (the current
+session ID, read at spawn time) and `CLAUDECODE=1`, layered over Claude Code's own env and under
+the server's configured `env`. Relocate with `rg -n -B1 'CLAUDE_CODE_SESSION_ID: '` and keep the
+two hits whose previous line sets `CLAUDE_PROJECT_DIR`, one per MCP client module. `CLAUDE_PID` is
+not set for MCP servers (hooks and the statusLine command get it). A server that needs the Claude
+Code pid has only `process.ppid`, which is a wrapper's pid when the command is `npx`, `uv run` or a
+shell.
+
+The env is a spawn-time snapshot. Nothing Claude Code sends later carries the session ID:
+
+- `tools/call` `_meta` holds `claudecode/toolUseId`, `anthropic/memory.caller`,
+  `anthropic/requestId` (first-party servers only) and `claudecode/agentId` / `agentType` /
+  `isObserver` (claude.ai-proxied servers only). Relocate with `rg -n '"claudecode/toolUseId"'`.
+- `X-Claude-Code-Session-Id` is sent on Anthropic API requests only, never to MCP transports.
+- `roots/list` returns directory `file://` URIs (cwd plus additional working directories), and
+  `notifications/roots/list_changed` fires only when additional working directories change.
+  Relocate with `rg -n 'omitted from roots/list'`.
+
+Session-ID changes and what happens to live MCP connections:
+
+| Action                      | Session ID               | Stdio servers         |
+|-----------------------------|--------------------------|-----------------------|
+| `/clear` (`/reset`, `/new`) | new random UUID          | kept; env stale       |
+| `/resume` in-session        | the resumed ID           | kept; env stale       |
+| `/resume` as a fork         | the fork's new ID        | kept; env stale       |
+| `/compact`, auto-compact    | unchanged                | kept                  |
+| `/login`                    | unchanged                | kept                  |
+| `/logout`                   | process exits (`logout`) | terminated            |
+| `--continue` / `--resume`   | resumed ID (new with     | spawned after the     |
+| at interactive startup      | `--fork-session`)        | switch; env matches   |
+| `/mcp` reconnect            | unchanged                | respawned, current ID |
+
+`/clear` regenerates the ID through the exported `regenerateSessionId` (its only caller is the
+exported `clearConversation`); the in-session resume path and `/cd` go through `switchSession`.
+Relocate with `rg -n 'regenerateSessionId,|switchSession,'` (export lists), then follow the local
+names. `clearConversation` touches only the `ide` MCP client (clears its cache); every other
+client stays connected, and resume reuses `mcp.clients` (`restoreMcpTasks`). The only env update
+on `/clear` is Claude Code's own `process.env.CLAUDE_CODE_SESSION_ID`, rewritten when it was
+already set, which reaches children spawned afterwards but not a running server. Interactive
+startup initialises `mcpClients` to `[]` and connects servers after the startup resume, which is
+why `--continue`/`--resume` servers see the resumed ID. Print-mode ordering was not traced.
+
+Hook sequence on `/clear`: SessionEnd `reason: "clear"` with the old `session_id`, then the ID
+regenerates, then SessionStart `source: "clear"` with the new ID (deferred and run asynchronously
+when the caller passes `deferSessionStartHooks`). Resume runs SessionEnd `reason: "resume"`, then
+SessionStart `source: "resume"` (or `"fork"`) carrying the resumed ID. No hook fires on a slash
+command as such: `/clear` is a `local` command, `UserPromptSubmit` runs only when the input
+queries the model, and `UserPromptExpansion` fires only for `prompt`-type commands (skills,
+custom commands, MCP prompts). Relocate with `rg -n 'SessionStart hooks after /clear'`.
+
+The statusLine payload's `session_id` comes from the same hook base builder (`session_id` from the
+live session object), so it reflects the new ID whenever the command next runs. Runs are triggered
+300 ms after a change to `lastAssistantMessageId`, `tokenUsage`, permission mode, vim mode, model,
+fast mode, effort, thinking or PR status, plus `refreshInterval` ticks and rate-limit resets. A
+session switch is not itself a trigger. `/clear` on a session with an assistant reply empties the
+messages, which changes `lastAssistantMessageId` and `tokenUsage`, so the next run lands about
+300 ms later with the new ID. `/clear` on a session with no assistant reply yet may not re-run the
+command until one of those inputs changes. Relocate with `rg -n '"tengu_status_line_mount"'`.
+
+Keying a server to its session therefore needs a side channel: a SessionStart hook (sources
+`clear`, `resume`, `fork`) writing its `session_id` to a file keyed by `CLAUDE_PID`, read by the
+server via its parent pid. The published docs do not document `CLAUDE_CODE_SESSION_ID` in the
+stdio server env.
+
+Re-verify: □ stdio spawn env still sets `CLAUDE_CODE_SESSION_ID` from the current ID □ still no
+`CLAUDE_PID` in it □ `clearConversation` still leaves non-`ide` clients connected □ no `_meta`
+key or MCP header carrying the session ID □ SessionEnd still fires before the regenerate and
+SessionStart after □ statusLine trigger list unchanged.
+
 ## SDK versus application code
 
 The MCP TypeScript SDK is bundled inline, so protocol code and Claude Code's own code sit in the
