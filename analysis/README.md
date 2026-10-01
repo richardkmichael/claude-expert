@@ -53,9 +53,10 @@ re-checked against a later bundle. The doc's Version history section says which.
 
 ## Hooks
 
-| Doc        | Scope                                                                             | Verified | Style    | Key landmarks                                                                                                           |
-| ---------- | --------------------------------------------------------------------------------- | -------- | -------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `HOOKS.md` | Hook event inventory, I/O schemas, matchers, hook process env, relocation recipes | 2.1.280  | landmark | `hook_event_name`, `agent_id`, `hook_additional_context`, `fieldToMatch`, `PreModelSwitch`, `CLAUDE_CODE_CHILD_SESSION` |
+| Doc                         | Scope                                                                                                                          | Verified | Style    | Key landmarks                                                                                                                                   |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | -------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `HOOKS.md`                  | Hook event inventory, I/O schemas, matchers, hook process env, relocation recipes                                              | 2.1.280  | landmark | `hook_event_name`, `agent_id`, `hook_additional_context`, `fieldToMatch`, `PreModelSwitch`, `CLAUDE_CODE_CHILD_SESSION`                         |
+| `FUNCTION_HOOKS_ROLLOUT.md` | Mods rollout gate: `tengu_plugin_hooks_modules`, env override (removed 2.1.287), GrowthBook value sources, disk cache, refresh | 2.1.286  | landmark | `tengu_plugin_hooks_modules`, `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS`, `pluginTestRefusal`, `cachedGrowthBookFeatures`, `getFeatureValueWithSource` |
 
 ## UI surfaces and plugin panes
 
