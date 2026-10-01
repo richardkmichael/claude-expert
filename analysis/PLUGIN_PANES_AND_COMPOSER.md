@@ -1,7 +1,7 @@
 # Plugin Panes, the Prompt Composer, and Drag-Select Attachment
 
 Source: `cli.prettier.js` (`work/<version>/package/cli.prettier.js`)
-Verified: 2.1.277
+Verified: 2.1.286 (pane keyboard sections); other sections last checked at 2.1.277
 
 Three surfaces meet at the bottom of a fullscreen terminal session, and they are commonly confused
 with one another:
@@ -311,6 +311,95 @@ element is an `Input` or `Select`):
 `pane:next` / `pane:previous` (`show next/previous plugin pane`) are separate actions that change
 which pane is *shown*, and carry no default chord in the table.
 
+### Keys a focused pane does not consume
+
+A focused pane never takes focus away from the composer's text input. It intercepts keys in two
+layers, and any key neither layer consumes reaches the composer as ordinary typing. The pane loses
+the keyboard as a side effect of that typing. No key rule releases it, and the key is not replayed:
+it was never consumed.
+
+Layer 1 is Button hotkeys, a pre-dispatch interceptor that runs before keybinding resolution.
+Relocate it from the module's exports, `rg -nF 'hotkeysOf: () =>'` and
+`rg -nF 'hotkeyPresses: () =>'`, then read the two definitions and the interceptor that calls the
+second. Shape:
+
+- `hotkeysOf` walks the drawn tree and maps each Button's `hotkey` to its press. It does not
+  descend into `engine` nodes.
+- A key qualifies only with no ctrl, meta, super, escape, tab or return flag, and only if its text
+  matches `/^[^\p{C}\p{Z}]+$/u`. Space is a separator (`\p{Z}`), so Space is never a hotkey.
+- Each character is NFKC-normalized and lowercased before lookup. Shift+A, or A under caps lock,
+  presses the `a` hotkey. The shift flag is not checked.
+- Every character of the input chunk must map to a hotkey. A multi-character chunk (a paste, or
+  keys the terminal delivered together) presses all of them, or none and falls through whole.
+- The interceptor is active only while the `Pane` context is, i.e. the focused element is not an
+  `Input` or `Select`.
+- The Button validator accepts only `/^[0-9a-z]$/` (`rg -nF 'hotkey must be one digit'`).
+
+Layer 2 is the `Pane` context table above. Every action in it has a handler in every pane state, so
+each of these keys is consumed even when it has nothing to do:
+
+| Key                                    | Effect                                                                      |
+| -------------------------------------- | --------------------------------------------------------------------------- |
+| `tab` / `shift+tab`                    | walk the ring: plugin focusables, then a stop per other open pane, then `✕` |
+| `enter`                                | press the focused Button or submit the focused Input; else nothing          |
+| `escape`                               | leave the pane, or close it when opened with `closeOnEscape`                |
+| `up` / `down`, content overflows       | scroll one row (`ui.scroll`)                                                |
+| `up` / `down`, nothing to scroll       | previous / next plugin focusable, wrapping; nothing when there are none     |
+| `pageup` / `pagedown` / `home` / `end` | scroll by a page / to an end; nothing when the content fits                 |
+| `ctrl+x` chords                        | grow, shrink, close                                                         |
+
+The `up`/`down` split comes from how the handler map is merged: the ring handlers define
+`pane:scrollUp`/`pane:scrollDown` as focus moves, and the scroll handlers replace them only when
+the pane's `maxOffset > 0`. Relocate with `rg -n '"pane:scrollUp": \(\) =>'`.
+
+Every other key reaches the composer: Space, printable characters with no matching hotkey (including
+uppercase letters, punctuation, and digits or letters no Button claims), Backspace, Delete,
+left/right, and ctrl or meta editing chords. Chat and Global bindings the `Pane` context does not
+bind still resolve; `ctrl+x tab` is one.
+
+The release is `useReleaseOnEdit` (see `NATIVE_DIFF_SIDEBAR.md`). While a pane or the band holds the
+keys, it subscribes to the draft store and, on the first change to `value`, clears the band focus
+and calls `focusPane(null)`. It compares `value` only, which splits the fall-through keys:
+
+- A key that changes the draft text releases the pane, and the edit stays in the draft.
+- A key that reaches the composer but leaves the text unchanged does not release. Left/right,
+  ctrl+a/ctrl+e, Backspace at cursor 0 or on an empty draft, and Delete at the end move the
+  composer's cursor or do nothing, and the pane keeps the keyboard.
+
+#### What a plugin can do about it
+
+No pane option, Button prop or hook event intercepts an unconsumed key. `$.ui.open` options are
+`title`, `focus`, `closeOnEscape`, `holdToasts`, `rows` and `columns`. `ui.focus` is raised for
+moves within a site; release-on-edit calls `focusPane(null)` directly and raises nothing.
+
+`prompt.edit` cannot prevent the release, because it runs too late. The composer's key handler
+writes the new value to the draft store first and records the edit for the hook chain second, and
+the relay batches records onto a microtask (`rg -nF "the editor's edit stands"`). By the time a
+handler runs, the pane has already lost the keyboard. A handler can still undo the text: answering
+the before state `{ text: e.text, cursor: e.cursor }` is committed if the draft has not changed
+since. The input carries:
+
+- `origin`: always `{ kind: "composer" }` for composer typing. Nothing marks a key that fell through
+  from a pane. A plugin's only signal is the last `isFocused` its `ui.render` received, and the
+  re-render with `isFocused: false` can land before or after the `prompt.edit` call.
+- `key`: present only when the batch holds exactly one edit. It is `{ key, ctrl?, shift?, meta? }`,
+  where `key` is the single character typed, `"space"` for Space, or the key name for a named key.
+
+Taking the keyboard back is narrower still. `$.ui.focus` is denied (`that site does not hold the
+keyboard`). `$.ui.open({ id, focus: true })` on a pane that is already open records a
+`focusRequest`. The settle step (`rg -nF 'settleFocusRequest'`) re-evaluates the request whenever
+it or the draft text changes, honours it only when the draft is `""`, no dialog, footer or
+agent-view selection is active, no pane is focused and a pane is placed, and otherwise clears it. So
+re-focusing works only when the draft was empty before the key, and only if the open runs after the
+undo has committed; an open issued from inside the `prompt.edit` handler sees the unreverted draft
+and is dropped. The pane's focus index resets to none when it loses the keyboard, so a plugin that
+regains it must call `$.ui.focus({ requestId, key })` to put the ring back on its Button.
+
+□ Tripwire: the hotkey test still excludes `\p{Z}` and still lowercases; the `Pane` table has no
+  `space`, `backspace` or `left`/`right` binding; `useReleaseOnEdit` still compares only `value`;
+  the composer still applies the edit before it records it for `prompt.edit`. If any of these
+  changes, this section is stale.
+
 
 ## Pane placement and width
 
@@ -447,6 +536,10 @@ header in a `Box` with `paddingY: 1` (and `paddingX: 1`, which a docked pane als
   or `gap` appears there, docked plugin panes gain an inset and this section is stale.
 
 ## Version notes
+
+- 2.1.286: keys a focused pane does not bind reach the composer, and a resulting draft change
+  releases the pane through `useReleaseOnEdit`. Hotkeys lowercase their input and never match
+  Space. `prompt.edit` runs after the release and reports `origin: { kind: "composer" }`.
 
 - 2.1.277: the pane dock adds no vertical padding; a plugin pane's tree starts on the first body
   row. The diff sidebar's leading blank row is a `paddingY: 1` on its own header block.
