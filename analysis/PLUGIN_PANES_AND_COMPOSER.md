@@ -1,7 +1,8 @@
 # Plugin Panes, the Prompt Composer, and Drag-Select Attachment
 
 Source: `cli.prettier.js` (`work/<version>/package/cli.prettier.js`)
-Verified: 2.1.286 (pane keyboard sections); other sections last checked at 2.1.277
+Verified: 2.1.286 (pane keyboard and `prompt.edit` sections); other sections last checked at
+2.1.277
 
 Three surfaces meet at the bottom of a fullscreen terminal session, and they are commonly confused
 with one another:
@@ -401,6 +402,95 @@ regains it must call `$.ui.focus({ requestId, key })` to put the ring back on it
   changes, this section is stale.
 
 
+## What `prompt.edit` receives: edit shape, Vim mode and undo
+
+Only two composer paths record an edit for the `prompt.edit` relay. Relocate them with
+`rg -n 'we\.record\(\{|nv\.record\(\{'` (symbol names churn; the shape is `<relay>.record({ before,
+after, key? })`):
+
+- The base text input's key handler, after it has applied a key: `before`/`after` are
+  `{ text, cursor }` with the leading pill stripped, and `key` is the key event. It records only
+  when the text or the cursor changed.
+- The composer's insert-text path for typed insertions, without a `key`.
+
+Everything else changes the draft without raising `prompt.edit`: Vim NORMAL and VISUAL commands,
+undo, `$.prompt.fill`, and the hook's own commits.
+
+### Field derivation
+
+The relay batches records onto a microtask (`rg -nF "the editor's edit stands"`). A batch is
+`{ before: first.before, after: last.after }`, and `key` is kept only when the batch holds exactly
+one record. The hook input is then:
+
+- `text`, `cursor`: the batch's `before`. `cursor` is the cursor before the edit.
+- `start`, `end`, `inputText`: a prefix/suffix diff of `before` against `after`. Relocate the diff
+  with `rg -n 'return \{ start: n\.cursor, end: n\.cursor, inputText: "" \}'`. When the text is
+  unchanged it returns `start = end = after.cursor` and `inputText: ""`. Otherwise the common
+  prefix is capped at `min(before.cursor, after.cursor)`.
+- `origin`: `{ kind: "composer" }`.
+- `key`: `{ key, ctrl?, shift?, meta? }`. `key` is the single character, `"space"`, or the key name.
+
+| Edit, cursor `c`                  | `start` | `end` | `inputText` | `cursor` | `key`                     |
+| --------------------------------- | ------- | ----- | ----------- | -------- | ------------------------- |
+| Backspace (default or Vim INSERT) | `c-1`   | `c`   | `""`        | `c`      | `{ key: "backspace" }`    |
+| Left arrow                        | `c-1`   | `c-1` | `""`        | `c`      | `{ key: "left" }`         |
+| Typed `x`                         | `c`     | `c`   | `"x"`       | `c`      | `{ key: "x" }`            |
+
+A deletion always has `end > start`, so `start === end && inputText === ""` identifies a pure
+cursor move. The one exception is a batch whose edits cancel out, such as a deletion and a retype
+merged while the chain was busy.
+
+### Vim mode
+
+The Vim key handler sits in front of the base input. Relocate it with
+`rg -n 'else if \(ye && S\.name === "backspace"\) Ce = "h"'` (symbols churn; the shape is "map
+arrow/backspace/delete to `h`/`l`/`k`/`j`/`x`, then run the command table").
+
+- INSERT: every key that is not a remap is forwarded to the base handler, so Backspace deletes and
+  is recorded as in the table above. Esc's one-column step left is not recorded.
+- NORMAL: Backspace becomes the `h` motion, Delete becomes `x`, and left/right become `h`/`l`.
+  Motions and edits (`h`, `w`, `b`, `x`, `dd`, `p`, ...) run in the Vim layer, which sets the
+  cursor and text directly. None of them raises `prompt.edit`. The keys forwarded to the base
+  handler, and therefore recorded, are ctrl and meta chords, Return, `up`/`down` while no command
+  is pending, and `left` on an empty draft.
+- VISUAL: never forwarded, never recorded.
+
+A `prompt.edit` hook that snaps the cursor out of a token therefore does nothing in NORMAL mode.
+Backspace walks the cursor left through the token one column at a time, and `x`/`d` edits can cut
+it without the hook seeing them.
+
+The current Vim mode lives in the draft store's `vimMode`. Hook inputs, `$.prompt.read` (only
+`{ text, cursor }`), and `ui.render` props do not expose it. The status-line command's
+`vim.mode` field is the only outside reader. Whether Vim is on is the global-config key
+`editorMode` (`"vim"`).
+
+### Undo
+
+`chat:undo` (`ctrl+_`, `ctrl+-`, `ctrl+shift+-`, `ctrl+shift+_`) and Vim `u` call the same undo
+function. It pops a snapshot and sets the value and cursor directly, so undo raises no
+`prompt.edit`. A hook cannot see or re-shape an undo, and nothing marks a later edit as following
+one.
+
+The snapshots come from the composer's change handler. Relocate it with
+`rg -n 'maxBufferSize: 50, debounceMs: 1000'`. Each draft change pushes the text before the
+change, and that includes a hook's commit, which goes through the same handler. Pushes are
+debounced at 1000 ms: a push within 1 s of the last real push cancels any pending one and
+reschedules itself. The exceptions are Vim NORMAL mode, where every push is immediate, and the
+first push after each Vim mode change. Undo cancels a pending push.
+
+For a keystroke the hook rewrites, the keystroke pushes the original text and the hook's commit
+pushes the intermediate text (keystroke applied, before the rewrite):
+
+- Undo within 1 s of an idle start restores the original in one step.
+- Undo after 1 s restores the intermediate text first, then the original.
+- When the keystroke came within 1 s of earlier typing, the original's push is replaced by the
+  intermediate's, so undo reaches the intermediate text and never the original.
+
+□ Tripwire: `rg -n '\.record\(\{'` inside the composer still finds exactly the two relay sites;
+  the Vim NORMAL path still maps Backspace to `h`; the undo handler still sets the value without
+  recording. If any changes, this section is stale.
+
+
 ## Pane placement and width
 
 Panes are placed only when the terminal is wide enough. The predicate compares
@@ -540,6 +630,8 @@ header in a `Box` with `paddingY: 1` (and `paddingX: 1`, which a docked pane als
 - 2.1.286: keys a focused pane does not bind reach the composer, and a resulting draft change
   releases the pane through `useReleaseOnEdit`. Hotkeys lowercase their input and never match
   Space. `prompt.edit` runs after the release and reports `origin: { kind: "composer" }`.
+- 2.1.286: Vim NORMAL/VISUAL commands and undo (`chat:undo`, Vim `u`) raise no `prompt.edit`;
+  NORMAL-mode Backspace is the `h` motion. Undo snapshots include a hook's commits.
 
 - 2.1.277: the pane dock adds no vertical padding; a plugin pane's tree starts on the first body
   row. The diff sidebar's leading blank row is a `paddingY: 1` on its own header block.
