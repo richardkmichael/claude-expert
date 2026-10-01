@@ -106,11 +106,11 @@ not part of this family despite the name.
 
 ## API, networking, and MCP
 
-| Doc                      | Scope                                                                               | Verified                    | Style    | Key landmarks                                                                                           |
-| ------------------------ | ----------------------------------------------------------------------------------- | --------------------------- | -------- | ------------------------------------------------------------------------------------------------------- |
-| `ANTHROPIC_API_USAGE.md` | API call sites and request-construction pipeline                                    | 2.1.76                      | landmark | `beta.messages.stream`, `CLAUDE_CODE_EXTRA_BODY`, `DISABLE_PROMPT_CACHING`                              |
-| `API_REFERENCE.md`       | What the bundled Anthropic SDK adds to an outgoing request                          | 2.1.277                     | landmark | `/v1/messages`, `calculateNonstreamingTimeout`, `is deprecated`                                         |
-| `MCP.md`                 | MCP integration, tools/resources, scope, timeouts, backgrounding, tasks, session ID | 2.1.186 / 2.1.277 / 2.1.283 | landmark | `enabledMcpjsonServers`, `MCP tool idle timeout`, `tengu_mcp_auto_background`, `CLAUDE_CODE_SESSION_ID` |
+| Doc                      | Scope                                                                                         | Verified                              | Style    | Key landmarks                                                                                                             |
+| ------------------------ | --------------------------------------------------------------------------------------------- | ------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `ANTHROPIC_API_USAGE.md` | API call sites and request-construction pipeline                                              | 2.1.76                                | landmark | `beta.messages.stream`, `CLAUDE_CODE_EXTRA_BODY`, `DISABLE_PROMPT_CACHING`                                                |
+| `API_REFERENCE.md`       | What the bundled Anthropic SDK adds to an outgoing request                                    | 2.1.277                               | landmark | `/v1/messages`, `calculateNonstreamingTimeout`, `is deprecated`                                                           |
+| `MCP.md`                 | MCP integration, tools/resources, scope, timeouts, backgrounding, tasks, session ID, channels | 2.1.186 / 2.1.277 / 2.1.283 / 2.1.286 | landmark | `enabledMcpjsonServers`, `MCP tool idle timeout`, `tengu_mcp_auto_background`, `CLAUDE_CODE_SESSION_ID`, `claude/channel` |
 
 ## Observability
 
