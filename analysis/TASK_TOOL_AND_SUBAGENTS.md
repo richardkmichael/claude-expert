@@ -207,10 +207,42 @@ fires only on prompt submission (relocate with `rg -n 'executeUserPromptSubmitHo
 subagent's spawn prompt does not go through it. SubagentStart `additionalContext` is the hook for
 the subagent's opening context.
 
+MCP server instructions in subagents. No system prompt carries server `instructions`, for the main
+thread or a subagent. They reach the model only as an `mcp_instructions_delta` attachment, rendered
+as a meta user message headed "# MCP Server Instructions".
+`rg -n 'provided instructions for how to use'` has a single hit, the attachment renderer.
+The delta lists connected servers whose
+instructions no earlier delta in the same message history has announced.
+
+- Spawn. The spawn path adds a `deferred_tools_delta` (call site `"attachments_subagent"`) and
+  sandbox instructions to a non-fork subagent's opening messages. It adds no
+  `mcp_instructions_delta`. Relocate with `rg -n 'callSite: "attachments_subagent"'`. The only
+  producers of the instructions delta are the attachment builder and the post-compact rebuild
+  (`rg -n 'Ka\("mcp_instructions_delta"'`).
+- Mid-turn. The query loop runs the attachment builder after every tool batch for main thread and
+  subagents alike. `mcp_instructions_delta` is in the part of the builder that is not gated on
+  `!agentId`. A subagent therefore first sees MCP instructions with its second request, after its
+  first tool batch. A subagent that answers without calling a tool never sees them.
+- Scope. The delta is built from the subagent's `mcpClients`, which is the parent's full client
+  list plus any frontmatter `mcpServers`, filtered only to connected servers. The agent's resolved
+  tool set does not filter it. An agent with `tools: [Read]` or `disallowedTools: mcp__x` still
+  receives every connected server's instructions.
+- Fork. A fork copies the parent's message history, so the parent's earlier deltas come with it.
+  Later passes announce only servers that changed.
+
+Deferred tools in subagents. `ToolSearch` is not in the set of tools removed from every agent, and
+it is in the set of built-ins that background agents keep. Agents with a wildcard `tools`
+therefore have it and defer MCP tools as the main thread does. The spawn-time `deferred_tools_delta`
+is computed from the subagent's own resolved tools. An agent whose explicit `tools` list omits
+`ToolSearch` gets tool search turned off for its requests: the mode decision returns
+`mcp_search_unavailable` and logs "Tool search disabled: ToolSearchTool is not available", and
+the agent's MCP tools are sent with full schemas instead of deferred.
+
 Re-verify: □ MCP predicate still passes before the async built-in narrowing □ `assembleToolPool`
 for subagents still built from app-state MCP tools with the parent permission context □ resolver
 still applies `disallowedTools` before `tools` and accepts `mcp__server` / `mcp__server__*` □ fork
-still `useExactTools` □ built-in `tools` lists unchanged.
+still `useExactTools` □ built-in `tools` lists unchanged □ spawn path still adds no
+`mcp_instructions_delta` □ instructions delta still unfiltered by agent tools.
 
 ## Subagent output pipeline
 
@@ -339,4 +371,6 @@ and built-in/plugin attribution. Spawn emits `tengu_agent_tool_selected` (with `
 - 2.1.286: "Subagent tool set and MCP tools" verified. MCP tools pass every agent's base filter,
   sync or background; `disallowedTools` accepts `mcp__server`, `mcp__server__*` and `mcp__*`.
   `Explore` model is `inherit` (opus cap), not haiku. New built-in `web-fetch` (tools: WebFetch).
-  `claude-code-guide` has an explicit read/search/web tool list and no MCP tools.
+  `claude-code-guide` has an explicit read/search/web tool list and no MCP tools. MCP server
+  instructions reach a subagent only through the mid-turn `mcp_instructions_delta`, unfiltered by
+  its tools; an explicit `tools` list without `ToolSearch` turns off tool search for that agent.
