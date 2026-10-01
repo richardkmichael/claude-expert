@@ -132,6 +132,86 @@ Grep `source: "built-in"` for the set. `Explore` and `Plan` are special-cased in
 | `workflow-subagent` | —         | —                             | internal: workflow-script orchestration       |
 | `teammate`          | —         | —                             | internal: in-process teammate wrapper         |
 
+The model and tool columns above date from 2.1.165. The 2.1.286 tool sets, and which built-ins
+receive MCP tools, are in "Subagent tool set and MCP tools" below.
+
+## Subagent tool set and MCP tools
+
+Verified against `cli.prettier.js` 2.1.286 (2026-10-01). This section is newer than the rest of the
+document (see the top-of-file stamp).
+
+Pool. A non-fork subagent's pool is rebuilt at spawn from the built-in tools plus every connected
+MCP tool in app state, through the same deny-rule filter the main thread uses. Relocate with
+`rg -n 'toolCatalog.assembleToolPool\('` and keep the hit whose second argument concatenates
+`.mcp.tools`. The permission context passed in is the parent's, with only `mode` replaced by the
+agent's `permissionMode`, so a `permissions.deny` rule hides a tool from main thread and subagents
+alike. No settings-level rule scope targets subagents only.
+
+Base filter. A per-agent filter then runs over the pool. Its first test passes any tool whose name
+starts with `mcp__` (or that has `isMcp`) before the built-in-only checks run, including the check
+that narrows background (async) subagents to a short built-in list. MCP tools therefore survive the
+base filter for every agent type, sync or background. Relocate the predicate with
+`rg -n -A1 'function \w+\(e\) \{$' | rg 'startsWith\("mcp__"\) \|\| e.isMcp'` and the filter by its
+destructured parameters `isTeammate`, `agentDepth`, `subagentMemoryMode`.
+
+`tools` and `disallowedTools`. The resolver applies `disallowedTools` first, then `tools`. Relocate
+it by the result fields `hasWildcard`, `invalidTools`, `unavailableTools`, `resolvedTools`.
+
+- `tools` omitted, or containing `"*"`, is a wildcard: the agent receives the whole filtered pool,
+  MCP tools included. `Agent(type1,type2)` entries beside `"*"` restrict spawnable agent types.
+- `tools` as an explicit list keeps only the named tools. MCP tools must be named: an exact
+  `mcp__server__tool`, or a server-level `mcp__server` / `mcp__server__*`. `mcp__*` is not
+  recognized in `tools`.
+- `disallowedTools` removes exact names, `mcp__server`, `mcp__server__*`, and `mcp__*` (every MCP
+  tool). Relocate its matcher by the returned `isServerLevelDisallowed`.
+- Agent-frontmatter `mcpServers` tools are appended after resolution. They are filtered by
+  `disallowedTools` but not by the `tools` allowlist. Relocate with
+  `rg -n 'Skipping frontmatter MCP servers'`.
+
+Built-in tool sets in 2.1.286 (relocate the default list by the function that pushes the
+general-purpose definition, then `statusline-setup`, `claude`, `Explore`/`Plan`, `web-fetch`, and
+`claude-code-guide` unless `CLAUDE_CODE_ENTRYPOINT` is an SDK entrypoint):
+
+| Agent type          | `tools`                           | `disallowedTools`           | MCP |
+|---------------------|-----------------------------------|-----------------------------|-----|
+| `general-purpose`   | `["*"]`                           | —                           | yes |
+| `claude`            | `["*"]`                           | —                           | yes |
+| `Explore`           | omitted (wildcard)                | Agent, edit tools, ExitPlan | yes |
+| `Plan`              | omitted (wildcard)                | same as Explore             | yes |
+| `statusline-setup`  | `Read`, `Edit`                    | —                           | no  |
+| `claude-code-guide` | Glob, Grep, Read, WebFetch/Search | —                           | no  |
+| `web-fetch`         | WebFetch                          | —                           | no  |
+| `fork`              | parent's exact tool array         | —                           | yes |
+
+`claude-code-guide` swaps Glob/Grep for Bash when the embedded search tools are active. `Explore`
+model is `inherit`, capped at opus unless `CLAUDE_CODE_DISABLE_EXPLORE_INHERIT_CAP` is set.
+
+Fork. A fork launch passes the parent's `options.tools` as `availableTools` with `useExactTools`,
+which skips the resolver, so a fork has the parent's exact tool array including MCP tools. Relocate
+with `rg -n -B1 '&& \{ useExactTools: !0 \}'`; the previous line sets `forkContextMessages`.
+
+Hiding one MCP tool from subagents only:
+
+- Custom agents: `disallowedTools: mcp__server__tool` (or `mcp__server` for the whole server).
+- Built-ins: a user or project agent file with the same `name` overrides the built-in by the
+  definition precedence above, so it can add `disallowedTools`. It replaces the built-in system
+  prompt as well.
+- A PreToolUse hook matching the tool can deny when the input has `agent_id`. The hook runs at
+  call time, so the tool stays in the subagent's tool list and the model receives the denial as
+  the tool result.
+
+Hooks inside subagents. A subagent runs tools through the same execution path, so PreToolUse and
+PostToolUse fire with `agent_id` and `agent_type` set (see `HOOKS.md`). Their `additionalContext`
+attachments are yielded into the subagent's own query loop, not the parent's. UserPromptSubmit
+fires only on prompt submission (relocate with `rg -n 'executeUserPromptSubmitHooks'`); a
+subagent's spawn prompt does not go through it. SubagentStart `additionalContext` is the hook for
+the subagent's opening context.
+
+Re-verify: □ MCP predicate still passes before the async built-in narrowing □ `assembleToolPool`
+for subagents still built from app-state MCP tools with the parent permission context □ resolver
+still applies `disallowedTools` before `tools` and accepts `mcp__server` / `mcp__server__*` □ fork
+still `useExactTools` □ built-in `tools` lists unchanged.
+
 ## Subagent output pipeline
 
 When a subagent finishes, its last assistant message is packaged into a `tool_result` for the
@@ -256,3 +336,7 @@ and built-in/plugin attribution. Spawn emits `tengu_agent_tool_selected` (with `
   `teammate`. `Explore`/`Plan` results omit the `agentId:`/`<usage>` trailer when no worktree is
   used. `maxResultSizeChars` 100,000, effective persistence trigger 50,000. Agent-definition
   precedence: built-in < plugin < user < project < flag < policy.
+- 2.1.286: "Subagent tool set and MCP tools" verified. MCP tools pass every agent's base filter,
+  sync or background; `disallowedTools` accepts `mcp__server`, `mcp__server__*` and `mcp__*`.
+  `Explore` model is `inherit` (opus cap), not haiku. New built-in `web-fetch` (tools: WebFetch).
+  `claude-code-guide` has an explicit read/search/web tool list and no MCP tools.

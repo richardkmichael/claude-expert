@@ -324,7 +324,12 @@ The env is a spawn-time snapshot. Nothing Claude Code sends later carries the se
 
 - `tools/call` `_meta` holds `claudecode/toolUseId`, `anthropic/memory.caller`,
   `anthropic/requestId` (first-party servers only) and `claudecode/agentId` / `agentType` /
-  `isObserver` (claude.ai-proxied servers only). Relocate with `rg -n '"claudecode/toolUseId"'`.
+  `isObserver`. Relocate with `rg -n '"claudecode/toolUseId"'`. Re-checked at 2.1.286: the agent
+  keys go only to the first-party server named `claude-code-remote` (relocate the gate with
+  `rg -n 'var \w+ = "claudecode/agentId"'`), and are omitted for main-session calls. A user's own
+  server receives `claudecode/toolUseId` but nothing that identifies a subagent. That ID matches
+  the hook input's `tool_use_id`, so a PreToolUse hook can record `tool_use_id` → `agent_id` for
+  the server to look up.
 - `X-Claude-Code-Session-Id` is sent on Anthropic API requests only, never to MCP transports.
 - `roots/list` returns directory `file://` URIs (cwd plus additional working directories), and
   `notifications/roots/list_changed` fires only when additional working directories change.
@@ -609,4 +614,5 @@ on the next turn. The source also absorbs them mid-turn at tool-batch boundaries
   `notifications/resources/list_changed` through one debounced refetcher, so the static discovery
   model no longer describes the common case. `notifications/claude/channel` (research preview) is
   the only server notification whose content reaches the model. See Which server notifications
-  reach the model, and Channels.
+  reach the model, and Channels. The `claudecode/agentId` `_meta` keys are scoped to the
+  `claude-code-remote` server, not to claude.ai-proxied servers in general.

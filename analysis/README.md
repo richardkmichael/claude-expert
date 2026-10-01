@@ -41,7 +41,7 @@ re-checked against a later bundle. The doc's Version history section says which.
 | `BASH_TOOL_EXECUTION.md`     | Bash tool, shell snapshots, search-tool wrappers      | 2.1.207  | landmark | `shell-snapshots`, `SNAPSHOT_FILE=`, `RIPGREP_FUNC_END`                  |
 | `RIPGREP.md`                 | Ripgrep bundling, embedded/system selection, config   | 2.1.207  | landmark | `USE_BUILTIN_RIPGREP`, `tengu_ripgrep_availability`, `no-config`         |
 | `FILE_INCLUSION.md`          | `@`-file completion via git/ripgrep, result capping   | 2.1.207  | landmark | `[FileIndex]`, `respectGitignore`, `tengu_file_suggestions_git_ls_files` |
-| `TASK_TOOL_AND_SUBAGENTS.md` | Agent/Task tool: schema, launch, output, isolation    | 2.1.165  | landmark | `tengu_agent_tool_completed`, `delegate work to a subagent`, headless    |
+| `TASK_TOOL_AND_SUBAGENTS.md` | Agent/Task tool: schema, launch, output, isolation    | 2.1.165* | landmark | `tengu_agent_tool_completed`, `delegate work to a subagent`, headless    |
 | `SKILLS_AND_SUBAGENTS.md`    | Skill `allowed-tools` and where grants do/don't apply | 2.1.76*  | landmark | `allowed-tools`, `command_permissions`, `Preloaded skill`                |
 | `SKILLIFY.md`                | Dead Skillify prompt; live `propose_skills` proposals | 2.1.277  | landmark | `# Skillify`, `propose_skills`, `CLAUDE_CODE_SKILL_PROPOSALS`            |
 
