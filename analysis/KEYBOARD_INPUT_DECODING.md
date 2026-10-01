@@ -1,6 +1,6 @@
 # Keyboard Input Decoding
 
-Verified against `work/2.1.226/package/cli.prettier.js`.
+Verified against `work/2.1.286/package/cli.prettier.js`.
 
 How raw terminal bytes on stdin become key events, what escape-sequence dialects Claude Code
 negotiates, and where the CSI-u (Kitty keyboard protocol) support stops. Also covers how keystroke
@@ -14,20 +14,21 @@ patterns in `keybindings.json` are matched against decoded events, and why `voic
   Node's `readline` keypress internals), extended in-tree with bracketed paste, SGR/X10 mouse, UTF-8
   continuation reassembly, CSI-u, and xterm `modifyOtherKeys`. See Provenance below — the bun-compiled
   distribution does not change this.
-- Claude Code does push the Kitty progressive-enhancement flags on raw-mode entry, but only
-  `flags = 1` (disambiguate escape codes). It never requests `2` (report event types), `4` (report
-  alternate keys), `8` (report all keys as escape codes), or `16` (report associated text).
-- The push is gated on an env-derived terminal allowlist; outside it, Claude Code stays on legacy
-  encodings entirely.
-- There is no negotiation round-trip. A `CSI ? <flags> u` reply is parsed into a
-  `{ type: "kittyKeyboard", flags }` response object, but nothing consumes it — the terminal is never
-  queried for its flags, so the push is blind.
+- Claude Code pushes Kitty progressive-enhancement flags `5` (`1` disambiguate escape codes, `4`
+  report alternate keys) plus xterm `modifyOtherKeys` mode 2. It never requests `2` (report event
+  types), `8` (report all keys as escape codes), or `16` (report associated text). Flags `1` alone
+  are pushed only in a legacy compatibility case.
+- The push happens at once for a terminal on an env-derived allowlist. Any other terminal gets it
+  only if it answers a `CSI ? u` query sent just after raw-mode entry. A terminal that does not
+  answer within the probe window stays on legacy encodings.
 - Modifier-only key events (Kitty codes 57441–57454, e.g. right Option = 57449) would be received and
   tokenized correctly, but decode to a key event with an empty name and empty `key`, so they are
   dropped inertly — no text inserted, no binding matched.
-- Any CSI-u sequence carrying a `:` sub-parameter — which is how both event types (`;<mods>:<event>`)
-  and alternate keys (`<code>:<shifted>:<base>`) are encoded — fails the CSI-u regex entirely and
+- The CSI-u regex accepts alternate-key sub-parameters on the code (`<code>:<shifted>:<base>`) but
+  not event types on the modifier (`;<mods>:<event>`). An event-typed sequence fails the regex and
   falls through to the same inert empty-name event.
+- The decoder is not gated on negotiation. A CSI-u or `modifyOtherKeys` sequence decodes the same
+  whether or not Claude Code asked for it, so a terminal key binding can send one unprompted.
 
 ## Locating the decoder
 
@@ -147,54 +148,90 @@ theme notify (`CSI ? 997 ; <1|2> n`), OSC, and XTVERSION (`DCS > | <name> ST`).
 
 ## What gets pushed to the terminal, and when
 
-Four constants, all built through the same CSI helper. Grep for the literal payloads:
+Five constants, all built through the same CSI helper. Grep for the literal payloads (`Ha(">5u")`
+and its neighbours):
 
-| Payload      | Meaning                                     |
-| ------------ | ------------------------------------------- |
-| `CSI < u`    | Kitty progressive enhancement: pop          |
-| `CSI > 1 u`  | Kitty progressive enhancement: push flags=1 |
-| `CSI > 4;2m` | `modifyOtherKeys` = 2                       |
-| `CSI > 4 m`  | `modifyOtherKeys` reset                     |
+| Payload      | Meaning                                                           |
+| ------------ | ----------------------------------------------------------------- |
+| `CSI < u`    | Kitty progressive enhancement: pop                                |
+| `CSI > 5 u`  | Kitty progressive enhancement: push flags=5 (disambiguate, alt)   |
+| `CSI > 1 u`  | Kitty progressive enhancement: push flags=1 (legacy case only)    |
+| `CSI > 4;2m` | `modifyOtherKeys` = 2                                             |
+| `CSI > 4 m`  | `modifyOtherKeys` reset                                           |
 
-The enable function emits `pop + push(1) + modifyOtherKeys(2)` — and only if the detected terminal is
-in this allowlist:
+The enable string is `pop + push(5) + modifyOtherKeys(2)`, and it is empty unless the
+`extendedKeys` terminal capability reads true. The `push(1)` variant is chosen only when a
+`legacyKitty` option is set, which happens when a version compared at the call site differs from
+the running build's own `VERSION`.
+
+### The capability store
+
+Terminal capabilities live in one store; relocate it with `rg -n 'kittyKeyboard: b\(a.terminal'`.
+Each capability starts either settled or pending, and a pending one reads as a fixed default until
+it settles (`extendedKeys` false, `kittyKeyboard` true). The two keyboard entries start as:
+
+- `extendedKeys`: settled true when the terminal is on the allowlist, settled false for `st` and
+  for a background worker, otherwise pending with `likely: false`.
+- `kittyKeyboard`: settled true for a background worker, settled false for `st`, otherwise pending
+  with `likely: true`.
+
+The allowlist (grep `"WarpTerminal",` inside the array that also lists `"windows-terminal"`):
 
 ```
 ["iTerm.app", "kitty", "WezTerm", "ghostty", "tmux", "windows-terminal", "WarpTerminal"]
 ```
 
-Terminal detection is env-var-based (`TERM=xterm-ghostty` → `ghostty`, `TERM` containing `kitty` or
-`KITTY_WINDOW_ID` → `kitty`, else `TERM_PROGRAM`, then `TMUX`, `WT_SESSION`, …), later refined by the
-XTVERSION reply. There is no `CLAUDE_CODE_*` env var to force or suppress the push. On every other
-terminal Claude Code is legacy-encoding-only: no CSI-u is requested, so none arrives except from a
-terminal configured to send it unprompted.
+The terminal name is env-derived, in this order: `TERM=xterm-ghostty` → `ghostty`, `TERM`
+containing `kitty` → `kitty`, then `TERM_PROGRAM` verbatim, then a chain of env checks (`TMUX`,
+`STY`, …, `KITTY_WINDOW_ID`, `ALACRITTY_LOG` → `alacritty`, `WT_SESSION`, …), and finally `TERM`
+(`alacritty`, `rxvt` or `termite` when `TERM` contains them, else `TERM` itself). Alacritty with
+`TERM=xterm-256color`, no `TERM_PROGRAM` and no `ALACRITTY_LOG` is therefore named
+`xterm-256color`. No name outside the allowlist enables the keys up front, `alacritty` included.
 
-The enable string is written on raw-mode entry and re-emitted after alt-screen transitions; the
-matching disable (`modifyOtherKeys reset` + `pop`) is written on raw-mode exit and on the synchronous
-process-exit path. Grep `rawModeEnabledCount` for both sites.
+### The probe
 
-Immediately after the push, the terminal querier is scheduled. It sends exactly two probes —
-XTVERSION and `DECRQM(2026)` (synchronized update) — and nothing else. It never queries the Kitty
-flags, so the `kittyKeyboard` response branch is dead: parsed, handed to the querier, ignored.
+On raw-mode entry the extended-keys mode is set (an empty string while `extendedKeys` is still
+false), and if `extendedKeys` is pending a listener is armed to write the enable string when it
+settles true. On the next tick the querier runs (grep `CSI ? u not asked` for it). It sends
+XTVERSION, plus `CSI ? u` whenever `extendedKeys` or `kittyKeyboard` is pending, under a 2000 ms
+timer. A `CSI ? <flags> u` reply of any value settles both `extendedKeys` and `kittyKeyboard` true,
+which fires the listener and pushes the protocol mid-session. With no reply the store's deadline
+settles each pending entry to its `likely` value, so `extendedKeys` ends false.
+
+The querier then probes DECRQM 2026 and, where pending, the graphics and pixel-mouse capabilities.
+It logs one debug line naming each capability's result and source: grep the debug log for
+`Terminal capabilities:` and `XTVERSION:` to see what a session decided.
+
+There is no `CLAUDE_CODE_*` env var or setting that forces `extendedKeys` or `kittyKeyboard`.
+`CLAUDE_CODE_FORCE_SYNC_OUTPUT` and `CLAUDE_CODE_FORCE_TERMINAL_IMAGES` exist for the neighbouring
+capabilities only. The one lever is the terminal name: a `TERM_PROGRAM` on the allowlist settles
+`extendedKeys` true before the probe, at the cost of every other check that reads `TERM_PROGRAM`.
+
+The enable string is re-emitted after alt-screen transitions; the matching disable
+(`modifyOtherKeys reset` + `pop`) is written on raw-mode exit and on the synchronous process-exit
+path. Grep `rawModeEnabledCount` for both sites. The `pop` on exit is sent whenever `extendedKeys`
+or `kittyKeyboard` reads true, and `kittyKeyboard` reads true while still pending.
 
 ## Where Kitty-protocol support stops
 
-The CSI-u regex is `/^\x1b\[(\d+)(?:;(\d+))?u/` — one numeric code, one optional numeric modifier
-mask, then `u`. It has no sub-parameter (`:`) support at all. Verified behavior:
+The CSI-u regex is `/^\x1b\[(\d+)(?::(\d*)(?::(\d+))?)?(?:;(\d+))?u/`: a numeric code with optional
+`:shifted:base` alternates, one optional numeric modifier mask, then `u`. The modifier takes no
+sub-parameter. Verified behavior:
 
 | Sequence            | Kitty flag needed          | Matches? |
 | ------------------- | -------------------------- | -------- |
 | `CSI 13;5u`         | 1 (disambiguate)           | yes      |
 | `CSI 57449;3u`      | 8 (report all keys)        | yes      |
 | `CSI 97;1:3u`       | 2 (event types)            | no       |
-| `CSI 97:65;2u`      | 4 (alternate keys)         | no       |
+| `CSI 97:65;2u`      | 4 (alternate keys)         | yes      |
 | `CSI 97;1;97u`      | 16 (associated text)       | no       |
 
-A `:` therefore kills the match, which rules out event types and alternate keys wholesale. The
-tokenizer is not the limitation — `:` is 0x3A, inside the `PARAM_START: 48 … PARAM_END: 63` range, so
-`CSI 97;1:3u` arrives as one clean sequence token. It is the key-decode regex that rejects it. A
-non-matching CSI sequence falls through the whole classifier chain to a key event with `name: ""`,
-and then `key: ""` via step 5 of the normalizer — silently dropped, not mis-inserted.
+The shifted alternate is used: the key normalizer returns it for a shifted single-character name.
+Event types and associated text still fail the match. The tokenizer is not the limitation — `:` is
+0x3A, inside the `PARAM_START: 48 … PARAM_END: 63` range, so `CSI 97;1:3u` arrives as one clean
+sequence token. It is the key-decode regex that rejects it. A non-matching CSI sequence falls
+through the whole classifier chain to a key event with `name: ""`, and then `key: ""` via step 5 of
+the normalizer — silently dropped, not mis-inserted.
 
 The functional-key code table handles Kitty codes 57399–57426 explicitly (keypad `0`–`9`, `.`, `/`,
 `*`, `-`, `+`, keypad Enter, `=`, `,`, and keypad arrows/nav). Everything else falls to
@@ -209,6 +246,47 @@ the surrogate range start, so the whole Private Use Area is excluded. Consequenc
 
 So even with `flags = 8` pushed, standalone modifier presses would arrive, tokenize correctly, decode
 to a nameless event, and be discarded before reaching any binding matcher.
+
+## Shift+Backspace
+
+Legacy encodings cannot carry Shift on Backspace: a terminal sends `0x7f` (or `0x08`) either way,
+and both decode to a bare `backspace`. Opt+Backspace survives as `ESC 0x7f`, the ESC-prefixed form,
+which decodes with `meta: true`.
+
+Four sequences decode to `{ name: "backspace", shift: true }`, because the code-to-name table maps
+both `8` and `127` to `backspace` and the modifier mask `2` is Shift:
+
+| Sequence               | Dialect                                      |
+| ---------------------- | -------------------------------------------- |
+| `ESC [ 127 ; 2 u`      | CSI-u (what a Kitty-protocol terminal sends) |
+| `ESC [ 8 ; 2 u`        | CSI-u                                        |
+| `ESC [ 27 ; 2 ; 127 ~` | `modifyOtherKeys`                            |
+| `ESC [ 27 ; 2 ; 8 ~`   | `modifyOtherKeys`                            |
+
+The dispatched keydown has `key: "backspace"` and `shift: true`. The composer's base input treats
+it as a plain Backspace: its `backspace` case branches only on `superKey` (delete to line start) and
+`meta`/`ctrl` (delete word), so Shift deletes one character. The edit recorded for `prompt.edit`
+carries `key: { key: "backspace", shift: true }`. Vim NORMAL mode maps it to `h` like a bare
+Backspace.
+
+No default keybinding names `shift+backspace`, and the binding matcher compares `shift` exactly, so
+`backspace` bindings (e.g. `attachments:remove` in the `Attachments` context) do not fire on it.
+
+A terminal that does not negotiate the protocol can still send one of these from a key binding,
+since the decoder is not gated on negotiation. For Alacritty:
+
+```toml
+[[keyboard.bindings]]
+key = "Back"
+mods = "Shift"
+chars = "\u001b[127;2u"
+```
+
+That binding applies to every program in the terminal, and a shell without a CSI-u binding of its
+own receives the raw sequence.
+
+□ Tripwire: the code-to-name table still maps `127` and `8` to `backspace`; the base input's
+  `backspace` case still ignores `shift`; no default binding names `shift+backspace`.
 
 ## Keybinding matching
 
@@ -279,10 +357,10 @@ threshold and the strip-back.
 
 Derived from the above; listed as scope, not as a recommendation:
 
-1. Push `flags = 1 | 2 | 8` (or query first, then push the intersection) instead of the hardcoded
-   `CSI > 1 u`, and consume the `kittyKeyboard` response that is already parsed.
-2. Widen the CSI-u regex to accept `:` sub-parameters on both the code and modifier parameters, and
-   surface event type (press/repeat/release) on the key event object.
+1. Push `flags = 1 | 2 | 8` instead of the hardcoded `CSI > 5 u`, and use the flags value of the
+   `kittyKeyboard` reply, which today only settles the capability.
+2. Widen the CSI-u regex to accept a `:` sub-parameter on the modifier parameter, and surface event
+   type (press/repeat/release) on the key event object.
 3. Extend the functional-key code table past 57426 to cover 57441–57454, and lift the
    `code < 55296` fallback bound that currently excludes the whole PUA.
 4. Give the event object an `eventType` field and route release events through dispatch (today every
