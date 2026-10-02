@@ -57,6 +57,7 @@ re-checked against a later bundle. The doc's Version history section says which.
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | -------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | `HOOKS.md`                  | Hook event inventory, I/O schemas, matchers, hook process env, relocation recipes                                              | 2.1.280  | landmark | `hook_event_name`, `agent_id`, `hook_additional_context`, `fieldToMatch`, `PreModelSwitch`, `CLAUDE_CODE_CHILD_SESSION`                         |
 | `FUNCTION_HOOKS_ROLLOUT.md` | Mods rollout gate: `tengu_plugin_hooks_modules`, env override (removed 2.1.287), GrowthBook value sources, disk cache, refresh | 2.1.286  | landmark | `tengu_plugin_hooks_modules`, `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS`, `pluginTestRefusal`, `cachedGrowthBookFeatures`, `getFeatureValueWithSource` |
+| `WORKTREES.md`              | WorktreeCreate/Remove payloads, `name` per entry point, hook `cwd`, `baseRef` history, removal paths                           | 2.1.288  | landmark | `hook_event_name: "WorktreeCreate"`, `worktree_resolved_to_main_repo`, `Hook-based agent worktree kept at:`                                     |
 
 ## UI surfaces and plugin panes
 
