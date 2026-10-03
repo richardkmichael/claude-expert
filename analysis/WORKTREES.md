@@ -1,6 +1,6 @@
 # Worktree hooks: WorktreeCreate / WorktreeRemove lifecycle
 
-Verified against: cli.prettier.js 2.1.288 (2026-10-02)
+Verified against: cli.prettier.js 2.1.288 (2026-10-03)
 
 How Claude Code builds the WorktreeCreate and WorktreeRemove hook payloads, which entry points
 fire them, what `cwd` the hook receives, how `worktree.baseRef` interacts with a hook, and when a
@@ -9,22 +9,25 @@ covers the worktree lifecycle around those two events.
 
 ## Re-location recipes
 
-| Target                    | Grep anchor                                           |
-|---------------------------|-------------------------------------------------------|
-| WorktreeCreate payload    | `hook_event_name: "WorktreeCreate"` (one literal)     |
-| WorktreeRemove payload    | `hook_event_name: "WorktreeRemove"` (one literal)     |
-| Common input fields       | `scratchpad_dir:` beside `transcript_path:`           |
-| Session worktree creator  | `Created hook-based worktree at:`                     |
-| Agent worktree creator    | `Created hook-based agent worktree at:`               |
-| `--worktree` chdir        | `worktree_resolved_to_main_repo`                      |
-| `--worktree --tmux` path  | `"swift", "bright", "calm", "keen", "bold"`           |
-| Subagent cleanup closure  | `Hook-based agent worktree kept at:`                  |
-| Session worktree remove   | `No WorktreeRemove hook configured; falling back`     |
-| Interactive exit dialog   | `Worktree removed (no changes)`, `WorktreeExitDialog` |
-| Agent/job remover         | `removeAgentWorktree: kept hook-based worktree`       |
-| Git branch name           | `` `worktree-${`` (`/` in the name becomes `+`)       |
-| `worktree.baseRef` schema | `Which ref new worktrees branch from.`                |
-| Canonical git root        | reads `commondir`, compares its basename with `.git`  |
+| Target                         | Grep anchor                                           |
+|--------------------------------|-------------------------------------------------------|
+| WorktreeCreate payload         | `hook_event_name: "WorktreeCreate"` (one literal)     |
+| WorktreeRemove payload         | `hook_event_name: "WorktreeRemove"` (one literal)     |
+| Common input fields            | `scratchpad_dir:` beside `transcript_path:`           |
+| Session worktree creator       | `Created hook-based worktree at:`                     |
+| Agent worktree creator         | `Created hook-based agent worktree at:`               |
+| `--worktree` chdir             | `worktree_resolved_to_main_repo`                      |
+| `--worktree --tmux` path       | `"swift", "bright", "calm", "keen", "bold"`           |
+| Subagent cleanup closure       | `Hook-based agent worktree kept at:`                  |
+| Session worktree remove        | `No WorktreeRemove hook configured; falling back`     |
+| Interactive exit dialog        | `Worktree removed (no changes)`, `WorktreeExitDialog` |
+| Agent/job remover              | `removeAgentWorktree: kept hook-based worktree`       |
+| Git branch name                | `` `worktree-${`` (`/` in the name becomes `+`)       |
+| `worktree.baseRef` schema      | `Which ref new worktrees branch from.`                |
+| Canonical git root             | reads `commondir`, compares its basename with `.git`  |
+| SubagentStop, interrupted run  | `SubagentStop on interrupted query failed`            |
+| Agent id generator             | `` `a${t}-${s}` : `a${s}` `` (16 hex chars)           |
+| Resume with a missing worktree | `This agent cannot be resumed: its worktree`          |
 
 ## WorktreeCreate payload
 
@@ -166,6 +169,91 @@ the agent/job remover, which fires WorktreeRemove. A worktree with files left in
 after an explicit confirmation in agent view. The bridge (Remote Control) cleanup takes the same
 route for its `bridge-<id>` worktrees.
 
+## Cleaning up kept subagent worktrees from hooks
+
+Because the subagent cleanup closure keeps hook-created worktrees, cleanup falls to user hooks.
+
+### Identity and paths available to the hooks
+
+The worktree is named `agent-<agentId>`. The agent id comes from the id generator `a<16 hex>`,
+and the brand cast applied to it is the identity. The same id is:
+
+- `agent_id` in SubagentStart and SubagentStop
+- `agentId` in the Agent tool result, including `async_launched`, because the task id equals the
+  agent id
+
+`agent-<agent_id>` therefore reproduces the WorktreeCreate `name`. Neither SubagentStart nor
+SubagentStop carries a worktree path field.
+
+`cwd` in both events is the subagent's working directory. The Agent tool runs the subagent inside a
+cwd scope set to the worktree path (`An(ft, …)` → `e.run({ cwd })`), so SubagentStart sees the
+worktree root. SubagentStop sees the agent's current directory, which can be a subdirectory of the
+worktree after a Bash `cd`.
+
+SubagentStart: the common fields plus `agent_id` and `agent_type`. It fires on every subagent run,
+including resumes and teammate work cycles, after the worktree exists.
+
+SubagentStop: built from the subagent's own context, so `permission_mode`, `agent_type` and
+`effort` are present. On top of those it carries:
+
+- `stop_hook_active` and `last_assistant_message`
+- `agent_id` and `agent_type`
+- `agent_transcript_path` (`agent-<agentId>.jsonl`)
+- `background_tasks` and `session_crons`, which cover the whole session
+
+### Ordering
+
+The Agent tool hands the subagent stream to the task runner. On every exit (completion, error,
+kill, stall watchdog), the runner calls the worktree cleanup closure only after the stream has
+ended. The tool result or task notification is built after that. So SubagentStop always fires
+before the cleanup closure and before the parent receives the result.
+
+- Normal end: SubagentStop fires from the query loop's blockable turn end. Exit code 2 re-invokes
+  the model, and the subagent keeps working in the worktree, with `stop_hook_active: true` on the
+  next attempt, up to `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP`.
+- A turn ended by a tool result: SubagentStop fires from the non-blockable path (`[end-turn] Stop
+  hook block discarded`).
+- Interrupted or errored query: the `SubagentStop` stage of the runAgent cleanup fires it
+  (`SubagentStop on interrupted query failed`). This call passes a 5-second default timeout, which
+  a per-hook `timeout` overrides. `last_assistant_message` is absent.
+- Max turns or `preventContinuation`: only `turn_end_reactions` runs, which dispatches session
+  function hooks only. A settings `command` SubagentStop hook does not fire.
+
+SubagentStop marks the end of one run, not the end of the agent:
+
+- A background agent with live background children parks and wakes for further turns in the same
+  worktree (`backgrounded owner awaits keepalive, resume pending`).
+- SendMessage resumes a stopped agent from the `worktreePath` stored in its metadata. If that
+  directory is gone, resume fails with `This agent cannot be resumed: its worktree no longer
+  exists` unless the session's worktree fences cover the fallback directory.
+- An agent that keeps running after its worktree disappears has its Bash refused with `the
+  isolation worktree appears to have been removed`.
+
+At a normal-end SubagentStop, the subagent's background shells and monitors are still running. The
+`shellTasks` and `nonShellMonitors` stages kill them later, and the keepalive case skips those
+stages.
+
+### Locks
+
+Only git-created agent worktrees are locked (`git worktree lock --reason "claude agent <name> (pid
+…)"`). The hook-created branch never locks, records no git root, and the cleanup closure runs no
+git command on it. A hook can run `git status` in a hook-created worktree at any point.
+
+### PostToolUse on the Agent tool
+
+PostToolUse receives the tool result data as `tool_response`.
+
+- Foreground, completed (including recovered errors): `{ status: "completed", …, worktreePath }`.
+  The `worktreePath` comes from the cleanup closure and is always present for a kept hook
+  worktree. There is no `worktreeBranch`.
+- Foreground, cancelled by the user: the tool throws, so PostToolUseFailure fires with no path.
+- `run_in_background`, or a foreground agent backgrounded mid-run: `{ status: "async_launched",
+  agentId, … }` at launch, with no `worktreePath`. Completion arrives later as a task notification
+  whose text carries `<worktree><worktreePath>…</worktreePath></worktree>`. That notification
+  reaches the model, not a hook event.
+- Teammates: the teammate spawn returns `teammate_spawned` before the isolation code runs, so
+  teammates never get an `agent-<id>` worktree.
+
 ## Published docs vs. source (2.1.288)
 
 Checked against `/en/hooks` and `/en/worktrees` via the `claude-code-docs` MCP.
@@ -184,3 +272,6 @@ Checked against `/en/hooks` and `/en/worktrees` via the `claude-code-docs` MCP.
 
 - 2.1.288: verified. Payloads, entry points, cwd handling, the `baseRef` default and the removal
   paths as described above.
+- 2.1.288: added hook-driven cleanup of kept subagent worktrees: SubagentStart/Stop identity and
+  `cwd`, ordering against the cleanup closure, coverage gaps (max turns), locks, and the
+  PostToolUse(Agent) `tool_response` shapes.
