@@ -25,6 +25,8 @@ covers the worktree lifecycle around those two events.
 | Exit-dialog submodule scan     | `submodule inspection deadline`                       |
 | User-set vs AI session title   | `currentSessionTitle` vs `currentSessionAiTitle`      |
 | Agent/job remover              | `removeAgentWorktree: kept hook-based worktree`       |
+| Remove-only config message     | `the repo defines only WorktreeCreate`                |
+| Git post-creation setup        | `Configured worktree to use hooks from main`          |
 | Git branch name                | `` `worktree-${`` (`/` in the name becomes `+`)       |
 | `worktree.baseRef` schema      | `Which ref new worktrees branch from.`                |
 | Canonical git root             | reads `commondir`, compares its basename with `.git`  |
@@ -45,9 +47,11 @@ The common-fields builder is called with only the session and the current cwd, s
 
 No other worktree field exists. The Zod input schema
 (`hook_event_name: x("WorktreeCreate"), name: o()`) and the SDK `WorktreeCreateHookInput` type
-declare only `name`. `worktree_name`, `base_path`, `branch` and `base_ref` appear nowhere in the
-bundle, under any flag. The hook process env adds no worktree-specific variable either; it gets
-the usual `CLAUDE_PROJECT_DIR` and the session vars (see `HOOKS.md`, Hook process environment).
+declare only `name`. `worktree_name`, `base_path`, `base_ref` and `repo_root` appear nowhere in the
+bundle, under any flag. `pr_number` appears only in unrelated GitHub and PR-subscription payloads,
+and no hook payload carries a `branch` field. The hook process env adds no worktree-specific
+variable either; it gets the usual `CLAUDE_PROJECT_DIR` and the session vars (see `HOOKS.md`, Hook
+process environment).
 
 ### `name` per entry point
 
@@ -91,6 +95,16 @@ When any WorktreeCreate hook is configured, it replaces git worktree creation en
 path (`.claude/worktrees/<name>`, branch `worktree-<name>`, `worktree.baseRef`, `.worktreeinclude`,
 `sparsePaths`, `symlinkDirectories`, PR fetch) runs only when no hook is configured.
 
+"Configured" means a settings WorktreeCreate hook is in the hooks snapshot, or a loaded
+function-hook module subscribes to `classic.WorktreeCreate`. All four creators (`--worktree`,
+`--worktree --tmux`, EnterWorktree, agent isolation) test that same predicate. The `--worktree`
+"not a git repository" pre-check reads only the settings hooks.
+
+The git creators share one post-creation setup step, run only for a newly created worktree and
+never on the hook path. It copies `settings.local.json`, rewrites a relative `core.hooksPath` from
+the main repository as an absolute path in the worktree (`Configured worktree to use hooks from
+main repository`), creates the `symlinkDirectories` links, and copies `.worktreeinclude` files.
+
 - Branch name: the git path names the branch `worktree-<name>` with `/` replaced by `+`, and puts
   the directory at `.claude/worktrees/<name>` with the same replacement. Neither value is computed
   or passed on the hook path. A hook that wants the same convention must derive it from `name`.
@@ -127,6 +141,20 @@ History:
 One builder: `{ ...common, hook_event_name: "WorktreeRemove", worktree_path }`, where
 `worktree_path` is the path WorktreeCreate returned. It runs only for hook-created worktrees.
 Git-created worktrees are removed with git, and the hook never fires for them.
+
+The gate is the `hookBased` flag on the worktree record, not whether a WorktreeRemove hook is
+configured. Only the hook branches of the creators set `hookBased: true`, and the record carries
+it through to background jobs as `worktreeHookBased`. The executor has two callers, the session
+remover and the agent/job remover, and each reaches it only inside an `if (hookBased)` branch. The
+stale-worktree cleanup, the job retention sweep and the workflow tool call the agent/job remover
+with `hookBased` false, so they never fire it.
+
+So a configuration with only a WorktreeRemove hook never fires it: every worktree is git-created,
+and every removal path (exit dialog, ExitWorktree `action: "remove"`, subagent cleanup, background
+session delete) uses git. The reverse case, a hook-created worktree with no WorktreeRemove hook,
+falls back to `git worktree remove` for session worktrees and keeps agent and job worktrees, with
+the log reason `no WorktreeRemove hook is enabled here (hooks are disabled, or the repo defines
+only WorktreeCreate)`.
 
 Outcomes: no hooks matched gives `not_configured`, and the caller falls back to
 `git worktree remove`. A non-zero exit with the directory still present gives `failed`, and the
@@ -320,3 +348,5 @@ Checked against `/en/hooks` and `/en/worktrees` via the `claude-code-docs` MCP.
   (the no-`.git`-ancestor exemption is present in 2.1.283 and 2.1.286 too). Added the full
   decision order, the filter-config screen, submodule `unverifiable`, and the inline vs.
   post-exit removal split.
+- 2.1.288: added the `hookBased` gate on WorktreeRemove (a remove-only config never fires), the
+  function-hook half of the "hook configured" predicate, and the git-only post-creation setup.
