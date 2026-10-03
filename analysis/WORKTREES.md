@@ -21,6 +21,9 @@ covers the worktree lifecycle around those two events.
 | Subagent cleanup closure       | `Hook-based agent worktree kept at:`                  |
 | Session worktree remove        | `No WorktreeRemove hook configured; falling back`     |
 | Interactive exit dialog        | `Worktree removed (no changes)`, `WorktreeExitDialog` |
+| Exit-dialog status command     | `"--ignore-submodules=dirty",` in a `status` array    |
+| Exit-dialog submodule scan     | `submodule inspection deadline`                       |
+| User-set vs AI session title   | `currentSessionTitle` vs `currentSessionAiTitle`      |
 | Agent/job remover              | `removeAgentWorktree: kept hook-based worktree`       |
 | Git branch name                | `` `worktree-${`` (`/` in the name becomes `+`)       |
 | `worktree.baseRef` schema      | `Which ref new worktrees branch from.`                |
@@ -137,19 +140,57 @@ Only two paths remove a session worktree: the interactive exit dialog and ExitWo
 `action: "remove"`. Print mode (`-p`) renders no exit dialog, so a `--worktree` session started
 with `-p` keeps its worktree, and WorktreeRemove does not fire unless the model calls ExitWorktree.
 
-The interactive exit dialog, for a hook-based worktree:
+`/exit` shows the dialog whenever the session state holds an active worktree, except in a
+background session (`bg`), which exits without it. The dialog (`WorktreeExitDialog`) then does
+the following:
 
-1. Runs `git status --porcelain` (plus a submodule scan) inside the worktree. If git fails there,
-   for example in a non-git checkout, the dialog treats the worktree as having changes.
-2. Counts commits as 0. A hook-based session worktree records no starting commit, so commits made
-   in it are not counted.
-3. If there are no changes and the session has no user-set title (`/rename`, `--name`), it removes
-   the worktree without asking: WorktreeRemove fires and `Worktree removed (no changes)` prints.
-4. Otherwise it asks keep or remove. Remove fires WorktreeRemove. Keep leaves everything in place.
+1. Entered an existing worktree (`enteredExisting`): returns to the original cwd and leaves the
+   worktree in place. No check, no prompt.
+2. Filter-config screen: reads the worktree's local git config. If a filter driver is unsafe or
+   unrepresentable, it runs `git rev-parse --git-dir` instead of a status, and the worktree is
+   treated as unverifiable (`?` as the changed file, so the dialog asks).
+3. Otherwise runs `git -c core.hooksPath=/dev/null -c core.fsmonitor= status --porcelain
+   --untracked-files=normal --ignore-submodules=dirty` in the worktree. Each output line is one
+   changed file.
+4. If git exits non-zero, the worktree is treated as unverifiable (asks) unless one of two
+   exemptions applies. If the directory is gone (ENOENT), a git-created worktree exits with
+   `Worktree at … is no longer accessible`, and a hook-created one counts as clean. If the
+   worktree is hook-created and no `.git` exists at its realpath or any ancestor, it also counts
+   as clean. A non-git checkout (SVN, Perforce, plain directory) is therefore clean, not
+   unverifiable.
+5. Submodule scan, only after a successful status, with a 5-second deadline: tracked or untracked
+   changes inside a submodule add to the changed files (`changes inside submodule …`). A nested
+   repository that is not a configured submodule, a gitdir outside the worktree, a timeout or a
+   read error count as `unverifiable`, which forces the prompt.
+6. Commit count starts at `0` for a hook-created worktree and `null` for a git-created one. Only
+   when the state has `originalHeadCommit` does it run `git rev-list --count
+   <originalHeadCommit>..HEAD`, with a failure giving `null`. The git creator records
+   `originalHeadCommit` as the worktree's starting commit. The hook creator never sets it, so a
+   hook-created worktree always counts 0 commits.
+7. Silent removal requires all of: no changed files, commit count exactly `0`, no user-set title,
+   and no unverifiable submodule. The title is `currentSessionTitle`, set by `/rename` and
+   `--name`; the AI-generated title is a separate field and does not count.
+8. Anything else asks keep or remove. There is no path that keeps silently, apart from step 1 and
+   background sessions.
 
-Step 2 means a hook worktree that is a git checkout with new commits and a clean status is removed
-without asking. A WorktreeRemove hook that must not lose unpushed commits has to check for them
-itself.
+Silent removal of a hook-created worktree runs inline: it fires WorktreeRemove, and prints
+`Worktree removed (no changes)` or `Worktree could not be removed — kept at …`. A git-created
+clean worktree is instead handed to the shutdown sequence and removed with `git worktree remove
+--force` after the session exits. Choosing Remove in the prompt follows the same split.
+
+The session remover (`No WorktreeRemove hook configured; falling back`) fires WorktreeRemove for a
+hook-created worktree. `removed` ends there. `not_configured` falls through to the same lock check
+and `git worktree remove --force <path>` that git-created worktrees use, run from the original
+cwd's git root. `failed` keeps the worktree and reports it could not be removed.
+
+Consequences of steps 4 and 6 for hook-created worktrees:
+
+- A hook worktree that is a git checkout with new commits and a clean status is removed without
+  asking. A WorktreeRemove hook that must not lose unpushed commits has to check for them itself.
+- A non-git hook worktree is always removed without asking unless the session has a user-set
+  title. Uncommitted VCS changes in it are invisible to the check.
+- The `!1`-guarded changeset check (`originalChangeset`, `hook worktree status check for`) is dead
+  in the public build: the changeset helpers are stubs that return `undefined`/`null`.
 
 ### Subagent worktrees (`isolation: "worktree"`)
 
@@ -264,7 +305,7 @@ Checked against `/en/hooks` and `/en/worktrees` via the `claude-code-docs` MCP.
   hook-created worktrees in 2.1.288. The cleanup closure keeps every one of them.
 - The docs say WorktreeRemove fires when "you exit a `--worktree` session and choose to remove
   it". The undocumented part is that a clean, untitled hook worktree is removed without a choice,
-  with commits ignored.
+  with commits ignored, and that a non-git hook worktree always counts as clean.
 - Hook `cwd` on `--worktree` and EnterWorktree is the canonical git root, which for a bare-repo
   layout is the bare repository directory. This is undocumented.
 
@@ -275,3 +316,7 @@ Checked against `/en/hooks` and `/en/worktrees` via the `claude-code-docs` MCP.
 - 2.1.288: added hook-driven cleanup of kept subagent worktrees: SubagentStart/Stop identity and
   `cwd`, ordering against the cleanup closure, coverage gaps (max turns), locks, and the
   PostToolUse(Agent) `tool_response` shapes.
+- 2.1.288: corrected the exit dialog. A non-git hook worktree counts as clean, not as changed
+  (the no-`.git`-ancestor exemption is present in 2.1.283 and 2.1.286 too). Added the full
+  decision order, the filter-config screen, submodule `unverifiable`, and the inline vs.
+  post-exit removal split.
