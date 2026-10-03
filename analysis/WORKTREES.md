@@ -32,6 +32,8 @@ covers the worktree lifecycle around those two events.
 | Canonical git root             | reads `commondir`, compares its basename with `.git`  |
 | SubagentStop, interrupted run  | `SubagentStop on interrupted query failed`            |
 | Agent id generator             | `` `a${t}-${s}` : `a${s}` `` (16 hex chars)           |
+| Agent id validator             | `` `^a(?:${r}-)?[0-9a-f]{16}$` `` (template literal)  |
+| EnterWorktree create branch    | `Already in a worktree session`, then the chdir       |
 | Resume with a missing worktree | `This agent cannot be resumed: its worktree`          |
 
 ## WorktreeCreate payload
@@ -74,18 +76,39 @@ letters, digits, `.`, `_`, `-`, with no `.`/`..` segments and no `.git` segment.
 `cwd` is the process cwd at the moment the hook fires. The entry points differ in whether they
 chdir before calling it:
 
-- `--worktree`: when the launch directory is inside a linked worktree, the CLI logs
-  `worktree_resolved_to_main_repo` and chdirs to the canonical git root first.
-- EnterWorktree (and so background sessions): chdirs to the canonical git root whenever it differs
-  from the current cwd, and restores the cwd if creation fails.
-- Subagent isolation and the bridge: no chdir. `cwd` is the launching session's current cwd.
+- `--worktree`: chdirs only when the git root of the launch directory differs from its canonical
+  root, which means the launch directory is inside a linked worktree. The CLI then logs
+  `worktree_resolved_to_main_repo` and chdirs to the canonical root. From a subdirectory of a
+  normal clone the two roots are equal, so there is no chdir and `cwd` is the subdirectory. With no
+  git repository (hook-only VCS), there is no chdir either.
+- EnterWorktree without `path` (and so background sessions): chdirs to the canonical root whenever
+  it differs from the current cwd, and restores the cwd if creation fails. Unlike `--worktree`,
+  this includes a subdirectory of a normal clone, so `cwd` is the clone root there. Outside a git
+  repository there is no chdir. EnterWorktree with `path` enters an existing worktree and fires no
+  WorktreeCreate.
+- Subagent isolation and the bridge: no chdir. `cwd` is the calling context's current cwd, which
+  can be a subdirectory, a linked worktree, or the worktree of an enclosing isolated subagent.
 - `--worktree --tmux`: no chdir. `cwd` is the launch directory.
 
-The canonical git root follows a linked worktree's `.git` file to its `gitdir`, then to
-`commondir`. If the common dir's basename is `.git`, the root is its parent (the main checkout).
-Otherwise the common dir is a bare repository, and the root is the bare repository directory
-itself. So for a linked worktree of `project/project.git`, `--worktree` and EnterWorktree hand the
-hook `cwd: "…/project/project.git"`, while a subagent hands it the launching worktree.
+| Launch directory                     | `--worktree`  | EnterWorktree | Subagent isolation |
+|--------------------------------------|---------------|---------------|--------------------|
+| Normal clone root                    | clone root    | clone root    | clone root         |
+| Subdirectory of a normal clone       | subdirectory  | clone root    | subdirectory       |
+| Linked worktree of a normal clone    | main checkout | main checkout | linked worktree    |
+| Linked worktree of a bare repository | bare repo dir | bare repo dir | linked worktree    |
+
+The canonical git root starts from the nearest ancestor holding a `.git` entry. A `.git` directory
+is its own canonical root. A `.git` file is followed to its `gitdir`, then to `commondir`. If the
+common dir's basename is `.git`, the root is its parent (the main checkout). Otherwise the common
+dir is a bare repository, and the root is the bare repository directory itself. So for a linked
+worktree of `project/project.git`, `--worktree` and EnterWorktree hand the hook
+`cwd: "…/project/project.git"`, while a subagent hands it the launching worktree. A bare
+repository named `.git` (`project/.git` with `core.bare`) resolves to `project/` instead.
+
+The resolver falls back to the worktree's own root, with no chdir, when a link fails validation:
+the gitdir is not under `<commondir>/worktrees/`, the gitdir's back-pointer does not name this
+worktree's `.git`, a `gitdir`/`commondir` value fails the path-safety screen, or the bare
+directory itself contains a `.git` entry. Paths are NFC-normalized but not realpath'd.
 
 A relative path printed by the hook resolves against that same `cwd`.
 
@@ -245,9 +268,18 @@ Because the subagent cleanup closure keeps hook-created worktrees, cleanup falls
 ### Identity and paths available to the hooks
 
 The worktree is named `agent-<agentId>`. The agent id comes from the id generator `a<16 hex>`,
-and the brand cast applied to it is the identity. The same id is:
+and the brand cast applied to it is the identity. The id itself never carries `agent-`. That
+prefix is added only for the worktree name and the transcript file `agent-<agentId>.jsonl`.
 
-- `agent_id` in SubagentStart and SubagentStop
+The generator takes an optional label and then returns `a<label>-<16 hex>`. The label is stripped
+to `[\w-]` and capped at 63 characters, and the validator accepts both shapes. The Agent tool
+calls it with no label. In-process teammates pass their name (`a<name>-<16 hex>`), and internal
+forked agents pass a purpose label such as `extract_memories`. A hook that parses `agent_id`
+should accept both shapes.
+
+The Agent tool generates the id once per launch. The same id is:
+
+- `agent_id` in SubagentStart and SubagentStop, and in every tool hook fired inside the subagent
 - `agentId` in the Agent tool result, including `async_launched`, because the task id equals the
   agent id
 
@@ -348,5 +380,7 @@ Checked against `/en/hooks` and `/en/worktrees` via the `claude-code-docs` MCP.
   (the no-`.git`-ancestor exemption is present in 2.1.283 and 2.1.286 too). Added the full
   decision order, the filter-config screen, submodule `unverifiable`, and the inline vs.
   post-exit removal split.
+- 2.1.288: added the `--worktree` vs. EnterWorktree split for a clone subdirectory, the launch
+  directory table, the canonical-root fallbacks, and the labeled `a<label>-<hex>` id shape.
 - 2.1.288: added the `hookBased` gate on WorktreeRemove (a remove-only config never fires), the
   function-hook half of the "hook configured" predicate, and the git-only post-creation setup.
