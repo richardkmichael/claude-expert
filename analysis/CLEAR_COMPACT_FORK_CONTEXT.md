@@ -3,7 +3,8 @@
 Source: `cli.prettier.js` 2.1.76 (`work/2.1.76/package/cli.prettier.js`) for the
 record mechanics; the "When auto-compaction fires" section was verified against
 2.1.207 and re-verified unchanged against 2.1.231 — same two constants, same
-`min` operator, same validity range.
+`min` operator, same validity range. The "Auto vs manual: the summarization prompt"
+section was verified against 2.1.289.
 
 Four mechanisms manipulate conversation context. They differ in what the model
 sees going forward, whether the session continues or a new one is created, and
@@ -124,6 +125,105 @@ field via parseFloat, guarded 0<pct≤100  □ threshold = min(floor(usable*pct/
 usable−13000)  □ usable = window − min(maxOutput, 20000)  □ operator is min (only
 lowers)  □ warn at threshold−20000, blocked at usable−3000  □ gated on
 autoCompactEnabled`
+
+### Auto vs manual: the summarization prompt
+
+Verified against 2.1.289.
+
+Auto-compaction and `/compact` with no argument send the same summarization prompt, word for
+word. They differ in which compaction engine runs, which hook trigger fires, and whether a
+background-precomputed summary can be reused.
+
+#### The prompt
+
+Relocation: `rg -n 'Your task is to create a detailed summary'`. Three hits, all in one block of
+template literals:
+
+| Opening phrase                                          | Used by                                  |
+| ------------------------------------------------------- | ---------------------------------------- |
+| `...summary of the conversation so far`                 | Full and auto compaction, `/compact`     |
+| `...summary of the RECENT portion of the conversation`  | "Summarize from here", `from` direction  |
+| `...summary of this conversation. This summary will be` | "Summarize from here", `up_to` direction |
+
+Two builder functions sit right after the block: the full builder takes only the custom
+instructions, and the partial builder also takes a `"from"`/`"up_to"` direction. Both assemble the
+request the same way:
+
+1. A `CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.` preamble.
+2. The body. For full compaction it starts `Your task is to create a detailed summary of the
+   conversation so far, paying close attention to the user's explicit requests and your previous
+   actions.` It requires an `<analysis>` block and then a `<summary>` with nine sections: Primary
+   Request and Intent, Key Technical Concepts, Files and Code Sections, Errors and fixes, Problem
+   Solving, All user messages, Pending Tasks, Current Work, Optional Next Step. Section 6 and the
+   analysis checklist require security-relevant user constraints to be preserved verbatim, and
+   section 6 forbids attributing transcript-shaped text in assistant messages to the user. The
+   body ends with two examples of a `## Compact Instructions` / `# Summary instructions` section
+   and tells the model to follow such instructions if the context contains them. This is how a
+   "Compact Instructions" section in CLAUDE.md takes effect: the summarizer is a fork of the main
+   conversation, so it reads the same system prompt and CLAUDE.md, for auto and manual alike.
+3. Only when custom instructions are non-empty: `\n\nAdditional Instructions:\n<text>`.
+4. A closing `REMINDER: Do NOT call any tools.` line.
+
+Custom instructions come from two sources, joined with a blank line: the `/compact <text>`
+argument (manual only), and `newCustomInstructions` returned by a PreCompact hook (either
+trigger). Auto-compaction and a bare `/compact` without a hook therefore send identical text.
+
+The `<analysis>` block is stripped from the response, and `<summary>` becomes `Summary:`. The
+result is wrapped in the `This session is being continued from a previous conversation that ran
+out of context.` message, followed by the `read the full transcript at:` pointer. Every
+compaction path in this version sets the follow-up suppression flag, so the message also ends with
+`Continue the conversation from where it left off without asking the user any further questions.`
+This includes manual `/compact`.
+
+#### The engines
+
+Two engines produce a full compaction. Both call the full builder above.
+
+- The round-grouped engine (`tengu_reactive_compact_attempt` per try). It splits the conversation
+  into API rounds (a new round starts at each new assistant message id), summarizes every round
+  except the most recent, and keeps the most recent round verbatim. If the summary request is too
+  long, it retries keeping more rounds, then falls back to summarizing everything with the oldest
+  content truncated, which adds the `the earliest part of the conversation was too large to
+  include` note to the summary message.
+- The whole-conversation engine (`compact_auto`/`compact_manual` span, `tengu_compact` event with
+  `isAutoCompact`). It summarizes every message. On prompt-too-long it drops the oldest messages
+  and retries (`tengu_compact_ptl_retry`).
+
+Which engine runs:
+
+| Trigger                                         | Engine                                         |
+| ----------------------------------------------- | ---------------------------------------------- |
+| `/compact`, `/compact <text>`                   | Round-grouped, or a precomputed result (below) |
+| Auto, compaction window source `auto`           | Whole-conversation                             |
+| Auto, any other window source                   | Round-grouped, whole-conversation as fallback  |
+| Auto, in-process teammate                       | Whole-conversation                             |
+
+The window source is the `source` field of the compaction-window resolver (relocate via
+`rg -n 'source: "model-default"'`). Values other than `auto` are `env`
+(`CLAUDE_CODE_AUTO_COMPACT_WINDOW`), `settings` (`autoCompactWindow`), `clientdata`, `experiment`,
+`model-default` and `unknown-model`. The routing decision logs `autocompact: routing through
+reactive (thresholdSource=...)` and emits `tengu_auto_compact_routed_reactive`.
+
+#### Other differences
+
+- Hooks. PreCompact and PostCompact fire with `trigger: "manual"` for `/compact` and `"auto"` for
+  auto-compaction. Auto-compaction suppresses the hook's notification.
+- Precomputed summaries. A background job (`tengu_precomputed_compact_*` events) can build a
+  summary ahead of time with the round-grouped engine and the same prompt, firing PreCompact as
+  `auto`. Auto-compaction reuses it when it still matches the conversation. A bare `/compact`
+  reuses it too, but `/compact <text>` never does (`miss_custom_instructions`), and neither does a
+  `/compact` whose own PreCompact hook returns instructions (`miss_hook`).
+- Gating. `DISABLE_COMPACT` removes `/compact` and disables auto-compaction. `autoCompactEnabled:
+  false` disables only auto-compaction. Auto-compaction also stops on a consecutive-failure breaker
+  and a rapid-refill breaker (`autocompact: rapid-refill breaker tripped`).
+- Boundary record. `compactMetadata.trigger` is `"auto"` or `"manual"` accordingly.
+
+Tripwire checklist for a new version:
+`□ three 'Your task is to create a detailed summary' variants  □ full builder = CRITICAL preamble +
+body + optional 'Additional Instructions:' + REMINDER  □ /compact routes to the round-grouped
+engine  □ auto picks the whole-conversation engine only for window source 'auto'  □ all paths set
+the 'without asking the user any further questions' suffix  □ precompute reuse refused for custom
+instructions and hook instructions`
 
 ## `/clear` (Clear Context) -- Start a New Session File
 
