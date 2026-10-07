@@ -5,7 +5,9 @@ sections re-verified against 2.1.226, the cap-reached behavior (grace windows, t
 wrap-up messages, the continue-after-reset affordance, the retry watchdog) against 2.1.231, and the
 `/usage` plan-limit bars and limits-attribution block against 2.1.263, and what reaches the model's
 context (the injected usage-limit notes, the auto-continue resume prompt, and the UI-only notices)
-against 2.1.286. This document follows the landmark style in
+against 2.1.286, and the OpenTelemetry surface (Surface 4: metrics, events, identity attributes,
+central configuration, the first-party metrics exporter) against 2.1.289. This document follows the
+landmark style in
 `GUIDELINES.md`: it anchors on version-stable strings (slash-command names, `tengu_*` event names,
 env var names, OTEL metric/attribute names, literal UI strings, JSONL field names, behavioral logic)
 with grep re-location recipes, not on minified symbol names or line numbers, which churn every
@@ -390,7 +392,12 @@ The registration helper takes an `omitUnits` flag that suppresses the `unit` fie
 
 `claude_code.token.usage` is emitted four times per request, once per `type` attribute: `input`,
 `output`, `cacheRead`, `cacheCreation` (grep `type: "cacheRead"`). Note these differ from the JSONL
-field names. `claude_code.cost.usage` is added alongside.
+field names. `claude_code.cost.usage` is added alongside with the same attributes minus `type`. The
+shared attribute set is built right above those four `add` calls: `model`, `speed: "fast"` (present
+only in fast mode), `query_source`, `effort` (when an effort level is set), and the per-source
+attribution attributes below. There is no thinking-token `type`: thinking tokens are counted inside
+`output`, and no attribute carries a thinking budget. `effort` is the only reasoning-level
+attribute.
 
 There is no gauge or counter for plan-limit utilization, quota, or seat consumption. The eight
 above are the complete set.
@@ -399,7 +406,9 @@ Per-source attribution attributes are attached to each data point (grep `mcp_ser
 `agent.name`, `skill.name`, `plugin.name`, `marketplace.name`, `mcp_server.name`, `mcp_tool.name`.
 They are derived from a `query_source` string whose prefixes (`agent:builtin:`, `agent:custom:`,
 `skill:`, …) name the originating component. This is what lets you split token and cost metrics by
-subagent and by MCP tool — the breakdown `/usage` does not provide.
+subagent and by MCP tool — the breakdown `/usage` does not provide. Custom and third-party names
+are redacted to the placeholders `custom` / `third-party` unless `OTEL_LOG_TOOL_DETAILS` is set (the
+attribute builder sits beside the `"marketplace.name"` placeholder map).
 
 Trace spans add request-level attribution. The `claude_code.llm_request` span (grep that name)
 carries `model`, `gen_ai.system`, `gen_ai.request.model`, `llm_request.context`
@@ -417,7 +426,10 @@ never appears in the bundle — searching for `claude_code.user_prompt` returns 
 for the body template `` body: `claude_code. `` to find the helper, then enumerate its call sites;
 several are formatted across lines, so an `rg -U` multiline match is required to catch them all.
 
-The complete 2.1.220 set, 25 names (prefix each with `claude_code.`):
+The complete 2.1.289 set, 29 names (prefix each with `claude_code.`). In the split bundle the helper
+is exported unaliased and every importer keeps its name, so one `rg -U` over its call sites with a
+string-literal first argument finds 27 of them; `api_request_body` / `api_response_body` arrive
+through a wrapper that passes the name as a variable (grep `e === "api_request_body"`).
 
 - Prompt and API: `user_prompt`, `assistant_response`, `system_prompt`, `api_request`, `api_error`,
   `api_refusal`, `api_retries_exhausted`, `api_request_body`, `api_response_body`
@@ -427,34 +439,46 @@ The complete 2.1.220 set, 25 names (prefix each with `claude_code.`):
   `hook_plugin_metrics`
 - Session: `auth`, `permission_mode_changed`, `compaction`, `at_mention`, `feedback_survey`,
   `internal_error`
+- Administration: `managed_settings_resolved` (which managed sources are active, policy-helper
+  state, and with `OTEL_LOG_MANAGED_SETTINGS` the resolved settings and their SHA-256; grep
+  `"managed_settings.sources"`), `retention_sweep` (transcript cleanup results; grep
+  `transcripts_deleted`)
 
 `api_request` attributes (grep the helper call with `cost_usd_micros`): `model`, `input_tokens`,
 `output_tokens`, `cache_read_tokens`, `cache_creation_tokens`, `cost_usd`, `cost_usd_micros`,
-`duration_ms`, `request_id`, `client_request_id`, `speed` (`fast`/`normal`), `query_source`, and
-optional `effort`. This is the per-request billing record and the highest-fidelity usage event.
+`duration_ms`, optional `ttft_ms`, `request_id`, `client_request_id`, `speed` (`fast`/`normal`),
+`query_source`, optional `effort`, and the per-source attribution attributes. This is the
+per-request billing record and the highest-fidelity usage event. As with the metric, there is no
+thinking-token field. Every event can also carry `workflow.run_id` / `workflow.name` when emitted
+inside a workflow run.
 
 `api_error` attributes: `model`, `error`, `status_code`, `duration_ms`, `attempt`, `request_id`,
 `client_request_id`, `speed`, optional `query_source` / `effort`. When more than one attempt was
-made, `api_retries_exhausted` follows with `total_attempts` and `total_retry_duration_ms`.
+made, `api_retries_exhausted` follows with `total_attempts` and `total_retry_duration_ms`. `error`
+is the message text, so a 429 can be classified only by matching that text (see Surface 5).
 
 ### Identity attributes
 
 Attached to every metric data point and every event by the same attribute builder (grep
 `"user.account_uuid"` and read the enclosing function):
 
-| Attribute           | Gate                                                                               |
-| ------------------- | ---------------------------------------------------------------------------------- |
-| `user.id`           | always                                                                             |
-| `organization.id`   | always, when an OAuth profile is present                                           |
-| `user.email`        | always, when an OAuth profile is present                                           |
-| `terminal.type`     | always, when the terminal is detected                                              |
-| `session.id`        | `OTEL_METRICS_INCLUDE_SESSION_ID`                                                  |
-| `ccr.session.id`    | with `session.id`, when `CLAUDE_CODE_REMOTE_SESSION_ID` is set                     |
-| `app.version`       | `OTEL_METRICS_INCLUDE_VERSION`                                                     |
-| `app.entrypoint`    | `OTEL_METRICS_INCLUDE_ENTRYPOINT`                                                  |
-| `user.account_uuid` | `OTEL_METRICS_INCLUDE_ACCOUNT_UUID`                                                |
-| `user.account_id`   | with `user.account_uuid`; `CLAUDE_CODE_ACCOUNT_TAGGED_ID` overrides                |
-| custom attrs        | `OTEL_METRICS_INCLUDE_RESOURCE_ATTRIBUTES`, parsed from `OTEL_RESOURCE_ATTRIBUTES` |
+| Attribute           | Gate                                                                        | Default |
+| ------------------- | --------------------------------------------------------------------------- | ------- |
+| `user.id`           | always (the device ID)                                                      | on      |
+| `organization.id`   | always, when an OAuth profile is present                                    | on      |
+| `user.email`        | always, when an OAuth profile is present                                    | on      |
+| `terminal.type`     | always, when the terminal is detected                                       | on      |
+| `session.id`        | `OTEL_METRICS_INCLUDE_SESSION_ID`                                           | on      |
+| `ccr.session.id`    | with `session.id`, when `CLAUDE_CODE_REMOTE_SESSION_ID` is set              | on      |
+| `user.account_uuid` | `OTEL_METRICS_INCLUDE_ACCOUNT_UUID`                                         | on      |
+| `user.account_id`   | with `user.account_uuid`; `CLAUDE_CODE_ACCOUNT_TAGGED_ID` overrides         | on      |
+| custom attrs        | `OTEL_METRICS_INCLUDE_RESOURCE_ATTRIBUTES`, from `OTEL_RESOURCE_ATTRIBUTES` | on      |
+| `app.version`       | `OTEL_METRICS_INCLUDE_VERSION`                                              | off     |
+| `app.entrypoint`    | `OTEL_METRICS_INCLUDE_ENTRYPOINT`                                           | off     |
+| `vcs.*`             | `OTEL_METRICS_INCLUDE_REPOSITORY`; repository url, owner, name, provider    | off     |
+
+The defaults come from a literal map of the six flags (grep `OTEL_METRICS_INCLUDE_REPOSITORY: !1`).
+An unset flag takes its default; a set flag is parsed as a boolean.
 
 `organization.id` and `user.email` are ungated by any `OTEL_METRICS_INCLUDE_*` flag — an OAuth
 session always labels its telemetry with the operator's email address. That is what makes per-person
@@ -462,6 +486,13 @@ fleet attribution work without extra configuration, and it is also the privacy f
 before turning telemetry on for a team. Operator-supplied `OTEL_RESOURCE_ATTRIBUTES` keys beginning
 `user.` or `identity.` are dropped when the profile already supplies identity attributes, so a
 custom `user.*` label cannot shadow the real one.
+
+On a session signed in through a gateway with an OIDC token, the builder merges the token's claims
+last: `user.id` becomes the JWT `sub`, `user.email` the token email, `user.groups` the
+comma-joined groups, and `identity.source` is `gateway-oidc` (grep `"gateway-oidc"`).
+
+No attribute carries the plan or subscription tier on the customer-facing export.
+`user.subscription_type` and `user.customer_type` exist only on the first-party exporter below.
 
 ### Configuration env vars
 
@@ -496,13 +527,63 @@ corresponding fields carry the literal `<REDACTED>` (grep `"<REDACTED>"` near th
 values are command strings (grep `otelHeadersHelper` adjacent to `statusLine` and
 `subagentStatusLine`) — the same list that managed policy can pin.
 
+### Central configuration through managed settings
+
+An admin can turn telemetry on and point it at a collector for every user, through the `env` block
+of managed settings (the on-disk `managed-settings.json` and its drop-ins, MDM, or server-managed
+settings fetched from `/api/claude_code/settings`). Four mechanisms make that stick:
+
+- The settings env applier writes every scope's `env` into `process.env`, policy last, so a managed
+  `CLAUDE_CODE_ENABLE_TELEMETRY` or `OTEL_*` value overrides the same key in the user's shell or
+  user settings.
+- When managed `env` sets an `OTEL_EXPORTER_OTLP_*` endpoint, headers, or client certificate, or
+  managed settings set `otelHeadersHelper`, the applier deletes any per-signal endpoint override a
+  lower-trust scope set, so a user cannot redirect one signal elsewhere. Landmark: the warning
+  `` Dropping ${e}: ${r} is claimed by managed settings, so lower-trust scopes cannot redirect ``
+  in `enforceManagedOtelFamilyDominance`.
+- When the session is eligible for server-managed settings, telemetry initialization waits for that
+  fetch to settle. Landmark: `[3P telemetry] Waiting for remote managed settings fetch before
+  telemetry init`.
+- Server-managed settings are fetched for first-party sessions authenticated by a claude.ai
+  Team or Enterprise OAuth login, a Console API key, a workload-identity profile, or an accepted
+  gateway. Pro and Max logins are ineligible (`unsupported_subscription`), as are third-party
+  providers and custom base URLs (grep `ineligibleReason: "third_party_provider"`).
+
+Server-delivered settings that could run code or redirect traffic need the user's approval once per
+organization and settings hash (recorded in `remote-settings-consent.json`). Most telemetry
+variables are on the consent-free env allowlist (grep `"CLAUDE_CODE_ENABLE_TELEMETRY"` in the large
+`new Set([` of safe keys): the enable switch, exporters, protocols, headers, intervals, the
+`OTEL_METRICS_INCLUDE_*` flags, `OTEL_RESOURCE_ATTRIBUTES`, and the `OTEL_LOG_*` content flags. The
+`OTEL_EXPORTER_OTLP_*ENDPOINT` variables are not on it, so a server-managed endpoint shows a
+dedicated dialog: "Your organization has configured Claude Code to send telemetry to the destination
+below." with the list label `Telemetry destination:`. Rejecting the dialog refuses the session and
+emits `managed_settings_resolved` with trigger `refused` and `error.type: "consent_rejected"`.
+
+### First-party metrics export to Anthropic
+
+Separately from the customer OTLP export, the same eight metric instruments feed a second reader
+that posts to `${BASE_API_URL}/api/claude_code/metrics` (log prefix `BigQuery metrics`). It does not
+need `CLAUDE_CODE_ENABLE_TELEMETRY`. It runs for a claude.ai OAuth login on a Team or Enterprise
+subscription, or a first-party non-OAuth (API key) login, unless `DISABLE_TELEMETRY`,
+`DO_NOT_TRACK`, or `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` is set. Before each export it checks
+`/api/claude_code/organizations/metrics_enabled` and skips with `BigQuery metrics export disabled by
+organization setting` when the org has turned it off. Its resource attributes add
+`user.customer_type` (`claude_ai`/`api`) and `user.subscription_type`. Where this data surfaces on
+Anthropic's side is not source-determinable. The admin does not choose its endpoint, and it carries
+no plan-limit data either.
+
 ### Plan rate limits are not in telemetry
 
 No metric, no event, and no span attribute carries 5-hour or weekly limit utilization, quota state,
-or seat consumption. Verified three ways against 2.1.220: the eight metric registrations contain no
-limit instrument; the 25 event names contain no limit event; and the `api_request` event's attribute
-list carries tokens, cost, and duration but nothing derived from the
-`anthropic-ratelimit-unified-*` response headers that populate `/usage`.
+or seat consumption. Verified three ways against 2.1.220 and again against 2.1.289: the eight metric
+registrations contain no limit instrument; the 29 event names contain no limit event; and the
+`api_request` event's attribute list carries tokens, cost, and duration but nothing derived from the
+`anthropic-ratelimit-unified-*` response headers that populate `/usage`. The trace-span module has
+no rate-limit attribute either.
+
+Outside OTel, the Agent SDK / `--output-format stream-json` message stream carries a
+`rate_limit_event` message whose `rate_limit_info` has `status`, `rateLimitType` and `resetsAt`
+(grep `case "rate_limit_event"`). That is a per-process stream, not an export.
 
 The available substitutes, in descending fidelity:
 
@@ -1177,6 +1258,20 @@ half is source-verifiable.
 
 ## Per-release appendix
 
+- 2.1.289: partial re-verification, covering the OpenTelemetry surface. Unchanged: the eight metric
+  instruments, the four-way token `type` split, the identity builder's ungated `organization.id` /
+  `user.email`, and the absence of any plan-limit metric, event, or span attribute. Corrected: the
+  event count, which the 2.1.220 entry gave as 25 while listing 27. Newly documented: the token and
+  cost metric attributes (`model`, `effort`, fast-mode `speed`, `query_source`, attribution names
+  redacted unless `OTEL_LOG_TOOL_DETAILS`); `api_request` gaining `ttft_ms` and attribution
+  attributes; the `managed_settings_resolved` and `retention_sweep` events (29 names total); the
+  `OTEL_METRICS_INCLUDE_*` defaults, with `OTEL_METRICS_INCLUDE_REPOSITORY` adding `vcs.*`; the
+  `gateway-oidc` identity merge with `user.groups`; central configuration through managed `env`,
+  including the managed-endpoint dominance that drops lower-scope endpoint overrides, telemetry init
+  waiting on the server-managed settings fetch, the eligibility rules for that fetch, and the
+  `Telemetry destination:` consent dialog for a server-managed endpoint; and the first-party
+  `BigQuery metrics` exporter to `/api/claude_code/metrics`, which runs for Team, Enterprise, and
+  API-key logins without `CLAUDE_CODE_ENABLE_TELEMETRY`.
 - 2.1.286: partial re-verification, covering which plan-limit signals reach the model's context.
   Established as negative results: the system prompt has no plan-limit section; no utilization
   figure, reset time, `anthropic-ratelimit-unified-*` header value, or statusLine `rate_limits`
