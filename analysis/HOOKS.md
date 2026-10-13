@@ -27,6 +27,7 @@ landmark rather than expecting neighbors to sit in the same module.
 | Exit-code logic              | `Failed with non-blocking status code:`                            |
 | Missing-script downgrade     | `Hook script appears to be missing`                                |
 | Hook process env             | `CLAUDE_CODE_CHILD_SESSION` (env builder) and `CLAUDE_ENV_FILE`    |
+| Command hook spawn           | `has both "args" and whitespace in "command"` (runner prologue)    |
 | Pipeline dispatch            | `[Stall] tool_dispatch_start`                                      |
 | Stop→SubagentStop conversion | `Converting Stop hook to SubagentStop`                             |
 | Stop block cap               | `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP`                                  |
@@ -355,7 +356,7 @@ runs through the shell). Optional `shell` (`bash` | `powershell`). Optional `asy
 background without blocking"). Optional `asyncRewake` ("runs in background and wakes the model on
 exit code 2 (blocking error). Implies async."), with `@internal` `rewakeMessage` / `rewakeSummary`.
 `@internal` `cloud` (`device` | `skip`) controls whether the hook is offered to a cloud session
-driven from this machine.
+driven from this machine. Spawn mechanics for `args` are under "Exec form and shell form".
 
 prompt — `prompt` (use `$ARGUMENTS` for the hook input JSON), optional `model` (default: the small
 fast model), optional `continueOnBlock` ("Sets the continue value for the decision:"block" produced
@@ -378,6 +379,60 @@ session-registered hooks) and an internal `script` type from the hook-modules sy
 Default timeouts: 600 s for command / http / mcp_tool; 30 s for UserPromptSubmit, PreModelSwitch
 and PostModelSwitch; SessionEnd hooks share a 1.5 s budget raised to the largest configured
 per-hook `timeout` (capped), or set by `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS`.
+
+## Exec form and shell form
+
+Section verified against cli.prettier.js 2.1.296 (2026-10-13).
+
+`args` is part of the command-hook schema that `settings.json` hooks, plugin `hooks/hooks.json`,
+and skill and agent frontmatter `hooks` all share, so a user-level `~/.claude/settings.json` hook
+accepts it. The schema has no per-source variant. Introduced between 2.1.138 (absent) and 2.1.143
+(present, with its `Argument list for exec form` describe string); no local bundle sits between them.
+The published docs mark `args` without a version.
+
+The runner prologue (anchor above) sets `exec form` when `args !== undefined`. Both forms build one
+environment object, then diverge at the `child_process.spawn` call:
+
+| Aspect                     | Exec form (`args` present)                              | Shell form (`args` absent)                                |
+|----------------------------|---------------------------------------------------------|-----------------------------------------------------------|
+| Spawn                      | `spawn(command, args, { env, cwd, detached, ... })`     | `spawn(command, [], { env, cwd, shell: true, ... })`      |
+| Shell                      | none; `shell` field ignored                             | `/bin/sh -c`, Git Bash, or PowerShell (`shell` field)     |
+| Program lookup             | runtime resolves `command` on the child's `env.PATH`    | the shell resolves it                                     |
+| `~`, `$HOME`, `$VAR`       | passed through verbatim                                 | expanded by the shell                                     |
+| `${CLAUDE_PROJECT_DIR}`    | replaced in `command` and each `args` element           | not replaced; the shell expands the exported env var      |
+| `${CLAUDE_PLUGIN_ROOT}`    | replaced the same way (plugin and skill hooks)          | not replaced; the shell expands the exported env var      |
+| `${CLAUDE_PLUGIN_DATA}`    | replaced (plugin hooks only)                            | not replaced; the shell expands the exported env var      |
+| `${user_config.KEY}`       | replaced (plugin hooks only)                            | refused: the hook throws                                  |
+| `CLAUDE_CODE_SHELL_PREFIX` | not applied                                             | wraps the command                                         |
+| Windows backslashes        | substituted paths and env values keep native separators | env path values and the command text are rewritten to `/` |
+
+Details:
+
+- Substitution is plain `replaceAll` of the four exact `${...}` spellings. A string with no `${` is
+  returned untouched. No `~`, `$HOME`, `${HOME}` or generic `${VAR}` expansion exists in exec form,
+  so `"~/a"` reaches the program as the literal text `~/a`. A relative path resolves against the
+  hook's working directory, not against `CLAUDE_PROJECT_DIR`.
+- A `${CLAUDE_PLUGIN_ROOT}` or `${CLAUDE_PLUGIN_DATA}` reference from a hook with no plugin (and, for
+  ROOT, no skill directory) throws; the settings.json case reads `not associated with a plugin`.
+  `${CLAUDE_PROJECT_DIR}` always resolves.
+- A bare `command` containing whitespace beside `args` logs a warning, because exec form treats the
+  whole string as one executable name. A `command` with a path separator is exempt.
+- On Windows without a shell, `command` has to resolve to a real executable. `.cmd` and `.bat`
+  shims cannot be spawned.
+- Lookup on `PATH` was checked against the runtime (`bun` and `node` both): the child's own
+  `env.PATH` decides, not the parent's. The hook environment is not rebuilt for exec form, so
+  `PATH` is whatever Claude Code itself holds, plus any `env` block from settings.
+
+Both forms share one environment, built once before the branch (the table under "Hook process
+environment"): Claude Code's own environment with the scrub list, the `settings.json` `env` block
+for child processes, the session variables, and `CLAUDE_PROJECT_DIR`. `PATH` is identical. One
+difference remains: on Windows with Git Bash, shell form prepends the Git Bash directory to
+`PATH`, and exec form does not.
+
+Anchors: `Argument list for exec form` (schema), `has both "args" and whitespace in "command"`
+(prologue), `is not associated with a plugin` (placeholder guard), `references ${user_config.*} in
+a shell-form command` (the shell-form refusal). The async-rewake script scanner treats the two forms
+differently in the same way: it expands a leading `~`, `$HOME` and `${HOME}` only for shell form.
 
 ## Hook configuration keys
 
@@ -672,6 +727,9 @@ events, `prompt_id`, `scratchpad_dir`, `mcp_server`, timeouts and `CLAUDE_ENV_FI
 
 ## Per-release appendix
 
+- 2.1.296: exec form re-verified. Documented spawn, substitution and environment differences against
+  shell form; `args` first appears after 2.1.138 and by 2.1.143 (the 2.1.165 entry below recorded
+  it when the doc was rewritten, not when it shipped).
 - 2.1.280: verified. 33 events (was 31): PreModelSwitch and PostModelSwitch (docs: since 2.1.251).
 - 2.1.280: model events carry from/to/requested model, source, cache-cost fields; matcher on the
   canonical `to_model` id; PreModelSwitch allow/deny/ask, fail-closed on timeout.
