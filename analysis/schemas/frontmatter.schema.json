@@ -2,10 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/local/claude-code-analysis/main/analysis/schemas/frontmatter.schema.json",
   "title": "Claude Code Markdown Frontmatter",
-  "description": "Validates the YAML frontmatter of Claude Code Markdown configuration files (agents, skills, output styles, memory). Verified against cli.prettier.js 2.1.143. See analysis/MARKDOWN_FRONTMATTER.md for narrative documentation. Use #/$defs/Agent, #/$defs/Skill, #/$defs/OutputStyle, or #/$defs/Memory as the entry point per file type.",
+  "description": "Validates the YAML frontmatter of Claude Code Markdown configuration files (agents, skills, output styles, memory). Verified against cli.prettier.js 2.1.296. See analysis/MARKDOWN_FRONTMATTER.md for narrative documentation. Use #/$defs/Agent, #/$defs/Skill, #/$defs/OutputStyle, or #/$defs/Memory as the entry point per file type.",
   "$defs": {
     "ModelAlias": {
-      "description": "Model identifier. One of the documented aliases, the literal 'inherit', or a full Claude model ID (e.g. 'claude-sonnet-4-6').",
+      "description": "Model identifier. One of the documented aliases, the literal 'inherit', or a full Claude model ID (e.g. 'claude-sonnet-5-5'). Claude Code passes unknown strings through to the model resolver.",
       "type": "string",
       "minLength": 1,
       "anyOf": [
@@ -14,89 +14,73 @@
             "sonnet",
             "opus",
             "haiku",
+            "fable",
             "best",
             "sonnet[1m]",
             "opus[1m]",
+            "fable[1m]",
             "opusplan",
             "inherit"
           ]
         },
-        {
-          "pattern": "^claude-"
-        }
+        { "pattern": "^claude-" }
       ]
     },
     "Effort": {
-      "description": "Thinking effort: a named preset or a positive-integer token budget.",
+      "description": "Thinking effort: a named preset or an integer token budget. Claude Code matches presets without regard to case and also accepts 'med' for 'medium'. 'ultracode' is a --effort CLI value only and is rejected in frontmatter.",
       "oneOf": [
-        {
-          "type": "string",
-          "enum": ["low", "medium", "high", "xhigh", "max"]
-        },
-        {
-          "type": "integer",
-          "minimum": 0
-        }
+        { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max", "med"] },
+        { "type": "integer", "minimum": 0 }
       ]
     },
     "PermissionMode": {
       "type": "string",
-      "enum": [
-        "acceptEdits",
-        "auto",
-        "bypassPermissions",
-        "default",
-        "dontAsk",
-        "plan"
-      ]
+      "enum": ["acceptEdits", "auto", "bypassPermissions", "default", "dontAsk", "plan", "manual"],
+      "description": "'manual' is accepted as an alias for 'default'."
     },
     "AgentColor": {
       "type": "string",
-      "enum": [
-        "red",
-        "blue",
-        "green",
-        "yellow",
-        "purple",
-        "orange",
-        "pink",
-        "cyan"
-      ]
+      "enum": ["red", "blue", "green", "yellow", "purple", "orange", "pink", "cyan"]
     },
-    "MemoryScope": {
-      "type": "string",
-      "enum": ["user", "project", "local"]
-    },
+    "MemoryScope": { "type": "string", "enum": ["user", "project", "local"] },
     "Isolation": {
       "type": "string",
-      "enum": ["worktree"]
+      "enum": ["worktree", "remote"],
+      "description": "Plugin agents accept only 'worktree'."
     },
-    "ShellInterpreter": {
-      "type": "string",
-      "enum": ["bash", "powershell"]
-    },
+    "ShellInterpreter": { "type": "string", "enum": ["bash", "powershell"] },
     "BooleanLike": {
-      "description": "Boolean value. Accepts native booleans or their string forms 'true' / 'false'.",
+      "description": "Strict boolean, as agent 'background' requires: a native boolean or the string 'true' / 'false'.",
       "oneOf": [
         { "type": "boolean" },
         { "type": "string", "enum": ["true", "false"] }
       ]
     },
-    "ToolList": {
-      "description": "A single tool name, a YAML list of tool names, or the wildcard '*' meaning all tools.",
+    "LenientBoolean": {
+      "description": "Boolean read by the skill and output-style parsers: a native boolean, a number, or one of true/false, 1/0, yes/no, on/off in any case.",
       "oneOf": [
-        { "type": "string" },
+        { "type": "boolean" },
+        { "type": "number" },
         {
-          "type": "array",
-          "items": { "type": "string" }
+          "type": "string",
+          "pattern": "^\\s*([Tt][Rr][Uu][Ee]|[Ff][Aa][Ll][Ss][Ee]|1|0|[Yy][Ee][Ss]|[Nn][Oo]|[Oo][Nn]|[Oo][Ff][Ff])\\s*$"
         }
       ]
     },
-    "PathsGlob": {
-      "description": "Comma-separated glob patterns. Brace expansion ({a,b}) is supported. A trailing '/**' is stripped. A bare '**' is treated as no scoping.",
-      "type": "string"
+    "ToolList": {
+      "description": "A single string (comma- or space-separated tool names, or '*' for all tools) or a YAML list of tool names.",
+      "oneOf": [
+        { "type": "string" },
+        { "type": "array", "items": { "type": "string" } }
+      ]
     },
-
+    "PathsGlob": {
+      "description": "Glob patterns: a string of comma-separated patterns, or a YAML list of strings. Commas inside braces do not split; {a,b} brace expansion is applied; a trailing '/**' is stripped; a bare '**' means no scoping.",
+      "oneOf": [
+        { "type": "string" },
+        { "type": "array", "items": { "type": "string" } }
+      ]
+    },
     "HookEvent": {
       "type": "string",
       "enum": [
@@ -115,6 +99,8 @@
         "SubagentStop",
         "PreCompact",
         "PostCompact",
+        "PreModelSwitch",
+        "PostModelSwitch",
         "PermissionRequest",
         "PermissionDenied",
         "Setup",
@@ -128,8 +114,20 @@
         "WorktreeRemove",
         "InstructionsLoaded",
         "CwdChanged",
-        "FileChanged"
+        "FileChanged",
+        "DirectoryAdded",
+        "MessageDisplay"
       ]
+    },
+    "HookOnFailure": {
+      "description": "What a hook failure does. 'continue' (default) reports it and lets the action proceed; 'block' treats it as exit code 2. Ignored for async hooks and on Stop, SubagentStop, TaskCompleted and TeammateIdle.",
+      "type": "string",
+      "enum": ["continue", "block"]
+    },
+    "HookCloud": {
+      "description": "@internal: whether a cloud session driven from this machine may run this hook. Unrecognised values read as 'skip'.",
+      "type": "string",
+      "enum": ["device", "skip"]
     },
     "CommandHook": {
       "type": "object",
@@ -149,6 +147,7 @@
         },
         "shell": { "$ref": "#/$defs/ShellInterpreter" },
         "timeout": { "type": "number", "exclusiveMinimum": 0 },
+        "onFailure": { "$ref": "#/$defs/HookOnFailure" },
         "statusMessage": { "type": "string" },
         "once": { "type": "boolean" },
         "async": { "type": "boolean" },
@@ -157,7 +156,8 @@
           "type": "boolean"
         },
         "rewakeMessage": { "type": "string", "minLength": 1 },
-        "rewakeSummary": { "type": "string", "minLength": 1 }
+        "rewakeSummary": { "type": "string", "minLength": 1 },
+        "cloud": { "$ref": "#/$defs/HookCloud" }
       }
     },
     "PromptHook": {
@@ -184,16 +184,12 @@
         "url": { "type": "string", "format": "uri" },
         "if": { "type": "string" },
         "timeout": { "type": "number", "exclusiveMinimum": 0 },
-        "headers": {
-          "type": "object",
-          "additionalProperties": { "type": "string" }
-        },
-        "allowedEnvVars": {
-          "type": "array",
-          "items": { "type": "string" }
-        },
+        "onFailure": { "$ref": "#/$defs/HookOnFailure" },
+        "headers": { "type": "object", "additionalProperties": { "type": "string" } },
+        "allowedEnvVars": { "type": "array", "items": { "type": "string" } },
         "statusMessage": { "type": "string" },
-        "once": { "type": "boolean" }
+        "once": { "type": "boolean" },
+        "cloud": { "$ref": "#/$defs/HookCloud" }
       }
     },
     "AgentHook": {
@@ -247,24 +243,18 @@
           "description": "String pattern to match. Tool name ('Bash'), pipe-separated list ('Edit|Write'), or empty/absent to match all.",
           "type": "string"
         },
-        "hooks": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/Hook" }
-        }
-      }
+        "hooks": { "type": "array", "items": { "$ref": "#/$defs/Hook" } }
+      },
+      "description": "Matcher group. Only 'matcher' and 'hooks' are fields; Claude Code strips any other key, including 'if', without a warning. Put 'if' on each hook entry."
     },
     "Hooks": {
-      "description": "Hook registrations, keyed by event name. Values are arrays of matcher groups.",
+      "description": "Hook registrations, keyed by event name. Values are arrays of matcher groups. An invalid PreToolUse or PermissionRequest entry stops an agent loading and strips a skill's hooks and allowed-tools; other invalid entries and unknown events are dropped with a warning.",
       "type": "object",
       "propertyNames": { "$ref": "#/$defs/HookEvent" },
-      "additionalProperties": {
-        "type": "array",
-        "items": { "$ref": "#/$defs/HookMatcher" }
-      }
+      "additionalProperties": { "type": "array", "items": { "$ref": "#/$defs/HookMatcher" } }
     },
-
     "McpRole": {
-      "description": "Role marker. Only 'comms' is recognised.",
+      "description": "Role marker. Only 'comms' is recognised; Claude Code drops other values silently.",
       "type": "string",
       "enum": ["comms"]
     },
@@ -274,11 +264,7 @@
       "properties": {
         "clientId": { "type": "string" },
         "callbackPort": { "type": "integer", "exclusiveMinimum": 0 },
-        "authServerMetadataUrl": {
-          "type": "string",
-          "format": "uri",
-          "pattern": "^https://"
-        },
+        "authServerMetadataUrl": { "type": "string", "format": "uri", "pattern": "^https://" },
         "scopes": { "type": "string", "minLength": 1 },
         "xaa": { "type": "boolean" }
       }
@@ -290,15 +276,11 @@
       "properties": {
         "type": { "const": "stdio" },
         "command": { "type": "string", "minLength": 1 },
-        "args": {
-          "type": "array",
-          "items": { "type": "string" }
-        },
-        "env": {
-          "type": "object",
-          "additionalProperties": { "type": "string" }
-        },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "env": { "type": "object", "additionalProperties": { "type": "string" } },
+        "timeout": { "type": "integer", "exclusiveMinimum": 0 },
         "alwaysLoad": { "type": "boolean" },
+        "bareElicitationCapability": { "type": "boolean" },
         "role": { "$ref": "#/$defs/McpRole" }
       }
     },
@@ -309,14 +291,33 @@
       "properties": {
         "type": { "const": "sse" },
         "url": { "type": "string" },
-        "headers": {
-          "type": "object",
-          "additionalProperties": { "type": "string" }
-        },
+        "headers": { "type": "object", "additionalProperties": { "type": "string" } },
         "headersHelper": { "type": "string" },
         "oauth": { "$ref": "#/$defs/McpOAuth" },
+        "timeout": { "type": "integer", "exclusiveMinimum": 0 },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string" },
+              "permission_policy": {
+                "type": "string",
+                "enum": ["always_allow", "always_ask", "always_deny"]
+              }
+            }
+          }
+        },
         "alwaysLoad": { "type": "boolean" },
-        "role": { "$ref": "#/$defs/McpRole" }
+        "bareElicitationCapability": { "type": "boolean" },
+        "discoveryCache": { "type": "boolean" },
+        "role": { "$ref": "#/$defs/McpRole" },
+        "toolPermissions": {
+          "type": "object",
+          "additionalProperties": { "type": "string", "enum": ["allow", "ask", "blocked"] }
+        }
       }
     },
     "McpServerSseIde": {
@@ -328,6 +329,7 @@
         "url": { "type": "string" },
         "ideName": { "type": "string" },
         "ideRunningInWindows": { "type": "boolean" },
+        "timeout": { "type": "integer", "exclusiveMinimum": 0 },
         "alwaysLoad": { "type": "boolean" },
         "role": { "$ref": "#/$defs/McpRole" }
       }
@@ -342,6 +344,7 @@
         "ideName": { "type": "string" },
         "authToken": { "type": "string" },
         "ideRunningInWindows": { "type": "boolean" },
+        "timeout": { "type": "integer", "exclusiveMinimum": 0 },
         "alwaysLoad": { "type": "boolean" },
         "role": { "$ref": "#/$defs/McpRole" }
       }
@@ -357,14 +360,33 @@
           "enum": ["http", "streamable-http"]
         },
         "url": { "type": "string" },
-        "headers": {
-          "type": "object",
-          "additionalProperties": { "type": "string" }
-        },
+        "headers": { "type": "object", "additionalProperties": { "type": "string" } },
         "headersHelper": { "type": "string" },
         "oauth": { "$ref": "#/$defs/McpOAuth" },
+        "timeout": { "type": "integer", "exclusiveMinimum": 0 },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string" },
+              "permission_policy": {
+                "type": "string",
+                "enum": ["always_allow", "always_ask", "always_deny"]
+              }
+            }
+          }
+        },
         "alwaysLoad": { "type": "boolean" },
-        "role": { "$ref": "#/$defs/McpRole" }
+        "bareElicitationCapability": { "type": "boolean" },
+        "discoveryCache": { "type": "boolean" },
+        "role": { "$ref": "#/$defs/McpRole" },
+        "toolPermissions": {
+          "type": "object",
+          "additionalProperties": { "type": "string", "enum": ["allow", "ask", "blocked"] }
+        }
       }
     },
     "McpServerWs": {
@@ -374,12 +396,11 @@
       "properties": {
         "type": { "const": "ws" },
         "url": { "type": "string" },
-        "headers": {
-          "type": "object",
-          "additionalProperties": { "type": "string" }
-        },
+        "headers": { "type": "object", "additionalProperties": { "type": "string" } },
         "headersHelper": { "type": "string" },
+        "timeout": { "type": "integer", "exclusiveMinimum": 0 },
         "alwaysLoad": { "type": "boolean" },
+        "bareElicitationCapability": { "type": "boolean" },
         "role": { "$ref": "#/$defs/McpRole" }
       }
     },
@@ -390,7 +411,9 @@
       "properties": {
         "type": { "const": "sdk" },
         "name": { "type": "string" },
-        "alwaysLoad": { "type": "boolean" }
+        "timeout": { "type": "integer", "exclusiveMinimum": 0 },
+        "alwaysLoad": { "type": "boolean" },
+        "disableAutoBackground": { "type": "boolean" }
       }
     },
     "McpServerClaudeAiProxy": {
@@ -401,14 +424,21 @@
         "type": { "const": "claudeai-proxy" },
         "url": { "type": "string" },
         "id": { "type": "string" },
+        "displayName": { "type": "string" },
+        "iconUrl": { "type": "string" },
+        "timeout": { "type": "integer", "exclusiveMinimum": 0 },
         "alwaysLoad": { "type": "boolean" },
         "toolPermissions": {
           "type": "object",
-          "additionalProperties": {
-            "type": "string",
-            "enum": ["allow", "ask", "blocked"]
-          }
-        }
+          "additionalProperties": { "type": "string", "enum": ["allow", "ask", "blocked"] }
+        },
+        "stateless": { "type": "boolean" },
+        "cachedInitResponse": { "type": ["object", "null"] },
+        "discoverSupport": { "type": "string", "enum": ["supported", "legacy", "unknown"] },
+        "cachedDiscoverResponse": { "type": ["object", "null"] },
+        "eligible": { "type": ["boolean", "null"] },
+        "ineligibleReason": { "type": ["string", "null"] },
+        "enterpriseManaged": { "type": "boolean" }
       }
     },
     "McpServer": {
@@ -435,7 +465,6 @@
         }
       ]
     },
-
     "Agent": {
       "type": "object",
       "title": "Agent frontmatter (.claude/agents/*.md)",
@@ -444,9 +473,11 @@
       "required": ["name", "description"],
       "properties": {
         "name": {
-          "description": "Agent identifier (becomes agentType). Required.",
+          "description": "Agent identifier (becomes agentType). Required. At most 256 characters, no leading '-', no ':'.",
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[^-:][^:]*$"
         },
         "description": {
           "description": "When-to-use text shown in the Agent tool listing. Literal '\\n' escapes are expanded to real newlines. Required.",
@@ -459,15 +490,18 @@
         "color": { "$ref": "#/$defs/AgentColor" },
         "effort": { "$ref": "#/$defs/Effort" },
         "permissionMode": { "$ref": "#/$defs/PermissionMode" },
-        "mcpServers": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/AgentMcpServerEntry" }
-        },
+        "mcpServers": { "type": "array", "items": { "$ref": "#/$defs/AgentMcpServerEntry" } },
         "hooks": { "$ref": "#/$defs/Hooks" },
         "maxTurns": { "type": "integer", "minimum": 1 },
+        "autoCompactWindow": {
+          "description": "Auto-compact window for this agent, in tokens.",
+          "type": "integer",
+          "minimum": 100000,
+          "maximum": 1000000
+        },
         "skills": {
-          "type": "array",
-          "items": { "type": "string" }
+          "$ref": "#/$defs/ToolList",
+          "description": "Skills preloaded for this agent: a string or a YAML list of skill names."
         },
         "initialPrompt": {
           "description": "Auto-submitted first message when this agent runs as the main session. Ignored for subagent spawns.",
@@ -475,14 +509,42 @@
         },
         "memory": { "$ref": "#/$defs/MemoryScope" },
         "background": { "$ref": "#/$defs/BooleanLike" },
-        "isolation": { "$ref": "#/$defs/Isolation" }
+        "omitClaudeMd": {
+          "description": "If true, the agent runs without the user, project and local CLAUDE.md files when spawned as a subagent. Only true or 'true' turns it on.",
+          "$ref": "#/$defs/BooleanLike"
+        },
+        "isolation": { "$ref": "#/$defs/Isolation" },
+        "observer": {
+          "description": "Agent type auto-spawned as a background observer whenever this agent runs.",
+          "type": "string",
+          "minLength": 1
+        },
+        "observerMessage": {
+          "description": "Text appended to each activity digest sent to the observer.",
+          "type": "string",
+          "minLength": 1
+        },
+        "observeSubagents": {
+          "description": "If false, subagents this agent spawns do not inherit its observer. Defaults to true.",
+          "$ref": "#/$defs/BooleanLike"
+        },
+        "experimental": {
+          "description": "Experimental per-agent options. Only 'cacheTtl' is read; other keys are ignored.",
+          "type": ["object", "null"],
+          "properties": {
+            "cacheTtl": {
+              "description": "Prompt cache TTL for this agent's requests. '1h' is ignored while a Claude subscription is in overage.",
+              "type": "string",
+              "enum": ["5m", "1h"]
+            }
+          }
+        }
       }
     },
-
     "Skill": {
       "type": "object",
-      "title": "Skill frontmatter (.claude/skills/<name>/SKILL.md)",
-      "description": "Frontmatter schema for skill definition files. All fields are optional; the skill's identifier is the containing directory name.",
+      "title": "Skill and command frontmatter (.claude/skills/<name>/SKILL.md, .claude/commands/**/*.md)",
+      "description": "Frontmatter schema for SKILL.md and .claude/commands/*.md files (commands ignore 'name' and 'paths'). All fields are optional; a skill's identifier is the containing directory name. The Agent Skills field 'compatibility' is absent from Claude Code's strict validator (it records an unknown-key telemetry event, then has no effect), so this schema rejects it.",
       "additionalProperties": false,
       "properties": {
         "name": {
@@ -495,22 +557,27 @@
         },
         "model": { "$ref": "#/$defs/ModelAlias" },
         "allowed-tools": { "$ref": "#/$defs/ToolList" },
+        "disallowed-tools": {
+          "description": "Tools removed while this skill is active. Cleared when the user sends the next message.",
+          "$ref": "#/$defs/ToolList"
+        },
+        "disallowedTools": {
+          "description": "Alias of 'disallowed-tools', read only when 'disallowed-tools' is absent.",
+          "$ref": "#/$defs/ToolList"
+        },
         "argument-hint": {
-          "description": "Short hint shown after the slash command name. Coerced to string.",
+          "description": "Hint shown while typing the slash command. Coerced with String(): a YAML list such as [file] loses its brackets and joins items with commas, so quote bracketed hints.",
           "type": ["string", "number", "boolean", "null"]
         },
         "arguments": {
           "description": "Named argument slots. String is split on whitespace; arrays keep non-empty, non-numeric strings only.",
           "oneOf": [
             { "type": "string" },
-            {
-              "type": "array",
-              "items": { "type": "string" }
-            }
+            { "type": "array", "items": { "type": "string" } }
           ]
         },
-        "disable-model-invocation": { "$ref": "#/$defs/BooleanLike" },
-        "user-invocable": { "$ref": "#/$defs/BooleanLike" },
+        "disable-model-invocation": { "$ref": "#/$defs/LenientBoolean" },
+        "user-invocable": { "$ref": "#/$defs/LenientBoolean" },
         "effort": { "$ref": "#/$defs/Effort" },
         "shell": { "$ref": "#/$defs/ShellInterpreter" },
         "version": {
@@ -519,7 +586,7 @@
         },
         "when_to_use": {
           "description": "Guidance for when the model should reach for this skill. Note the underscore, not a hyphen.",
-          "type": "string"
+          "type": ["string", "number", "boolean", "null"]
         },
         "paths": { "$ref": "#/$defs/PathsGlob" },
         "hooks": { "$ref": "#/$defs/Hooks" },
@@ -530,11 +597,15 @@
         },
         "agent": {
           "description": "Agent type to spawn when context: fork.",
-          "type": "string"
+          "type": ["string", "number", "boolean", "null"]
+        },
+        "background": {
+          "description": "Only for context: fork. Forks run as background agents by default; false keeps the caller waiting for the result.",
+          "$ref": "#/$defs/LenientBoolean"
         },
         "fallback": {
-          "description": "@internal — if true, yields to a same-suffix plugin or MCP skill when one is loaded.",
-          "$ref": "#/$defs/BooleanLike"
+          "$ref": "#/$defs/LenientBoolean",
+          "description": "@internal — if true, yields to a same-suffix plugin or MCP skill when one is loaded."
         },
         "created_by": {
           "description": "@internal — provenance marker (e.g. 'dream-proposal').",
@@ -544,21 +615,88 @@
           "description": "@internal — provenance marker (e.g. 'dream-proposal').",
           "type": "string"
         },
-        "mcpServers": { "description": "@internal — reserved for plugin tooling.", "type": ["object", "array", "null"] },
-        "lspServers": { "description": "@internal — reserved for plugin tooling.", "type": ["object", "array", "null"] },
-        "agents": { "description": "@internal — reserved for plugin tooling.", "type": ["object", "array", "null"] },
-        "outputStyles": { "description": "@internal — reserved for plugin tooling.", "type": ["object", "array", "null"] },
-        "themes": { "description": "@internal — reserved for plugin tooling.", "type": ["object", "array", "null"] },
-        "workflows": { "description": "@internal — reserved for plugin tooling.", "type": ["object", "array", "null"] },
-        "channels": { "description": "@internal — reserved for plugin tooling.", "type": ["object", "array", "null"] },
-        "monitors": { "description": "@internal — reserved for plugin tooling.", "type": ["object", "array", "null"] },
-        "settings": { "description": "@internal — reserved for plugin tooling.", "type": ["object", "array", "null"] },
-        "experimental": { "description": "@internal — reserved for plugin tooling.", "type": ["object", "array", "null"] },
-        "dependencies": { "description": "@internal — reserved for plugin tooling.", "type": ["object", "array", "null"] },
-        "metadata": { "description": "@internal — reserved for plugin tooling.", "type": ["object", "array", "null"] }
+        "mcpServers": {
+          "description": "@internal — reserved for plugin tooling.",
+          "type": ["object", "array", "null"]
+        },
+        "lspServers": {
+          "description": "@internal — reserved for plugin tooling.",
+          "type": ["object", "array", "null"]
+        },
+        "agents": {
+          "description": "@internal — reserved for plugin tooling.",
+          "type": ["object", "array", "null"]
+        },
+        "outputStyles": {
+          "description": "@internal — reserved for plugin tooling.",
+          "type": ["object", "array", "null"]
+        },
+        "themes": {
+          "description": "@internal — reserved for plugin tooling.",
+          "type": ["object", "array", "null"]
+        },
+        "workflows": {
+          "description": "@internal — reserved for plugin tooling.",
+          "type": ["object", "array", "null"]
+        },
+        "channels": {
+          "description": "@internal — reserved for plugin tooling.",
+          "type": ["object", "array", "null"]
+        },
+        "monitors": {
+          "description": "@internal — reserved for plugin tooling.",
+          "type": ["object", "array", "null"]
+        },
+        "settings": {
+          "description": "@internal — reserved for plugin tooling.",
+          "type": ["object", "array", "null"]
+        },
+        "experimental": {
+          "description": "@internal — reserved for plugin tooling.",
+          "type": ["object", "array", "null"]
+        },
+        "dependencies": {
+          "description": "@internal — reserved for plugin tooling.",
+          "type": ["object", "array", "null"]
+        },
+        "metadata": {
+          "description": "Free-form map for the skill author's own use. Preserved on the loaded skill; a non-map value is dropped.",
+          "type": "object"
+        },
+        "userConfig": {
+          "description": "@internal: accepted by the strict validator, not read by the skill parser.",
+          "type": ["object", "array", "string", "number", "boolean", "null"]
+        },
+        "defaultEnabled": {
+          "description": "@internal: accepted by the strict validator, not read by the skill parser.",
+          "type": ["object", "array", "string", "number", "boolean", "null"]
+        },
+        "displayName": {
+          "description": "@internal: accepted by the strict validator, not read by the skill parser.",
+          "type": ["object", "array", "string", "number", "boolean", "null"]
+        },
+        "author": {
+          "description": "@internal: accepted by the strict validator, not read by the skill parser.",
+          "type": ["object", "array", "string", "number", "boolean", "null"]
+        },
+        "homepage": {
+          "description": "@internal: accepted by the strict validator, not read by the skill parser.",
+          "type": ["object", "array", "string", "number", "boolean", "null"]
+        },
+        "repository": {
+          "description": "@internal: accepted by the strict validator, not read by the skill parser.",
+          "type": ["object", "array", "string", "number", "boolean", "null"]
+        },
+        "license": {
+          "description": "Agent Skills open-format field. Accepted by the strict validator as an @internal slot; Claude Code does not act on it.",
+          "type": ["object", "array", "string", "number", "boolean", "null"]
+        },
+        "keywords": {
+          "description": "@internal: accepted by the strict validator, not read by the skill parser.",
+          "type": ["object", "array", "string", "number", "boolean", "null"]
+        }
       }
     },
-
     "OutputStyle": {
       "type": "object",
       "title": "Output style frontmatter (.claude/output-styles/*.md)",
@@ -574,27 +712,22 @@
           "type": ["string", "number", "boolean"]
         },
         "keep-coding-instructions": {
-          "description": "If true, the default coding instructions stay in the system prompt alongside this style.",
-          "$ref": "#/$defs/BooleanLike"
+          "$ref": "#/$defs/LenientBoolean",
+          "description": "If true, the default coding instructions stay in the system prompt alongside this style."
         },
         "force-for-plugin": {
-          "description": "@internal — only meaningful for plugin-bundled styles; warn-and-ignored for user styles.",
-          "type": ["boolean", "string", "number", "null"]
+          "$ref": "#/$defs/LenientBoolean",
+          "description": "@internal — only meaningful for plugin-bundled styles; warn-and-ignored for user styles."
         }
       }
     },
-
     "Memory": {
       "type": "object",
-      "title": "Memory file frontmatter (CLAUDE.md, memory/*.md)",
-      "description": "Frontmatter schema for CLAUDE.md and memory files. Only 'paths' is read; other keys are ignored at load time.",
-      "properties": {
-        "paths": { "$ref": "#/$defs/PathsGlob" }
-      }
+      "title": "Memory and rules frontmatter (CLAUDE.md, .claude/rules/*.md)",
+      "description": "Frontmatter schema for CLAUDE.md, rules and @include files. Only 'paths' is read; other keys are ignored at load time.",
+      "properties": { "paths": { "$ref": "#/$defs/PathsGlob" } }
     }
   },
-
   "$comment": "This document is a schema library, not a single-shot validator. Memory is intentionally permissive and matches every object, so a top-level oneOf cannot discriminate between file types. Tooling must select the appropriate $defs entry by file path. See analysis/schemas/README.md for editor configuration snippets.",
-
   "type": "object"
 }

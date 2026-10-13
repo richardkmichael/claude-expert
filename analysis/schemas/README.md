@@ -8,29 +8,38 @@ Claude Code's own files. Two schemas live here:
 | `frontmatter.schema.json` | YAML frontmatter in Markdown config files         | `analysis/MARKDOWN_FRONTMATTER.md` |
 | `transcript.schema.json`  | One JSON object per session-transcript JSONL line | `analysis/SESSION_TRANSCRIPT.md`   |
 
-The frontmatter schema (covered first below) is verified against `cli.prettier.js` 2.1.143; the
+The frontmatter schema (covered first below) is verified against `cli.prettier.js` 2.1.296; the
 transcript schema is described under "Transcript schema" at the end.
 
 `frontmatter.schema.json` is a schema library, not a single-shot validator.  The
 four file types must be selected explicitly because Memory is intentionally permissive and
 would otherwise swallow every document.
 
-| File type     | File pattern                          | JSON Pointer entry           |
-| ------------- | ------------------------------------- | ---------------------------- |
-| Agent         | `.claude/agents/**/*.md`              | `#/$defs/Agent`              |
-| Skill         | `.claude/skills/*/SKILL.md`           | `#/$defs/Skill`              |
-| Output style  | `.claude/output-styles/*.md`          | `#/$defs/OutputStyle`        |
-| Memory        | `CLAUDE.md`, `**/memory/*.md`, etc.   | `#/$defs/Memory`             |
+| File type     | File pattern                                         | JSON Pointer entry    |
+| ------------- | ---------------------------------------------------- | --------------------- |
+| Agent         | `.claude/agents/**/*.md`                             | `#/$defs/Agent`       |
+| Skill         | `.claude/skills/*/SKILL.md`                          | `#/$defs/Skill`       |
+| Command       | `.claude/commands/**/*.md`                           | `#/$defs/Skill`       |
+| Output style  | `.claude/output-styles/*.md`                         | `#/$defs/OutputStyle` |
+| Memory, rules | `CLAUDE.md`, `.claude/rules/*.md`, `@include` files  | `#/$defs/Memory`      |
 
 ## Coverage and strictness
 
 - Agent, Skill, and OutputStyle schemas use `additionalProperties: false`, matching Claude
-  Code's Zod `.strict()` shadow validator (`HGH`).  Unknown keys are an error.
+  Code's Zod `.strict()` shadow validator (anchor: `tengu_frontmatter_shadow_unknown_key`).
+  Unknown keys are an error.  The Agent Skills field `compatibility` is not in that validator,
+  so the Skill schema rejects it.
 - Skill `@internal` keys (`mcpServers`, `lspServers`, `agents`, `outputStyles`, `themes`,
-  `workflows`, `channels`, `monitors`, `settings`, `experimental`, `dependencies`, `metadata`)
-  are accepted but unvalidated, matching the runtime's `y.unknown()` slots.
+  `workflows`, `channels`, `monitors`, `settings`, `userConfig`, `defaultEnabled`,
+  `experimental`, `dependencies`, `displayName`, `author`, `homepage`, `repository`, `license`,
+  `keywords`) are accepted but unvalidated, matching the validator's `unknown` slots.
+- Value sets (model aliases, effort, permission modes, colors, isolation, hook events) come from
+  the runtime field parsers, not the shadow validator, which checks keys and loose scalar types
+  only.
+- Hook matcher groups allow only `matcher` and `hooks`.  Claude Code strips any other key
+  silently, so an `if` on the group is an error here; `if` belongs on each hook entry.
 - Memory frontmatter is permissive (extra keys allowed) since Claude Code only reads `paths`.
-  The schema still validates `paths` itself as a string.
+  The schema still validates `paths` itself as a string or a list of strings.
 - Model values are validated against the documented aliases and the `claude-*` ID pattern.
   Unknown strings fail.  Claude Code's runtime resolver is permissive (passes through to the
   resolver, no warn); the schema is intentionally stricter for lint value.
