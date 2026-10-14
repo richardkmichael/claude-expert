@@ -79,21 +79,27 @@ entry is an additive spread.
 
 ### Agent and Task Management
 
-| Tool         | Condition       | Aliases                 |
-| ------------ | --------------- | ----------------------- |
-| `Agent`      | Always          | `Task`                  |
-| `Skill`      | Always          |                         |
-| `TaskCreate` | Task list tools |                         |
-| `TaskGet`    | Task list tools |                         |
-| `TaskUpdate` | Task list tools |                         |
-| `TaskList`   | Task list tools |                         |
-| `TaskStop`   | Always          | `KillShell`, `KillBash` |
-| `TaskOutput` | Always          | see below               |
+| Tool         | Condition          | Aliases                 |
+| ------------ | ------------------ | ----------------------- |
+| `Agent`      | Always             | `Task`                  |
+| `Skill`      | Always             |                         |
+| `TaskCreate` | Task list tools    |                         |
+| `TaskGet`    | Task list tools    |                         |
+| `TaskUpdate` | Task list tools    |                         |
+| `TaskList`   | Task list tools    |                         |
+| `TaskStop`   | Always             | `KillShell`, `KillBash` |
+| `TaskOutput` | Removed at 2.1.277 | see below               |
 
-`Agent` is the primary name; `Task` is retained as an alias. `TaskStop` and `TaskOutput` replace
-the former `KillShell` and `BashOutput` tools, keeping the old names as aliases. `TaskOutput`
-carries four: `AgentOutputTool`, `BashOutputTool`, `AgentOutput`, `BashOutput`. It renders to the
-user as "Task Output".
+`Agent` is the primary name; `Task` is retained as an alias. `TaskStop` replaces the former
+`KillShell` tool, keeping `KillShell` and `KillBash` as aliases. `TaskStop` has no flavor or model
+gate and its definition has no `isEnabled` check.
+
+`TaskOutput` (aliases `AgentOutputTool`, `BashOutputTool`, `AgentOutput`, `BashOutput`) existed up
+to 2.1.263 and is gone by 2.1.277. In 2.1.296 the four alias names and `TaskOutput` survive only in
+a set of tool names for which a missing loaded tool is not logged as an inconsistency. Anchors:
+`"AgentOutputTool"`, `"BashOutputTool"`. The published tools reference states "Removed in v2.1.277"
+and that the background task's output file is read with `Read` instead. The init event of a 2.1.299
+headless session lists no `TaskOutput`.
 
 ### Planning
 
@@ -224,6 +230,42 @@ reminders cost context. The same page says the default set applies from 2.1.268 
 Claude Code does not recognize, such as a custom name behind an LLM gateway, is treated as outside
 the list. Its opt-ins match the source: name a tool in `allowedTools` or `tools`, or set
 `CLAUDE_CODE_ENABLE_TODO_TOOLS=1`. The opt-in variable first appears in the local bundles at 2.1.263.
+
+The published tools reference ("Task tool availability") and env-vars page match the source on the
+model list, the opt-in routes, and `CLAUDE_CODE_ENABLE_TASKS=0` selecting `TodoWrite`. They state
+that background and cloud sessions provide the tools on every model, and that
+`CLAUDE_CODE_ENABLE_TODO_TOOLS` requires 2.1.233 or later. No local bundle falls between 2.1.220 and
+2.1.263, so the first local appearance lags the documented one. The tools reference lists
+`TodoWrite` as "Disabled by default in favor of" the Task tools with no model qualifier, which is
+incomplete against the source.
+
+Verified by running 2.1.299 headless (`claude -p`, `--setting-sources project`, the opt-in variable
+unset, tool list read from the `system` `init` event). The task set is `TaskCreate`, `TaskGet`,
+`TaskList` and `TaskUpdate`. `Task` and `TaskStop` are listed in every row:
+
+| Model and options                                            | Listed                        |
+| ------------------------------------------------------------ | ----------------------------- |
+| `claude-haiku-4-5`                                           | task set                      |
+| `claude-haiku-5-5`                                           | none                          |
+| `claude-haiku-5-5`, `CLAUDE_CODE_ENABLE_TODO_TOOLS=1`        | task set                      |
+| above plus `CLAUDE_CODE_ENABLE_TASKS=0`                      | `TodoWrite`                   |
+| `claude-haiku-5-5`, `--allowedTools TaskCreate`              | task set                      |
+| `claude-haiku-5-5`, allow and `--disallowedTools TaskCreate` | task set without `TaskCreate` |
+| `TODO_TOOLS=1`, `--disallowedTools TaskCreate`               | task set without `TaskCreate` |
+
+A settings file that sets `CLAUDE_CODE_ENABLE_TODO_TOOLS` in `env` is applied to the process, so it
+overrides the inherited environment and has to be excluded when testing the default. A deny rule
+removes the named tool after the opt-in has been recorded, so naming a tool in both leaves the other
+four enabled. The published docs do not state this interaction.
+
+Related controls:
+
+- `CLAUDE_CODE_TASK_LIST_ID` selects the task list directory. Without it, the list comes from the
+  team name, else the session ID. Documented in the env-vars page.
+- `CLAUDE_CODE_SESSION_KIND=bg` is read by the second gate. It is not documented.
+- `todoFeatureEnabled` is a global-config key (default true) listed with the other `/config` panel
+  keys. Nothing in the gating path reads it. It does not appear in the published docs.
+
 
 Worktree mode — hardcoded true. Anchor: `isWorktreeModeEnabled`.
 
@@ -413,7 +455,7 @@ which already has the behavior, so these introduction points cannot be bisected 
     `CLAUDE_CODE_ENABLE_TASKS=1` therefore means the Task tools again.
   - The model gate first appears at 2.1.263, as a table of newer families plus a remote flag
     (`tengu_rosy_wren`). By 2.1.277 it is the fixed list of older models, with no remote flag.
-  - `TaskStop` and `TaskOutput` have no flavor or model gate.
+  - `TaskStop` has no flavor or model gate. `TaskOutput` was removed at 2.1.277.
   - `CLAUDE_CODE_SESSION_KIND=bg` is one of the "background or job session" conditions that
     passes the second gate, and `CLAUDE_CODE_TASK_LIST_ID` selects which task list the tools use.
 - 2.1.283: the task-list gating in "Condition gates" was re-checked against this bundle, and the
