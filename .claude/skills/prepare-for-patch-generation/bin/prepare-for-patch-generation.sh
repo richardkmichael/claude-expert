@@ -166,44 +166,33 @@ if [[ ! -f "${CLI_JS}" ]]; then
     echo "Extracted ${MODULE_COUNT} JavaScript module(s) from the native binary"
 fi
 
-# Prettifying is memory-hungry: a multi-megabyte single-line bundle blows through Node's default
-# heap (~2GB) and OOMs. Raise --max-old-space-size when the largest input is large, scaled to the
-# machine's RAM (capped below physical RAM, so smaller boxes stay safe). The flag only raises the
-# ceiling, so it is harmless when the extra headroom is not needed.
-readonly PRETTIER_HEAP_THRESHOLD_BYTES=$((8 * 1024 * 1024))
-if [[ -f "${CLI_JS}" ]]; then
-    LARGEST_BYTES="$(wc -c < "${CLI_JS}")"
-else
-    LARGEST_BYTES="$(find "${MODULES_DIR}" -type f -exec wc -c {} + | awk '$2 != "total" { if ($1 > m) m = $1 } END { print m + 0 }')"
-fi
-PRETTIER_NODE_OPTIONS="${NODE_OPTIONS:-}"
-if (( LARGEST_BYTES > PRETTIER_HEAP_THRESHOLD_BYTES )); then
-    case "$(uname -s)" in
-        Darwin) RAM_MB=$(( $(sysctl -n hw.memsize) / 1024 / 1024 )) ;;
-        Linux)  RAM_MB=$(awk '/^MemTotal:/ { print int($2 / 1024) }' /proc/meminfo) ;;
-        *)      RAM_MB=0 ;;
-    esac
-    HEAP_MB=4096
-    if (( RAM_MB * 3 / 4 > HEAP_MB )); then
-        HEAP_MB=$(( RAM_MB * 3 / 4 ))
-    fi
-    PRETTIER_NODE_OPTIONS="${PRETTIER_NODE_OPTIONS} --max-old-space-size=${HEAP_MB}"
-    echo "Largest input is $(( LARGEST_BYTES / 1024 / 1024 )) MB; raising prettier heap to ${HEAP_MB} MB (physical RAM: ${RAM_MB} MB)"
-fi
+# Formatting uses oxfmt, a Rust formatter that stays under ~0.6GB on the largest module (Prettier
+# needed several GB on the single-module releases up to 2.1.241). The version is pinned because its
+# layout can change between releases, which would make prepared versions differ in format. The
+# config matches Prettier's defaults (width 80) so the output reads like the earlier prepared
+# versions. `--ignore-path /dev/null` stops oxfmt from skipping files that .gitignore lists.
+readonly OXFMT_VERSION="0.73.0"
+readonly OXFMT_CONFIG="${SCRIPT_DIR}/oxfmt.json"
+format_in_place() {
+    npx --yes "oxfmt@${OXFMT_VERSION}" -c "${OXFMT_CONFIG}" --ignore-path /dev/null "$@"
+}
 
 if [[ -f "${CLI_JS}" ]]; then
-    NODE_OPTIONS="${PRETTIER_NODE_OPTIONS}" npx --yes prettier --ignore-path /dev/null "${CLI_JS}" > "${CLI_PRETTIER_JS}" || {
-        echo "Error: failed to prettify ${CLI_JS}" >&2
+    format_in_place "${CLI_JS}" || {
+        echo "Error: failed to format ${CLI_JS}" >&2
+        exit 1
+    }
+    cp "${CLI_JS}" "${CLI_PRETTIER_JS}" || {
+        echo "Error: failed to copy ${CLI_JS} to ${CLI_PRETTIER_JS}" >&2
         exit 1
     }
 else
-    # One list drives both steps, so no module can be concatenated without having been prettified.
+    # One list drives both steps, so no module can be concatenated without having been formatted.
     MODULE_FILES=("${MODULES_DIR}"/*)
 
-    # Prettier rewrites the modules in place, one process for the whole set: it holds only the
-    # current file, so peak memory tracks the largest module rather than the whole bundle.
-    NODE_OPTIONS="${PRETTIER_NODE_OPTIONS}" npx --yes prettier --ignore-path /dev/null --log-level warn --write "${MODULE_FILES[@]}" || {
-        echo "Error: failed to prettify the extracted modules in ${MODULES_DIR}" >&2
+    # The modules are rewritten in place, one process for the whole set.
+    format_in_place "${MODULE_FILES[@]}" || {
+        echo "Error: failed to format the extracted modules in ${MODULES_DIR}" >&2
         exit 1
     }
 
@@ -230,4 +219,4 @@ chmod +x "${CLI_PRETTIER_JS}" || {
 }
 
 COMPLETED=1
-echo "Prettified source code for version ${VERSION} has been prepared: ${CLI_PRETTIER_JS}"
+echo "Formatted source code for version ${VERSION} has been prepared: ${CLI_PRETTIER_JS}"

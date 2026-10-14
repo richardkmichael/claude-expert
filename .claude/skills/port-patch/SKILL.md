@@ -70,14 +70,15 @@ If it has edits, re-extract:
 ```
 tar xf work/<version>/anthropic-ai-claude-code-<version>.tgz \
     -C work/<version>/ package/cli.js
-npx --yes prettier --ignore-path /dev/null work/<version>/package/cli.js \
-    > work/<version>/package/cli.prettier.js
+npx --yes oxfmt@0.73.0 \
+    -c .claude/skills/prepare-for-patch-generation/bin/oxfmt.json \
+    --ignore-path /dev/null work/<version>/package/cli.js
+mv work/<version>/package/cli.js work/<version>/package/cli.prettier.js
 chmod +x work/<version>/package/cli.prettier.js
-rm work/<version>/package/cli.js
 ```
 
-Do NOT use `prettier --write` — it produces different output than the redirect
-method used by `prepare-for-patch-generation.sh`.
+Use the same pinned oxfmt version and config as `prepare-for-patch-generation.sh`;
+a different formatter or settings produces a different layout.
 
 ## 3. Stage the pristine file
 
@@ -129,6 +130,6 @@ patch. Each patch is standalone — generated against the unmodified original.
 - One patch = one independent feature. Each starts from pristine source.
 - Patches are NOT cumulative. Never apply one patch before generating another.
 - Always work from the repository root directory.
-- Never use `prettier --write` to restore the source file.
+- Restore the source file only with the pinned oxfmt command in step 2.
 - The `git diff` must be between staged (pristine) and working tree (edited).
 - Verify the generated patch file is non-empty before cleaning up.
