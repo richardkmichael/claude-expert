@@ -8,9 +8,10 @@
 
 # Claude Code Tools and Execution Architecture
 
-Verified against: cli.prettier.js 2.1.207 (2026-07-16)
+Verified against: cli.prettier.js 2.1.296 (2026-10-14)
 
-Scope note: the Built-in Tools section below is verified against 2.1.207. Sections from
+Scope note: the Built-in Tools section below is verified against 2.1.207, except the task list
+gating under "Condition gates", which was re-checked at 2.1.296. Sections from
 "Example Tool Description: Read" onward still carry 2.1.76-era line numbers and pasted code and
 have not been re-checked — treat their specifics as suspect until retrofitted.
 
@@ -402,6 +403,19 @@ which already has the behavior, so these introduction points cannot be bisected 
 
 ## Version history
 
+- 2.1.296: the task-list gating in "Condition gates" matches this bundle. The polarity of
+  `CLAUDE_CODE_ENABLE_TASKS` changed over time, so advice for older versions differs:
+  - Up to 2.1.138: a true-y value enabled the Task tools, and an unset variable enabled them only in
+    interactive sessions. Non-interactive (`-p`) and SDK sessions defaulted to `TodoWrite`.
+  - 2.1.154 to 2.1.207: a true-y value selected `TodoWrite`. Unset enabled the Task tools in every
+    mode.
+  - 2.1.220 onward: only an explicit false-y value (`0`, `false`, `no`, `off`) selects `TodoWrite`.
+    `CLAUDE_CODE_ENABLE_TASKS=1` therefore means the Task tools again.
+  - The model gate first appears at 2.1.263, as a table of newer families plus a remote flag
+    (`tengu_rosy_wren`). By 2.1.277 it is the fixed list of older models, with no remote flag.
+  - `TaskStop` and `TaskOutput` have no flavor or model gate.
+  - `CLAUDE_CODE_SESSION_KIND=bg` is one of the "background or job session" conditions that
+    passes the second gate, and `CLAUDE_CODE_TASK_LIST_ID` selects which task list the tools use.
 - 2.1.283: the task-list gating in "Condition gates" was re-checked against this bundle, and the
   gate and model list were spot-checked in the 2.1.285 binary. Earlier text in this doc listed
   `TodoWrite` as always registered and the task tools as gated only by `CLAUDE_CODE_ENABLE_TASKS`.

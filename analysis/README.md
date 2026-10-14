@@ -36,7 +36,7 @@ re-checked against a later bundle. The doc's Version history section says which.
 
 | Doc                          | Scope                                                 | Verified | Style    | Key landmarks                                                            |
 | ---------------------------- | ----------------------------------------------------- | -------- | -------- | ------------------------------------------------------------------------ |
-| `TOOLS_AND_EXECUTION.md`     | Built-in tool registration and availability gating    | 2.1.207* | landmark | `setSearchToolsOptIn`, `local-agent` gate, `CLAUDE_CODE_ENABLE_TASKS`    |
+| `TOOLS_AND_EXECUTION.md`     | Built-in tool registration and availability gating    | 2.1.296* | landmark | `setSearchToolsOptIn`, `local-agent` gate, `CLAUDE_CODE_ENABLE_TASKS`    |
 | `TOOL_VALIDATION.md`         | Zod-then-business-logic validation, per-tool errors   | 2.1.165  | landmark | `InputValidationError`, `Shell command failed`                           |
 | `BASH_TOOL_EXECUTION.md`     | Bash tool, shell snapshots, search-tool wrappers      | 2.1.207  | landmark | `shell-snapshots`, `SNAPSHOT_FILE=`, `RIPGREP_FUNC_END`                  |
 | `RIPGREP.md`                 | Ripgrep bundling, embedded/system selection, config   | 2.1.207  | landmark | `USE_BUILTIN_RIPGREP`, `tengu_ripgrep_availability`, `no-config`         |
