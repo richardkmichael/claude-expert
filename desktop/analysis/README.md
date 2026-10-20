@@ -27,6 +27,7 @@ update the banner and any drifted details when re-extracting a newer build.
 | [FEATURES](./FEATURES.md)                           | Feature codenames, Cowork/VM download control, `chillingSloth`                     |
 | [COWORK_VM](./COWORK_VM.md)                         | `vm_bundles/` on disk: sparse images, guest filesystems, VM versioning and updates |
 | [DEBUGGING](./DEBUGGING.md)                         | Main-process, renderer, and native debugging; CDP auth                             |
+| [RESET_LIMITS](./RESET_LIMITS.md)                   | Usage-limit reset grants: the claude.ai endpoints that read and apply them         |
 
 Every file in the set was re-verified against the banner build.
 
