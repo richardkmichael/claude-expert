@@ -1,17 +1,17 @@
 # Monitoring Token Usage and Cost
 
 Behavioral model verified against 2.1.220, with the window-geometry, feature-flag, and monthly-spend
-sections re-verified against 2.1.226, the cap-reached behavior (grace windows, the injected
-wrap-up messages, the continue-after-reset affordance, the retry watchdog) against 2.1.231, and the
-`/usage` plan-limit bars and limits-attribution block against 2.1.263, and what reaches the model's
-context (the injected usage-limit notes, the auto-continue resume prompt, and the UI-only notices)
-against 2.1.286, and the OpenTelemetry surface (Surface 4: metrics, events, identity attributes,
-central configuration, the first-party metrics exporter) against 2.1.289. This document follows the
-landmark style in
-`GUIDELINES.md`: it anchors on version-stable strings (slash-command names, `tengu_*` event names,
-env var names, OTEL metric/attribute names, literal UI strings, JSONL field names, behavioral logic)
-with grep re-location recipes, not on minified symbol names or line numbers, which churn every
-release. Per-release changes are in the appendix.
+sections re-verified against 2.1.226, the cap-reached behavior (grace windows, the injected wrap-up
+messages, the continue-after-reset affordance, the retry watchdog) against 2.1.231, and the `/usage`
+plan-limit bars and limits-attribution block against 2.1.263, and what reaches the model's context
+(the injected usage-limit notes, the auto-continue resume prompt, and the UI-only notices) against
+2.1.286, and the OpenTelemetry surface (Surface 4: metrics, events, identity attributes, central
+configuration, the first-party metrics exporter) against 2.1.289, and the OAuth usage endpoint's
+request headers and the `cedar_ember` limit-reset program against 2.1.300. This document follows the
+landmark style in `GUIDELINES.md`: it anchors on version-stable strings (slash-command names,
+`tengu_*` event names, env var names, OTEL metric/attribute names, literal UI strings, JSONL field
+names, behavioral logic) with grep re-location recipes, not on minified symbol names or line
+numbers, which churn every release. Per-release changes are in the appendix.
 
 This doc answers: how much usage is a given subagent or tool consuming, and where can that be read?
 The short version is that there are six observation surfaces, each with a different granularity and
@@ -948,13 +948,25 @@ The authoritative source, and the only one that needs neither a Claude Code proc
 
 ```
 GET https://api.anthropic.com/api/oauth/usage
+  User-Agent: claude-cli/<version> (external, <entrypoint>)
   Authorization: Bearer <accessToken>
   anthropic-beta: oauth-2025-04-20
-  Accept: application/json
+  Content-Type: application/json
 ```
 
-Relocation: `rg -n 'api/oauth/usage'` in the bundle for the path, and `rg -n 'function KJ\('` for the
-credential lookup described below.
+That is the complete header set Claude Code sends (verified 2.1.300). The read goes through the
+first-party request helper, not the Messages API client, so `x-app`, `X-Claude-Code-Session-Id` and
+the `anthropic-client-*` headers are absent. The helper sets `User-Agent` itself on every call; the
+format is grep `` `claude-cli/${ `` with `(external, ${...CLAUDE_CODE_ENTRYPOINT ?? "cli"}...)`,
+where `<entrypoint>` is `cli` by default and `, agent-sdk/<v>`, `, client-app/<name>` and
+`, workload/<name>` are appended when set. The bearer and beta pair come from the shared auth-header
+builder (grep `"No OAuth token available"`). The read is skipped unless the login is a claude.ai
+subscriber login holding the profile scope. The base URL is `BASE_API_URL` from the OAuth config
+block (grep `BASE_API_URL: "https://api.anthropic.com"`).
+
+Relocation: `rg -n 'api/oauth/usage'` in the bundle for the path table, which maps three read modes
+to query strings (`plain`, `at_wall`, `cedar_ember`; see "Limit resets" below), and
+`fetchUtilization: GET` for the debug line.
 
 ### Getting the token
 
@@ -1017,6 +1029,90 @@ ship an access token to a machine that has no Claude Code install, and renew it 
 non-admin seat, which is consistent with the rest of this document: org-level usage visibility is
 not a seat-holder surface. `GET /api/oauth/validate` and `GET /v1/organizations/spend_limits` both
 return `405`, so they are not GETs.
+
+### Limit resets: the `cedar_ember` program
+
+Some seats are offered grants that refill rate limits on demand. The client reads them from the
+usage endpoint and spends them with a separate POST. Verified against 2.1.300. Landmarks: the
+GrowthBook flag `tengu_cedar_ember`, the debug prefix `[cedar-ember]`, the hidden slash command
+`/limit-reset`, and the `tengu_cedar_ember_*` events (`_asked`, `_wall`, `_shown`, `_selected`,
+`_confirmed`, `_result`).
+
+The status read uses the same request as above with one of two query strings:
+
+| Read mode     | Path                                          | When it is sent                    |
+| ------------- | --------------------------------------------- | ---------------------------------- |
+| `at_wall`     | `/api/oauth/usage?at_wall=1&skip_spend=1`     | a rate-limit error lands in a turn |
+| `cedar_ember` | `/api/oauth/usage?cedar_ember=1&skip_spend=1` | `/limit-reset` or the dialog entry |
+
+Nothing reads it at startup or on a timer, and `/usage` does not request it. The `at_wall` read
+fires when an assistant record with `error: "rate_limit"` and `quotaLimits` is appended, gated on
+`tengu_cedar_ember` `enabled` (or a second flag for the wall case). Concurrent `at_wall` reads for
+one account are deduplicated. The `cedar_ember` ("anytime") read is used when the session is not
+currently rejected, which is why it can offer a reset before a limit is reached. Both carry a
+12-second client budget on top of the request's own 5-second timeout.
+
+The answer is the response's `cedar_ember` object. The client's schema parses `eligible`,
+`ineligible_reason`, `at_limit`, `exhausted[]`, `grants[]`, `next_grant_id`, `weekly_resets_at`,
+`cooldown_until`, and `event_props`. A grant carries `id` (`^[a-z0-9_-]{1,40}$`), `label`,
+`resets_total`, `resets_left`, `starts_at`, `ends_at`, `clears[]` (the limit buckets it refills),
+`paused`, `usable_now`, `use_requires_limit`, `percent_used`, and `blocking[]`. The client offers
+only the grant named by `next_grant_id`, and only when it is `usable_now`, not `paused`, and not
+past `ends_at`.
+
+`ineligible_reason` is an enum fixed in the client: `config_off`, `tier`, `seat`, `mobile`,
+`surface`, `cli_version`, `no_grant`, `tenure`, `other_experiment`, `unavailable`, `unknown`.
+`event_props.surface` is one of `claude_ai`, `claude_code_cli`, `unknown`. The client computes none
+of these. It sends no surface or version field in the query or body, and it holds no minimum-version
+constant for the program: the `tengu_cedar_ember` config keys are `enabled`, `version` (a config
+revision reported in telemetry), `autoContinue`, and override strings for the UI text. The only
+surface and version signal on the request is therefore the `User-Agent`. A caller that reuses the
+same OAuth token with a non-`claude-cli/` agent string is answered `ineligible_reason: "surface"`,
+and one sending `claude-cli/<version> (external, cli)` is answered with grants, so the server
+classifies the surface from the agent string and applies its `cli_version` floor to the version
+parsed from it. The floor value lives only on the server.
+
+Grants surface in three places:
+
+- The cap notice under a rate-limit error renders `noticeLine`, by default
+  `/limit-reset to refill your limits · {resets} left · use by {date}`.
+- `/rate-limit-options` adds an entry whose label defaults to
+  `Use your reset now ({left} left, until {date})`, with event
+  `tengu_rate_limit_options_menu_select_cedar_ember`.
+- `/limit-reset` (hidden, enabled for claude.ai logins when `tengu_cedar_ember` or the older
+  `tengu_nifty_lemur` session-reset flag is on) runs the anytime read and then the same flow.
+
+Both entries open a confirmation dialog titled `Use your reset?`, body
+`Refills your {limits} now · your weekly reset day stays {week}`, with `Yes, use my reset` and
+`No, keep it`. When no limit is reached yet, the dialog adds
+`You still have {percent}% of your {limit} left — use your reset anyway?`. Declining sends no
+request and prints `Reset kept · …`.
+
+Before claiming at a limit, the client re-checks the status (reusing an answer that is still
+fresh) and aborts with `A different reset is on offer now · nothing was used` if `next_grant_id`
+changed. The anytime path claims the grant from the read that opened the dialog. The claim is:
+
+```
+POST https://api.anthropic.com/api/organizations/<organizationUuid>/reset_rate_limits
+  (same User-Agent, Authorization and anthropic-beta headers)
+  {"program": "cedar_ember", "grant_id": "<next_grant_id>", "request_id": "<uuid>"}
+```
+
+`organizationUuid` comes from the stored OAuth account. `request_id` is a fresh `randomUUID()` per
+attempt, except that a claim whose outcome was unconfirmed (an `error` or `unavailable` result)
+reuses the same `request_id` for the same grant for ten minutes, which makes a retry idempotent. The
+client budget is 35 seconds. The response schema is `result` (`reset`, `already_used`,
+`not_limited`, `cooldown`, `ineligible`, `unavailable`), `reason`, `resets_left`, `cleared[]`,
+`weekly_resets_at`, and `cooldown_until`. The client adds `rate_limited` for a 429 and `auth_error`
+for 401/403.
+
+On `reset`, the client marks the `cleared[]` buckets as allowed locally and prints `successLine`
+(default `Limits reset · your weekly reset day stays {week} · {resets} left`). At a limit it also
+cancels any armed auto-continue wait. If the reset cleared the wall that stopped the turn and
+`autoContinue` is on, the turn resumes. Otherwise it appends `send a message to continue`. The
+anytime path instead runs a quota probe after the reset. Most other outcomes trigger a quota probe to refresh the local limit
+state rather than a second usage read. The sibling program `juniper_tide` posts to the same endpoint
+with only `{"program": ...}` and no grant.
 
 ## When a window begins: the 5-hour window is anchored to activity, the weekly one is not
 
@@ -1258,6 +1354,16 @@ half is source-verifiable.
 
 ## Per-release appendix
 
+- 2.1.300: partial re-verification, covering Surface 7. Corrected: the header set Claude Code sends
+  to `/api/oauth/usage`, which includes `User-Agent: claude-cli/<version> (external, <entrypoint>)`
+  and `Content-Type: application/json` rather than `Accept`, and carries no `x-app` or
+  `anthropic-client-*` header; the relocation recipe no longer names a minified function. Newly
+  documented: the `cedar_ember` limit-reset program, with its `at_wall` and `cedar_ember` read
+  modes, the status and grant schema, the client-side `ineligible_reason` enum, the
+  `/rate-limit-options` and `/limit-reset` entries, and the
+  `/api/organizations/<org>/reset_rate_limits` claim with its idempotent `request_id`. Established
+  as a negative result: the client sends no surface or version field and holds no minimum-version
+  constant, so `surface` and `cli_version` eligibility is decided server-side from the `User-Agent`.
 - 2.1.289: partial re-verification, covering the OpenTelemetry surface. Unchanged: the eight metric
   instruments, the four-way token `type` split, the identity builder's ungated `organization.id` /
   `user.email`, and the absence of any plan-limit metric, event, or span attribute. Corrected: the
