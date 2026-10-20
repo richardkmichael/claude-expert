@@ -954,15 +954,18 @@ GET https://api.anthropic.com/api/oauth/usage
   Content-Type: application/json
 ```
 
-That is the complete header set Claude Code sends (verified 2.1.300). The read goes through the
-first-party request helper, not the Messages API client, so `x-app`, `X-Claude-Code-Session-Id` and
-the `anthropic-client-*` headers are absent. The helper sets `User-Agent` itself on every call; the
-format is grep `` `claude-cli/${ `` with `(external, ${...CLAUDE_CODE_ENTRYPOINT ?? "cli"}...)`,
-where `<entrypoint>` is `cli` by default and `, agent-sdk/<v>`, `, client-app/<name>` and
-`, workload/<name>` are appended when set. The bearer and beta pair come from the shared auth-header
-builder (grep `"No OAuth token available"`). The read is skipped unless the login is a claude.ai
-subscriber login holding the profile scope. The base URL is `BASE_API_URL` from the OAuth config
-block (grep `BASE_API_URL: "https://api.anthropic.com"`).
+Those are the headers Claude Code sets (verified 2.1.300). The HTTP library (axios) adds its own
+defaults on top: `Accept: application/json, text/plain, */*` (grep
+`application/json, text/plain, */*`) and `Accept-Encoding: gzip, compress, deflate, br`, plus the
+usual `Host` and `Connection`. The read goes through the first-party request helper, not the
+Messages API client, so `x-app`, `X-Claude-Code-Session-Id` and the `anthropic-client-*` headers are
+absent. The helper sets `User-Agent` itself on every call; the format is grep `` `claude-cli/${ ``
+with `(external, ${...CLAUDE_CODE_ENTRYPOINT ?? "cli"}...)`, where `<entrypoint>` is `cli` by
+default and `, agent-sdk/<v>`, `, client-app/<name>` and `, workload/<name>` are appended when set.
+The bearer and beta pair come from the shared auth-header builder (grep
+`"No OAuth token available"`). The read is skipped unless the login is a claude.ai subscriber login
+holding the profile scope. The base URL is `BASE_API_URL` from the OAuth config block (grep
+`BASE_API_URL: "https://api.anthropic.com"`).
 
 Relocation: `rg -n 'api/oauth/usage'` in the bundle for the path table, which maps three read modes
 to query strings (`plain`, `at_wall`, `cedar_ember`; see "Limit resets" below), and
@@ -1356,11 +1359,11 @@ half is source-verifiable.
 
 - 2.1.300: partial re-verification, covering Surface 7. Corrected: the header set Claude Code sends
   to `/api/oauth/usage`, which includes `User-Agent: claude-cli/<version> (external, <entrypoint>)`
-  and `Content-Type: application/json` rather than `Accept`, and carries no `x-app` or
-  `anthropic-client-*` header; the relocation recipe no longer names a minified function. Newly
-  documented: the `cedar_ember` limit-reset program, with its `at_wall` and `cedar_ember` read
-  modes, the status and grant schema, the client-side `ineligible_reason` enum, the
-  `/rate-limit-options` and `/limit-reset` entries, and the
+  and `Content-Type: application/json` (the library's default `Accept` is added on top), and carries
+  no `x-app` or `anthropic-client-*` header; the relocation recipe no longer names a minified
+  function. Newly documented: the `cedar_ember` limit-reset program, with its `at_wall` and
+  `cedar_ember` read modes, the status and grant schema, the client-side `ineligible_reason` enum,
+  the `/rate-limit-options` and `/limit-reset` entries, and the
   `/api/organizations/<org>/reset_rate_limits` claim with its idempotent `request_id`. Established
   as a negative result: the client sends no surface or version field and holds no minimum-version
   constant, so `surface` and `cli_version` eligibility is decided server-side from the `User-Agent`.
