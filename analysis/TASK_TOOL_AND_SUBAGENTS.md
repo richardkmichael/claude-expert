@@ -33,18 +33,18 @@ work to a subagent"`. Stable properties:
 
 Re-locate via the description string "A short (3-5 word) description of the task". Parameters:
 
-| Param               | Type / values                  | Notes                                                    |
-|---------------------|--------------------------------|----------------------------------------------------------|
-| `description`       | string                         | "A short (3-5 word) description of the task"             |
-| `prompt`            | string                         | "The task for the agent to perform"                      |
-| `subagent_type`     | string, optional               | which agent type; omitted → general-purpose (or fork)    |
-| `model`             | `sonnet` / `opus` / `haiku`, opt. | overrides the agent definition's `model` frontmatter   |
-| `run_in_background` | boolean, optional              | detach; notified on completion                           |
-| `name`              | string, optional               | teammate name, addressable via `SendMessage({to: name})` |
-| `team_name`         | string, optional               | teammate team                                            |
-| `mode`              | optional                       | permission mode for a spawned teammate                   |
-| `isolation`         | `worktree`, optional           | run in a temporary git worktree                          |
-| `cwd`               | string, optional               | working dir; mutually exclusive with `isolation`         |
+| Param               | Type / values                     | Notes                                                    |
+| ------------------- | --------------------------------- | -------------------------------------------------------- |
+| `description`       | string                            | "A short (3-5 word) description of the task"             |
+| `prompt`            | string                            | "The task for the agent to perform"                      |
+| `subagent_type`     | string, optional                  | which agent type; omitted → general-purpose              |
+| `model`             | `sonnet` / `opus` / `haiku`, opt. | overrides the agent definition's `model` frontmatter     |
+| `run_in_background` | boolean, optional                 | detach; notified on completion                           |
+| `name`              | string, optional                  | teammate name, addressable via `SendMessage({to: name})` |
+| `team_name`         | string, optional                  | teammate team                                            |
+| `mode`              | optional                          | permission mode for a spawned teammate                   |
+| `isolation`         | `worktree`, optional              | run in a temporary git worktree                          |
+| `cwd`               | string, optional                  | working dir; mutually exclusive with `isolation`         |
 
 `model` accepts only `sonnet`/`opus`/`haiku` here; `inherit` is an agent-definition frontmatter
 value, not a tool parameter. `run_in_background` is dropped when
@@ -119,18 +119,18 @@ effect) rather than rely on the invoked agent type's own background default.
 Grep `source: "built-in"` for the set. `Explore` and `Plan` are special-cased in output handling
 (see below) — grep the set `new Set(["Explore", "Plan"])` and its `.has(...)` check.
 
-| Agent type          | Model     | Tools                         | Role                                          |
-|---------------------|-----------|-------------------------------|-----------------------------------------------|
-| `Explore`           | haiku     | read-only (no edit/agent/bash)| fast read-only search; omits CLAUDE.md         |
-| `Plan`              | inherit   | read-only (same as Explore)   | read-only planning                            |
-| `general-purpose`   | parent    | `["*"]`                       | default when `subagent_type` omitted          |
-| `worker`            | parent    | `["*"]`, maxTurns 200         | renders as `Agent`; bubble permission mode    |
-| `claude`            | parent    | `["*"]`                       | catch-all; background-job narration           |
-| `statusline-setup`  | —         | `Read`, `Edit`                | configures the status line                    |
-| `claude-code-guide` | —         | —                             | answers Claude Code / SDK / API questions     |
-| `fork`              | inherit   | `["*"]`, maxTurns 200         | not selectable; chosen by omitting `subagent_type` when the fork experiment is active |
-| `workflow-subagent` | —         | —                             | internal: workflow-script orchestration       |
-| `teammate`          | —         | —                             | internal: in-process teammate wrapper         |
+| Agent type          | Model   | Tools                          | Role                                       |
+| ------------------- | ------- | ------------------------------ | ------------------------------------------ |
+| `Explore`           | haiku   | read-only (no edit/agent/bash) | fast read-only search; omits CLAUDE.md     |
+| `Plan`              | inherit | read-only (same as Explore)    | read-only planning                         |
+| `general-purpose`   | parent  | `["*"]`                        | default when `subagent_type` omitted       |
+| `worker`            | parent  | `["*"]`, maxTurns 200          | renders as `Agent`; bubble permission mode |
+| `claude`            | parent  | `["*"]`                        | catch-all; background-job narration        |
+| `statusline-setup`  | —       | `Read`, `Edit`                 | configures the status line                 |
+| `claude-code-guide` | —       | —                              | answers Claude Code / SDK / API questions  |
+| `fork`              | inherit | `["*"]`, maxTurns 200          | explicit `subagent_type: "fork"` (2.1.300) |
+| `workflow-subagent` | —       | —                              | internal: workflow-script orchestration    |
+| `teammate`          | —       | —                              | internal: in-process teammate wrapper      |
 
 The model and tool columns above date from 2.1.165. The 2.1.286 tool sets, and which built-ins
 receive MCP tools, are in "Subagent tool set and MCP tools" below.
@@ -244,6 +244,85 @@ still applies `disallowedTools` before `tools` and accepts `mcp__server` / `mcp_
 still `useExactTools` □ built-in `tools` lists unchanged □ spawn path still adds no
 `mcp_instructions_delta` □ instructions delta still unfiltered by agent tools.
 
+## Background placement and the async built-in filter
+
+Verified against `cli.prettier.js` 2.1.300 (2026-10-20). This section is newer than the rest of the
+document (see the top-of-file stamp).
+
+Fork gate forces async. The launch decision lives in a function that destructures `agent`,
+`wantsBackground`, `callerIsInProcessTeammate` and returns `effectiveIsolation`, `isRemoteLaunch`,
+`shouldRunAsync`. Relocate with
+`rg -n 'shouldRunAsync: \w+ \|\| \(\w+ && !\w+\.backgroundTasksDisabled\)'`. Its shape:
+
+```
+default  = (isCoordinator && !callerIsInProcessTeammate) || forceAsync
+           || (!(callerIsInProcessTeammate || callerIsHeadlessSubagent) && wantsBackground !== false)
+async    = wantsBackground === true || agent.background === true || (!isWebFetchAgent && default)
+shouldRunAsync = isRemoteLaunch || (async && !backgroundTasksDisabled)
+```
+
+`forceAsync` is the fork gate being on, for a caller that is neither an in-process teammate nor a
+headless subagent. `callerIsHeadlessSubagent` requires a non-interactive session, so in an
+interactive session `forceAsync` holds for the main thread and for subagents alike. With the fork
+gate on, every Agent spawn runs in the background, and `run_in_background: false` has no effect.
+
+The fork gate is on unless it resolves to `"disabled"`. Relocate its resolver by the config name
+`"tengu_fork_subagent_enabled"`, which it logs with the resolved `source`. It resolves to:
+
+- `"disabled"` in coordinator mode, or when `CLAUDE_CODE_FORK_SUBAGENT` is false-y.
+- `"env"` when `CLAUDE_CODE_FORK_SUBAGENT` is true-y.
+- `"disabled"` in a non-interactive (`-p`, SDK) session.
+- `"default"` (on) otherwise, which covers every interactive session.
+
+Fork mode being on does not make a spawn a fork. The built-in `fork` definition's `whenToUse` reads
+"Selected explicitly via subagent_type: "fork" when the fork gate is on; never the default." Fork
+mode changes only the async default and adds that option.
+
+Routes to a foreground subagent in an interactive session: `CLAUDE_CODE_FORK_SUBAGENT=0`, after
+which `run_in_background: false` runs sync unless the definition sets `background: true`; or
+`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS`, which makes every spawn and background Bash sync. In-process
+teammates cannot launch background agents. A teammate spawning a `background: true` definition
+throws "In-process teammates cannot spawn background agents".
+
+Async built-in filter. The per-agent filter (destructured `isTeammate`, `agentDepth`,
+`subagentMemoryMode`; see above) drops every built-in tool that is not in the async allowlist when
+`isAsync` is set. Before it, the same filter removes a set every agent loses (ExitPlanMode outside
+plan mode, EnterPlanMode, AskUserQuestion, ScheduleWakeup, Workflow, EndConversation and similar).
+The async allowlist in 2.1.300 is `Read`, `WebSearch`, `TodoWrite`, `Grep`, `WebFetch`, `Glob`,
+`Bash`, `PowerShell`, `Edit`, `Write`, `NotebookEdit`, `StructuredOutput`, `ToolSearch`,
+`EnterWorktree`, `ExitWorktree`, `LSP`, `Monitor`, `TaskStop`, `GetTask`, `SendMessage`, `Artifact`
+and the plugin/skill search tools. `Agent` is kept separately while depth is under the limit.
+
+One exception admits more for teammates. When Agent Teams is enabled and the agent is a teammate,
+`TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate`, `SendMessage`, `CronCreate`, `CronDelete` and
+`CronList` pass as well. The Agent Teams check is `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` or
+`--agent-teams`, plus the gate `tengu_amber_flint`.
+
+Consequences:
+
+- A non-teammate background subagent never has the four Task tools. With the Task flavor selected
+  (see `TOOLS_AND_EXECUTION.md`, "Task list flavor"), `TodoWrite` is not registered either, so the
+  subagent has no checklist tool at all. A sync subagent keeps the Task tools when the session has
+  them.
+- The filter runs before the definition's `tools` allowlist is resolved, so listing `TaskCreate` in
+  `tools` does not restore it for a background agent.
+- A fork skips the filter (`useExactTools`) and has the Task tools, but its directive reads "Execute
+  ONE directive, then stop" and "Do NOT spawn subagents", and forking inside a fork throws "Fork is
+  not available inside a forked worker."
+- A long-running orchestrator that needs the Task tools and its own background subagents runs best
+  as its own session (`claude --agent <name>`). Its task list is separate from the launching
+  session's unless both set the same `CLAUDE_CODE_TASK_LIST_ID`. The list id resolves as that
+  variable, then the team name, then a session-derived default, stored under
+  `~/.claude/tasks/<id>/`.
+
+The published sub-agents page matches the allowlist, the teammate exception, and "turn off fork
+mode, which is on by default" with `CLAUDE_CODE_FORK_SUBAGENT=0`. It does not state that the Task
+flavor plus a background subagent leaves no checklist tool.
+
+Re-verify: □ `forceAsync` still the fork gate minus teammate/headless callers □ fork gate still
+default-on only when interactive □ async allowlist still omits the Task tools □ teammate exception
+still gated on Agent Teams □ filter still runs before `tools` resolution.
+
 ## Subagent output pipeline
 
 When a subagent finishes, its last assistant message is packaged into a `tool_result` for the
@@ -321,7 +400,8 @@ The Agent tool's `call` resolves to one of three modes:
   task-notification on completion (grep `Agent "${_}" completed`) carrying a nested-tag
   `<usage><subagent_tokens>…` block. A foreground agent that runs long shows a "you can background
   this" hint; auto-backgrounding is gated by `CLAUDE_AUTO_BACKGROUND_TASKS` /
-  `tengu_auto_background_agents`.
+  `tengu_auto_background_agents`. In an interactive session the fork gate forces every spawn into
+  the background; see "Background placement and the async built-in filter".
 - Teammate (`name` set, requires Agent Teams via env `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` or
   `--agent-teams`): spawns a long-running peer, returns `teammate_spawned`. Teammates communicate
   via the `SendMessage` tool (grep `name:` bound to the SendMessage constant), addressing peers by
@@ -374,3 +454,8 @@ and built-in/plugin attribution. Spawn emits `tengu_agent_tool_selected` (with `
   `claude-code-guide` has an explicit read/search/web tool list and no MCP tools. MCP server
   instructions reach a subagent only through the mid-turn `mcp_instructions_delta`, unfiltered by
   its tools; an explicit `tools` list without `ToolSearch` turns off tool search for that agent.
+- 2.1.300: "Background placement and the async built-in filter" added. In an interactive session the
+  fork gate is on by default and forces every Agent spawn async, overriding
+  `run_in_background: false`; `CLAUDE_CODE_FORK_SUBAGENT=0` restores foreground spawns. A fork is
+  now selected only by explicit `subagent_type: "fork"`. The async allowlist omits the Task tools,
+  which only Agent Teams teammates keep.

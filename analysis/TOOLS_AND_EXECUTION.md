@@ -253,6 +253,13 @@ unset, tool list read from the `system` `init` event). The task set is `TaskCrea
 | `claude-haiku-5-5`, allow and `--disallowedTools TaskCreate` | task set without `TaskCreate` |
 | `TODO_TOOLS=1`, `--disallowedTools TaskCreate`               | task set without `TaskCreate` |
 
+Subagents (verified 2.1.300). Both gates are process-wide, so a subagent's pool contains whichever
+set the session registered. A sync subagent keeps the Task tools. A background subagent loses them
+to the async built-in filter unless it is an Agent Teams teammate, and `TodoWrite`, which that
+filter allows, is not registered under the Task flavor. A background subagent in a Task-flavor
+session therefore has no checklist tool. Details in `TASK_TOOL_AND_SUBAGENTS.md`, "Background
+placement and the async built-in filter".
+
 A settings file that sets `CLAUDE_CODE_ENABLE_TODO_TOOLS` in `env` is applied to the process, so it
 overrides the inherited environment and has to be excluded when testing the default. A deny rule
 removes the named tool after the opt-in has been recorded, so naming a tool in both leaves the other
@@ -463,3 +470,6 @@ which already has the behavior, so these introduction points cannot be bisected 
   `TodoWrite` as always registered and the task tools as gated only by `CLAUDE_CODE_ENABLE_TASKS`.
   Both were incomplete: a model-family list and `CLAUDE_CODE_ENABLE_TODO_TOOLS` gate the whole
   group, so sessions on newer model families have no checklist tool unless opted in.
+- 2.1.300: added the effect of the task-list gates on subagents. A background non-teammate subagent
+  loses the Task tools to the async built-in filter and has no checklist tool in a Task-flavor
+  session.
