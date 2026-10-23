@@ -1,8 +1,9 @@
 # Plugin Panes, the Prompt Composer, and Drag-Select Attachment
 
 Source: `cli.prettier.js` (`work/<version>/package/cli.prettier.js`)
-Verified: 2.1.286 (pane keyboard and `prompt.edit` sections); other sections last checked at
-2.1.277
+
+Verified: 2.1.300 (rows-under-the-prompt section); 2.1.286 (pane keyboard and `prompt.edit`
+sections); other sections last checked at 2.1.277
 
 Three surfaces meet at the bottom of a fullscreen terminal session, and they are commonly confused
 with one another:
@@ -625,7 +626,99 @@ header in a `Box` with `paddingY: 1` (and `paddingX: 1`, which a docked pane als
 □ Tripwire: `PaneSite`'s outer Box carries `paddingX` and no other spacing prop. If a `paddingY`
   or `gap` appears there, docked plugin panes gain an inset and this section is stale.
 
+## The rows under the prompt: `$.ui.status`, the `statusLine` command, and `PromptHint`
+
+Three things a user can read as "the status line" are drawn by three separate components, each on
+its own row. Outside screen-reader mode, the prompt column stacks them in this order:
+
+| Order | Row                         | Drawn by                                 | Plugin access               |
+| ----- | --------------------------- | ---------------------------------------- | --------------------------- |
+| 1     | prompt input box            | composer                                 | `prompt.*` ops and hooks    |
+| 2     | pinned notices, one per row | pinned-notice list                       | `$.ui.status` adds one row  |
+| 3     | `statusLine` command output | footer, left column, first child         | none                        |
+| 4     | footer hint line            | `FooterHintLine` inside `PromptHintPart` | `ui.render` on `PromptHint` |
+
+The footer's right column (MCP status, IDE selection, mode labels, toasts) sits beside rows 3-4, or
+below them when the footer wraps to a column. With a screen reader on, the input box moves below the
+footer.
+
+Relocate the prompt column by grepping `rg -n 'Waiting for permission\\u2026'` (2 hits). The hit
+whose element feeds a `flexDirection: "column"` Box lists the column's children: the permission-wait
+line, the input box (guarded by the screen-reader flag), the pinned-notice list, then the memoized
+footer, with a second copy of the input box at the end for screen-reader mode.
+
+### `$.ui.status` is a pinned notification
+
+The REPL host's `status(plugin, text)` removes the notification keyed `plugin-status-<plugin>` and,
+unless `text` is `undefined`, adds a new one with `kind: "event"`, `priority: "low"`, `pinned: true`
+and text `<plugin display name>: <text>`. Relocate with `rg -n 'plugin-status-'` (1 hit). Its
+sibling `toast` method sits directly above it.
+
+The pinned-notice list reads `notifications.pinned` (`rg -n 'notifications\.pinned'`, 3 hits: two in
+the add reducer, one selector). It sorts by priority (`immediate`, `high`, `medium`, `low`) and
+draws one `Text` per notice in a `paddingX: 2` column. Each row is prefixed with `⚠`, coloured
+`warning` unless the notice sets a colour, and set to `wrap: "truncate"` unless it sets `wrap`. A
+plugin status sets neither, so it is always a single yellow `⚠ plugin: text` row cut to the terminal
+width. The sort is stable and every call re-adds the notice, so among `low` notices the most
+recently updated plugin status is drawn last. The engine's own low-priority pinned notices share
+this list.
+
+In a headless session there is no status row. The call logs `no status row in a headless session`
+and goes nowhere.
+
+### The `statusLine` command row
+
+The footer component reads `statusLine` from settings and mounts the status-line component only when
+the footer is in `prompt` mode, no exit message is showing, the user is not pasting, and a
+`statusLine` is configured. Relocate the component with `rg -n 'tengu_status_line_mount'` (its
+runner class) and the executor with `rg -n 'Skipping StatusLine command execution'`.
+
+The runner keeps the command's last stdout in its own state and the session's memory (`lastText`).
+The component draws one dim `wrap: "truncate"` `Text`, or a column of them for multi-line output,
+inside a Box with `paddingX` from `statusLine.padding`. Nothing else reads that text, and the
+command runs through the settings command-hook executor (event `StatusLine`), which does not raise
+any plugin hook.
+
+### What a plugin can and cannot do to the `statusLine` row
+
+- No render site exists for it. The component-to-site map
+  (`rg -n 'AskUserQuestionPermissionDialog'`) has 15 entries and none is the status line, so
+  `ui.render` cannot draw or replace it.
+- No op or hook input exposes its text. `$.settings.read` returns the `statusLine` config, so a mod
+  can run the command itself through `$.process.run` and show the result in its own `$.ui.status`
+  row, `AbovePrompt` band or `PromptHint` draw. The engine's row stays as it is.
+- `ui.status` is in the op list, and op calls go through the hook chain like any other op event. A
+  hook on `ui.status` therefore sees other plugins' `$.ui.status` calls (`{ text }`) and can rewrite
+  them. It never sees the `statusLine` command, which is not an op.
+
+### `PromptHint` is the row below the `statusLine` row
+
+The footer's left column is a `flexDirection: "column"` Box whose children are the status-line
+component and then `FooterHintLine`. They are two rows, one above the other.
+
+A configured `statusLine` suppresses part of the hint row's content. The footer passes
+`FooterHintLine` `suppressHint: <caller's suppressHint> || <searching> || <statusLine configured>`
+and `suppressHintExceptStatusline` without the status-line term
+(`rg -n 'suppressHintExceptStatusline'`, 2 hits). In the normal footer, `suppressHint` gates the
+`"? for shortcuts"` fallback. The mode indicator, `esc to interrupt` and the other hint items stay.
+The alternate compact footer uses `suppressHintExceptStatusline`, so a status line does not remove
+its hint.
+
+`PromptHintPart` wraps `FooterHintLine`. When a plugin has `ui.render` hooks for `PromptHint`, it
+reads the drawn hint row's text, strips the mode label, and passes `{ isDraft, isWorking, hint }` to
+`PromptHintSite` (`rg -n 'useRenderInput\("PromptHint"'`, 1 hit). That text comes from the hint row
+only, never from the status-line row above it.
+
+□ Tripwire: `rg -c 'plugin-status-'` = 1 and its notice still sets `pinned`; the component map still
+has no status-line entry; the footer's left column still lists the status-line component before
+`FooterHintLine`. If any changes, this section is stale.
+
 ## Version notes
+
+- 2.1.300: `$.ui.status` is a pinned low-priority notification drawn as its own `⚠ plugin: text`
+  row between the input box and the `statusLine` row. The `statusLine` row has no render site
+  and no plugin reader; `PromptHint` is the hint row below it, which loses only its
+  `? for shortcuts` fallback when a `statusLine` is configured.
 
 - 2.1.286: keys a focused pane does not bind reach the composer, and a resulting draft change
   releases the pane through `useReleaseOnEdit`. Hotkeys lowercase their input and never match
