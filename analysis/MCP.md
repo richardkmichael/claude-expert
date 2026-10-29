@@ -505,19 +505,41 @@ For the standard MCP notifications, the position has changed across versions. Se
 
 ### Which server notifications reach the model
 
-Verified against `cli.prettier.js` 2.1.286 (2026-10-01).
+Verified against `cli.prettier.js` 2.1.300 (2026-10-29).
 
 Only `notifications/claude/channel` puts server-originated text into the model's context, and only
 when every channel gate passes (see Channels below). The standard notifications stop at the client:
 
-| `notifications/…`        | Effect                                             |
-|--------------------------|----------------------------------------------------|
-| `message` (logging)      | No app handler; `logging/setLevel` is never sent   |
-| `resources/updated`      | Evicts the URI from the SDK `resources/read` cache |
-| `progress`               | `mcp_progress` UI progress; resets the idle timer  |
-| `tools/list_changed`     | Re-fetches `tools/list` for the next request       |
-| `prompts/list_changed`   | Re-fetches the list; nothing reaches the model     |
-| `resources/list_changed` | Re-fetches the list; nothing reaches the model     |
+| `notifications/…`        | Effect                                                      |
+| ------------------------ | ----------------------------------------------------------- |
+| `message` (logging)      | No app handler; `logging/setLevel` is never sent            |
+| `resources/updated`      | Evicts the URI from the SDK `resources/read` cache          |
+| `progress`               | `mcp_progress` UI progress; resets the idle timer           |
+| `tools/list_changed`     | Re-fetches `tools/list`; needs `tools.listChanged` declared |
+| `prompts/list_changed`   | Re-fetches prompts (and MCP skills) as slash commands       |
+| `resources/list_changed` | Re-fetches resources, templates (and MCP skills)            |
+| `elicitation/complete`   | Closes a pending URL-mode elicitation; system notification  |
+
+The prompts and resources handlers register when the server declares the `prompts` or `resources`
+capability at all. Refresh failures keep the previous lists, logged as
+`… refresh failed (…); keeping previous …`, and successful refreshes emit `tengu_mcp_list_changed`.
+
+Server-to-client requests. The client declares `roots: { listChanged: true }` and `elicitation`
+(`{ form: {}, url: {} }` when `tengu_mcp_url_elicitation` is on). It never declares `sampling`, so
+`sampling/createMessage` is refused by the SDK (`Client does not support sampling`).
+
+| Request                  | Effect                                                           |
+| ------------------------ | ---------------------------------------------------------------- |
+| `roots/list`             | Answered with the working directory and the added directories    |
+| `elicitation/create`     | Form or URL dialog; Elicitation hooks; `tengu_mcp_elicitation_*` |
+| `sampling/createMessage` | Unsupported                                                      |
+
+Relocate the roots handler with `rg -n 'Received ListRoots request from server'` and the
+elicitation-complete handler with `rg -n 'Received elicitation completion notification'`.
+
+One more `claude/`-prefixed key exists outside channels: a non-error MCP tool result whose
+`_meta["claude/endTurn"]` is `true` ends the turn after that result, without another model call.
+Relocate with `rg -n '"claude/endTurn"'`.
 
 Claude Code never sends `resources/subscribe`. The method exists only as SDK client code, so a
 subscription-driven `resources/updated` never arises. The one app-level `notifications/message`
@@ -537,14 +559,15 @@ tool results, tool descriptions re-read after `tools/list_changed`, and the serv
 
 ### Channels (`claude/channel`)
 
-Verified against `cli.prettier.js` 2.1.286 (2026-10-01). Public docs: `/en/channels` and
+Verified against `cli.prettier.js` 2.1.300 (2026-10-29). Public docs: `/en/channels` and
 `/en/channels-reference` on code.claude.com. Both describe the feature as a research preview.
 
 A channel is an MCP server that pushes `notifications/claude/channel` with params
 `{ content: string, meta?: Record<string, string> }`. The server must declare
 `capabilities.experimental['claude/channel']` (any truthy value). The optional
-`claude/channel/permission` capability opts into tool-approval relay over
-`notifications/claude/channel/permission_request` and `notifications/claude/channel/permission`.
+`claude/channel/permission` capability opts into tool-approval relay (see Permission relay). These
+three methods and two capabilities are the whole `claude/channel` surface: the bundle has no other
+`notifications/claude/…` literal.
 
 The registration gate runs these checks in order. Each one has a distinct skip reason, so a
 `--debug` log names the check that failed:
@@ -553,15 +576,25 @@ The registration gate runs these checks in order. Each one has a distinct skip r
 2. legacy protocol era: `connection negotiated a modern protocol revision with no unsolicited
    notification path` (the 2026-07-28 revision cannot carry channel messages)
 3. first-party provider: `channels are not available on third-party providers`
-4. feature flag `tengu_harbor` (default off, server-side rollout): `channels feature is not
-   currently available`
+4. availability: `channels feature is not currently available`. This fires when the feature flag
+   `tengu_harbor` (default off, server-side rollout) is off, or when the account's server-side
+   policy restriction `allow_channels` resolves to a denial.
 5. org policy: `channels not enabled by org policy (set channelsEnabled: true in managed
    settings)`. claude.ai Team/Enterprise require `channelsEnabled: true`. Elsewhere, the check
    blocks only when managed policy settings exist without it.
 6. session opt-in: `server <name> not in --channels list for this session`
-7. allowlist. A `server:<name>` entry always needs `--dangerously-load-development-channels`. A
+7. marketplace match, for `plugin:` entries:
+   `you asked for plugin:<name>@<marketplace> but the installed plugin is …`. The server's plugin
+   source has to come from the named marketplace.
+8. allowlist. A `server:<name>` entry always needs `--dangerously-load-development-channels`. A
    `plugin:<name>@<marketplace>` entry under `--channels` must be on `allowedChannelPlugins` (org)
    or else the `tengu_harbor_ledger` default list.
+
+A skip other than capability or session also raises a warning notification (for example
+`Channels are not enabled for your org …`), and each gate outcome emits `tengu_mcp_channel_gate`.
+
+Every arriving notification is also checked again: the handler drops it silently unless
+`tengu_harbor` is on and the `allow_channels` restriction allows it at that moment.
 
 Both flags are hidden from `--help`. `--channels <servers...>` takes `plugin:<name>@<marketplace>`
 or `server:<name>` entries. `--dangerously-load-development-channels <servers...>` bypasses the
@@ -572,11 +605,14 @@ interactive session. Relocate the gate with
 `tengu_mcp_channel_flags`.
 
 Delivery. Each notification is enqueued as a queued command with `mode: "prompt"`,
-`priority: "next"`, `isMeta: true`, `origin: { kind: "channel", server }`, the main session's
-agent ID, and `skipSlashCommands`/`skipAttachments` set. The value is
+`priority: "next"`, `isMeta: true`, `origin: { kind: "channel", server }`, the main session's agent
+ID, and `skipSlashCommands`/`skipAttachments` set. The value is
 `<channel source="<server>" key="value"…>\n<content>\n</channel>`. Meta keys must match
 `^[a-zA-Z_][a-zA-Z0-9_]*$`, and the client drops other keys with a `[channel] … dropped` warning.
-Relocate the wrapper by grepping that warning.
+Relocate the wrapper by grepping that warning. The server name in `source` and the meta values are
+attribute-escaped, and a `</channel` sequence inside the content is neutralized so the content
+cannot close the tag. The server cannot set `source`: a `source` meta key would be emitted as a
+second attribute after the real one.
 
 - Idle session: a queued `prompt` command starts a turn by itself, like a background-task
   notification does. The headless drain subscribes to the queue and dispatches on every change.
@@ -594,6 +630,53 @@ Relocate the wrapper by grepping that warning.
 
 The published docs state that notifications arriving while Claude is busy are delivered together
 on the next turn. The source also absorbs them mid-turn at tool-batch boundaries.
+
+#### Permission relay
+
+When a permission prompt opens for a tool that does not require user interaction, the client sends
+`notifications/claude/channel/permission_request` with
+`{ request_id, tool_name, description, input_preview }` to every connected server that declares both
+capabilities, is named in the session's channel list, has a registered channel handler, and is not
+on the modern protocol era. The `request_id` is five letters from `abcdefghijkmnopqrstuvwxyz` (no
+`l`), redrawn when it contains a listed offensive substring. The local dialog stays open in
+parallel.
+
+The server answers with `notifications/claude/channel/permission`
+`{ request_id, behavior: "allow" | "deny" }`. The ID is matched case-insensitively. The first
+matching verdict resolves the prompt as a one-time allow, or as a reject with
+`Denied via channel <server>`. An unknown ID is dropped and logged as
+`no pending entry — stale or unknown ID`. With `tengu_quiet_elephant` on, an ID drawn twice in one
+session is disabled for channel replies (`a request ID was drawn twice … answer in the terminal`).
+Relocate with `rg -n 'Channel permission relay'` and `rg -n 'Denied via channel'`.
+
+#### Enabling mid-session and lifecycle
+
+The channel list is process memory, filled at startup from `--channels` and, after the dialog
+accepts, `--dangerously-load-development-channels` entries. Nothing writes it to the transcript, so
+`claude --continue` or `--resume` registers channels only if the flags are passed again. When Claude
+Code relaunches itself (for example to fork a session), it carries `--channels` into the new argv,
+but a fork that keeps its parent running drops `--channels` so both processes do not receive the
+messages. Development-channel entries are not carried.
+
+The interactive TUI has no command to enable a channel in a running session. The SDK control request
+`channel_enable` (`enableChannel(serverName)` in the SDK) adds one at runtime:
+
+- It accepts only a connected, plugin-sourced server
+  (`… is not plugin-sourced; channel_enable requires a marketplace plugin`). The entry is added with
+  the allowlist enforced, and the gate runs. On a skip, the list is restored and the skip reason is
+  returned as the error.
+- It registers only the channel-message handler, not the permission-verdict handler, and emits
+  `tengu_mcp_channel_enable`.
+- A cloud-hosted session rejects it.
+
+Reconnects re-run the gate. In the interactive session, a connection that reaches `connected` again,
+as after an `/mcp` reconnect, goes through the same registration. A hard skip (capability, era,
+provider, availability) removes both handlers. A soft skip (policy, session, marketplace, allowlist)
+on a server that was registered earlier in the process keeps the handler, logged as
+`Channel gate says skip:<kind> but was previously registered — preserving handler`. The headless
+path re-registers after a reconnect only when the gate passes, logged as
+`Channel notifications re-registered after reconnect`. The headless registration covers only the
+channel-message handler, so permission relay is an interactive-session feature.
 
 ## Version history
 
@@ -616,3 +699,7 @@ on the next turn. The source also absorbs them mid-turn at tool-batch boundaries
   the only server notification whose content reaches the model. See Which server notifications
   reach the model, and Channels. The `claudecode/agentId` `_meta` keys are scoped to the
   `claude-code-remote` server, not to claude.ai-proxied servers in general.
+- 2.1.300: the channel gate gains a marketplace-match check for `plugin:` entries, and its
+  availability check also honors the server-side `allow_channels` restriction. A runtime SDK
+  `channel_enable` control request adds a plugin channel to a running session. Reconnects re-run the
+  gate and preserve a handler on soft skips. See Channels.
