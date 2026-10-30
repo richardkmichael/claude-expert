@@ -649,6 +649,27 @@ matching verdict resolves the prompt as a one-time allow, or as a reject with
 session is disabled for channel replies (`a request ID was drawn twice … answer in the terminal`).
 Relocate with `rg -n 'Channel permission relay'` and `rg -n 'Denied via channel'`.
 
+#### Configuration surface
+
+Three writers fill the session channel list: the `--channels` flag at startup, the accept handler of
+the development-channel dialog (entries tagged `dev`), and the SDK `channel_enable` request. No
+settings key, environment variable, or `.mcp.json` field adds an entry, so neither flag can be made
+persistent. Relocate the writers with `rg -n 'replaceAllowedChannels'`. When the session cannot
+register channels anyway (feature off, third-party provider, or policy-blocked), the dialog is
+skipped and the development entries are added directly.
+
+The channel settings are gates, not opt-ins. The gate reads `channelsEnabled` and
+`allowedChannelPlugins` from the managed (policy) source only, so the same keys in user, project, or
+local settings have no effect. An `allowedChannelPlugins` entry is
+`{ "plugin": "<name>", "marketplace": "<marketplace>" }`. A `"<name>@<marketplace>"` string is
+accepted with a warning that prefers the object form. An empty array admits no channel plugin, but
+`server:` and development entries do not consult that list.
+
+The plugin manifest `channels` array (`server`, `displayName`, `userConfig`) marks which of the
+plugin's MCP servers is a channel and what configuration to prompt for at enable time. It does not
+register the channel: the session still needs `--channels plugin:<name>@<marketplace>` or an SDK
+`channel_enable`.
+
 #### Enabling mid-session and lifecycle
 
 The channel list is process memory, filled at startup from `--channels` and, after the dialog
