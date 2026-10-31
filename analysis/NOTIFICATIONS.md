@@ -223,6 +223,95 @@ then `TMUX`, `STY` and `ZELLIJ`. Under tmux the sequence is wrapped as
 The writer stack holds only the mounted app. In `-p`, the SDK, or any process without the TUI on
 screen, the write is a silent no-op.
 
+## Notification catalogue
+
+Only plugin notifications carry a title. Every other emitter passes `{ message, notificationType }`
+with no `title`, so the Notification hook input has no `title`, and the built-in channels fall back
+(see Ghostty payload). Two dispatch shapes exist:
+
+- Full dispatch (hook, then terminal channel): the notification function whose callers pass
+  `{ message, notificationType }` as the first argument.
+- Hook only, no terminal write: callers of the bare Notification-hook runner (grep
+  `confirmed elicitation`, `Elicitation response for server`, and the SDK permission timer).
+
+| notification_type                    | Message                                                                                                                                   | Path      |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| `permission_prompt` (TUI dialogs)    | per dialog kind, table below                                                                                                              | full      |
+| `permission_prompt` (SDK host timer) | `Claude needs your permission to use <display name>`                                                                                      | hook only |
+| `idle_prompt`                        | `Claude is waiting for your input`                                                                                                        | full      |
+| `auth_success`                       | `Claude Code login successful`                                                                                                            | full      |
+| `auth_storage_failure`               | `Claude Code login needs attention: credentials may not have been saved` (transient) or `... could not be saved`                          | full      |
+| `elicitation_dialog`                 | `Claude Code needs your input`                                                                                                            | full      |
+| `elicitation_url_dialog`             | `Claude Code needs your input` (URL mode) or `An MCP server needs your input`                                                             | full      |
+| `elicitation_complete`               | `MCP server "<server>" confirmed elicitation <id> complete`                                                                               | hook only |
+| `elicitation_response`               | `Elicitation response for server "<server>": <action>` (`decline` after a blocking hook error)                                            | hook only |
+| `agent_needs_input` (agent view)     | `<label> needs your input` plus `: <needs>` (needs cut at 120 characters with an ellipsis)                                                | full      |
+| `agent_needs_input` (dialogs)        | `Teammate setup needs your input`; `Auto mode has a classifier billing notice to acknowledge`                                             | full      |
+| `agent_completed`                    | `<label> finished` or `<label> failed`                                                                                                    | full      |
+| `worker_permission_prompt`           | `<worker name or "A subagent"> needs permission for <tool name or "(unnamed tool)">`; or `... needs network access to <host or "a host">` | full      |
+| `push_notification`                  | the PushNotification tool's `message` input, verbatim                                                                                     | full      |
+| `computer_use_enter`                 | `Claude is using your computer · press Esc to stop` (Ctrl+C variant)                                                                      | full      |
+| `computer_use_exit`                  | `Claude is done using your computer`                                                                                                      | full      |
+| `quota_auto_resume_fired`            | `Usage limit reset — Claude is continuing your task`; `Usage limit available — Claude is continuing your task`                            | full      |
+| `quota_auto_resume_stale`            | `Usage limit reset — press enter to continue`                                                                                             | full      |
+| `quota_auto_resume_disabled`         | `Automatic continue ...` variants (turned off, 24 h horizon, continuation dropped, cap exhausted)                                         | full      |
+| `plugin_notification`                | the mod's text; title is the mod's `title` or its plugin name                                                                             | full      |
+
+`model_refusal_fallback` is a settings-enum member with no emitter found at 2.1.316. No emitter
+passes a session name or project directory. `<label>` is the agent-view row label: the session's
+name if set, else its intent cut to 3 words and 25 columns with an ellipsis, else a placeholder
+(`current session`, `new session`, `untitled session`) or the template name.
+
+`<tool name>` and `<host>` in the worker messages are sanitised and cut at 48 characters.
+
+Dialog kinds each carry a notification spec (grep `Claude needs your permission"` for the table).
+The default text `Claude needs your permission` applies to the tool-permission kinds
+(`permission_prompt`, `permission_bash`, `permission_file`, `permission_webfetch`,
+`permission_skill`, `permission_powershell`, `permission_monitor`, `permission_browser`,
+`permission_ask_user_question`, `computer_use_approval`) and carries type `permission_prompt`. Kinds
+with their own text, all type `permission_prompt` unless stated:
+
+| Dialog kind                    | Message                                                                                                               |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| `permission_enter_plan_mode`   | `Claude Code wants to enter plan mode`                                                                                |
+| `permission_exit_plan_mode_v2` | `Claude Code needs your approval for the plan`                                                                        |
+| `permission_publish_plugin`    | `Claude Code is waiting for your answer before it publishes a plugin`                                                 |
+| `goal_proposal`                | `Claude proposed a session goal`                                                                                      |
+| `refusal_fallback_prompt`      | `Session paused`                                                                                                      |
+| `fable_overage_consent_prompt` | `Session paused`                                                                                                      |
+| `peer_inbound_approval`        | `A message from another session needs your approval`                                                                  |
+| `chrome_install_upsell`        | `Claude wants to use your browser`                                                                                    |
+| `chrome_install_setup`         | `Setting up Claude in Chrome`                                                                                         |
+| `sandbox_network_access`       | `A sandboxed command needs network access`                                                                            |
+| `managed_settings_security`    | `Managed settings need your review before they apply`                                                                 |
+| `auto_mode_setup_review`       | `Auto-mode setup proposal is ready for review`                                                                        |
+| `auto_mode_flagged_allow`      | `Auto-mode setup flagged some permission rules for review`                                                            |
+| `mcp_elicitation`              | `Claude Code needs your input`; type `elicitation_dialog`, or `elicitation_url_dialog` when the request mode is `url` |
+| `mcp_elicitation_waiting`      | `Claude Code needs your input`; type `elicitation_url_dialog`                                                         |
+| `mcp_url_elicitation`          | `An MCP server needs your input`; type `elicitation_url_dialog`                                                       |
+
+The dialog text never includes the tool name, the MCP server name or the project directory.
+
+## Ghostty payload
+
+The `ghostty` channel (forced, or chosen by `auto` on `TERM=xterm-ghostty`) calls the Ghostty writer
+with `{ ...notification, title: notification.title || "Claude Code" }`. It writes one sequence:
+
+    ESC ] 777 ; notify ; <title> ; <message> BEL
+
+Title field: the notification's `title`, else the literal `Claude Code`. Only plugin notifications
+carry a title, so every other notification shows `Claude Code`. Body field: the `message`.
+
+Both fields pass through one sanitiser that replaces every character below U+0020, U+007F and U+0080
+to U+009F with a space. That removes ESC, BEL, newlines and tabs, so a multi-line message becomes
+one line. There is no length limit and no escaping of `;`. A `;` in the title or message is written
+as-is and splits the OSC 777 payload at the terminal. The terminator is BEL, because the ST
+terminator is used only when the detected terminal is `kitty`. The result is wrapped for tmux or
+screen as described under Terminal write path.
+
+For comparison, `iterm2` writes `ESC ] 9 ; <title>: <message> BEL` (just the message when there is
+no title), and `kitty` writes three OSC 99 sequences (title, body, focus) with a random id.
+
 ## Hook terminalSequence
 
 Any hook event's JSON output may carry `terminalSequence`. It is parsed in the shared hook output
