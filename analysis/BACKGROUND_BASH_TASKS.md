@@ -121,6 +121,39 @@ SIGKILL. There is no pause or resume tool. TaskStop only stops.
 At session exit, background shells are killed, unless the exit hands them off to a following process
 (background sessions; `CLAUDE_CODE_DISABLE_BG_EXIT_HANDOFF` turns the handoff off).
 
+## Moving a running command to the background
+
+Every route into the background calls `background()` on the same live shell-command object. The
+process, its process group and the snapshot's monitor mode are unchanged. Only the status
+(`backgrounded`) and the output handling change. The foreground tool call then returns, and
+PostToolUse fires for it with the result. No hook fires when the command later ends.
+
+| Route                                  | Marker in the Bash result (`tool_response`)        |
+| -------------------------------------- | -------------------------------------------------- |
+| Model passed `run_in_background: true` | `backgroundTaskId` only                            |
+| User pressed Ctrl+B                    | `backgroundTaskId`, `backgroundedByUser`           |
+| Queued message sent now (send-now)     | `backgroundTaskId`, `backgroundedToDeliverMessage` |
+| Foreground timeout                     | `backgroundTaskId`, `timedOutAfterMs`              |
+| A plugin's turn abort                  | `backgroundTaskId`, `backgroundedByTurnAbort`      |
+
+`tool_input` is the input as the model sent it, so `run_in_background` is not rewritten after a
+Ctrl+B. `tool_response.backgroundTaskId` being set is the one test that covers every route.
+`backgroundOutputPath` is set only when the shells are kept by another process.
+`CLAUDE_AUTO_BACKGROUND_TASKS` does not apply to Bash: it auto-backgrounds subagents and MCP tool
+calls.
+
+Ctrl+B backgrounds every foreground task at once: each foreground shell, then each foreground
+subagent.
+
+The key is the `task:background` action in the `Task` context, bound by default to both `ctrl+b`
+and `ctrl+x ctrl+b`, and remappable in `keybindings.json`. One press that reaches Claude Code is
+enough. The hint reads `ctrl+b to run in background`, or `ctrl+b ctrl+b (twice) to run in
+background` (the status-line form omits `(twice)`) when the detected terminal is `tmux` and the
+binding is still `ctrl+b`. The doubled form only accounts for tmux consuming the first press as its
+default prefix. It does not read the tmux prefix and does not consult the attacher's mux. With
+`CLAUDE_CODE_KB_COHESION_FIXES` set and the default bindings, the hint shows `ctrl+x ctrl+b`
+instead, with the `ctrl+b` doubled under tmux.
+
 ## What hooks can see
 
 - PreToolUse / PostToolUse carry only the current call. A background Bash call's PostToolUse
@@ -137,4 +170,5 @@ At session exit, background shells are killed, unless the exit hands them off to
 ## Version history
 
 - 2.1.316: first written. Corrected the same day: the bash snapshot forces `set -o monitor`, so job
-  control is on for bash commands.
+  control is on for bash commands. Added the move-to-background routes, result markers and the
+  Ctrl+B binding and hint.
