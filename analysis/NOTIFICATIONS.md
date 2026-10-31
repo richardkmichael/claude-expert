@@ -1,14 +1,17 @@
 # Notification System
 
-Source: `cli.prettier.js` (`work/<version>/package/cli.prettier.js`)
-Verified against: cli.prettier.js 2.1.277 (2026-09-19)
+Source: `cli.prettier.js` (`work/<version>/package/cli.prettier.js`) Verified against:
+cli.prettier.js 2.1.316 (2026-10-31)
 
 Two independent notification paths fire on every notification event:
 
 1. Notification hook, a user-configured shell command.
 2. Built-in terminal notification, OSC escape codes written to stdout.
 
-The hook fires first, then the built-in. Neither depends on or replaces the other.
+The hook fires first, then the built-in. Neither depends on or replaces the other. The dispatch
+awaits the Notification hooks to completion before it resolves and writes the channel, so a slow
+hook delays the built-in OSC by its own runtime. The hook call is unconditional:
+`notifications_disabled` suppresses only the built-in channel, and Notification hooks still run.
 
 ## Locating the dispatch
 
@@ -155,6 +158,92 @@ It arms when the context is large enough, then fires after a longer idle period,
 `tengu_idle_return_action` records `hint_shown` when it appears and `hint_converted` when the user
 subsequently submits a `/clear`, each with `idleMinutes`, `messageCount` and `contextTokens`.
 
+## Dialog notifications and the 6-second timer
+
+Permission prompts, elicitations and other dialogs notify through a different timer from the idle
+notifier, and the idle notifier never fires while a dialog is on screen (its `isDialogOnScreen`
+gate).
+
+In the interactive TUI, each dialog kind maps to a notification spec in a per-kind table. Grep
+`Claude needs your permission"` for the shared default, and `Teammate setup needs your input` or
+`A sandboxed command needs network access` for neighbouring entries. The tool-permission kind
+(`kind: "permission_prompt"`) uses the default, so its Notification hook receives the generic
+message `Claude needs your permission` with `notification_type: "permission_prompt"`, and no tool
+name. A spec without an explicit `type` defaults to `permission_prompt`.
+
+The dialog host mounts a notifier component per notifying dialog. That component runs a repeating
+6000 ms interval. The constant is shared with the SDK timer below: grep
+`CLAUDE_CODE_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS`, follow the `setTimeout` delay to its
+declaration in the hook-timeout block (beside `"SessionStart", "Setup"`), then follow that name's
+other importer to the notifier. On each tick it sends only if both of these are true:
+
+    □ at least 6000 ms since the dialog mounted
+    □ at least 6000 ms since the last user interaction (keypress, paste, prompt edit)
+
+It sends once, then stops the interval. The send is the ordinary dispatch, so the Notification hook
+and the OSC channel fire together, hook first. Terminal focus is not consulted. The focus-tracking
+state (DECSET 1004, recorded as `terminalFocus` on the user-presence store) gates other features,
+not this one. The ticks are not reset by interaction, so a keypress during the first 6 s pushes the
+send to the 12 s tick, and so on in 6 s steps. The observed delay is between 6 and 12 s after the
+prompt appears, or later while the user is typing.
+
+A dialog queued behind the visible one notifies on its first reveal instead (grep
+`buried-idle-cue`).
+
+### SDK hosts
+
+When permission requests go to an SDK host (`can_use_tool` over structured IO, as in Claude Desktop,
+the VS Code extension and `-p` with an SDK client), a separate one-shot `setTimeout` of the same
+6000 ms constant fires the Notification hook only, with message
+`Claude needs your permission to use <tool display name>` and type `permission_prompt`. It is
+cleared when the host answers. No OSC is written on this path. Grep
+`CLAUDE_CODE_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS`, which turns that timer off entirely.
+
+### PermissionRequest as the earlier signal
+
+The `PermissionRequest` hook fires with no timer. In the interactive flow it starts when the dialog
+is queued and races it, or runs to completion before the dialog appears when
+`awaitAutomatedChecksBeforeDialog` is set. Its input carries `tool_name`, `tool_input`,
+`permission_suggestions` and optional `mcp_server`, so it is a better notification source than the
+dialog's Notification hook. It does not fire for person-only asks, remote-execution calls, or calls
+a PreToolUse hook or rule already settled. A hook that wants only a side effect must exit without a
+decision, or it resolves the prompt. See `HOOKS.md` § Permission-request timing.
+
+## Terminal write path
+
+All built-in notification sequences and hook `terminalSequence` values go through one writer
+registered by the mounted Ink app (`TerminalWriteProvider`, whose value is Ink's `writeRaw`, a
+`stdout.write`). Grep `useTerminalNotification must be used within TerminalWriteProvider`.
+
+Every OSC is wrapped for the multiplexer before writing. The wrapper reads the attacher's mux first,
+then `TMUX`, `STY` and `ZELLIJ`. Under tmux the sequence is wrapped as
+`ESC P tmux; <seq with ESC doubled> ESC \`. Under GNU screen the same form is used without the
+`tmux;` prefix. Zellij is passed through unwrapped. Grep `\x1BPtmux;` to relocate.
+
+The writer stack holds only the mounted app. In `-p`, the SDK, or any process without the TUI on
+screen, the write is a silent no-op.
+
+## Hook terminalSequence
+
+Any hook event's JSON output may carry `terminalSequence`. It is parsed in the shared hook output
+processor, so no event is excluded, and is written by both the in-REPL hook runner and the
+outside-REPL runner that Notification uses. Relocate with
+`returned a terminalSequence that was rejected by the allowlist`.
+
+Validation, all-or-nothing:
+
+- Total length at most 4096 UTF-8 bytes.
+- The string is a run of bare BEL and OSC sequences only. Each OSC is `ESC ]`, a numeric `Ps`,
+  optional `;payload`, ended by BEL or ST (`ESC \`).
+- `Ps` in {0, 1, 2, 9, 99, 777}.
+- Payload control characters (C0, DEL, C1) are stripped.
+- An OSC 9 body may not start with a digit unless it is the `4;<state>[;<pct>]` progress form.
+
+A valid sequence is rebuilt (the terminator is BEL, or ST under kitty) and passed through the mux
+wrapper above, so under tmux it is DCS-wrapped. A rejected one is dropped whole with a debug log.
+The published hooks page says this works inside tmux. That holds only with tmux 3.3+ and
+`allow-passthrough on`.
+
 ## Notification hook path
 
 The `Notification` hook event fires if one is configured in `settings.json`. It receives a JSON
@@ -191,24 +280,13 @@ issue, not a Claude Code one.
 
 ## tmux
 
-A multiplexer swallows OSC escape codes, and detection reports `tmux` rather than the outer
-terminal, so the auto-detector returns `no_method_available`. Built-in notifications do not reach
-the outer terminal at all.
+Detection reports `tmux` rather than the outer terminal (tmux sets `TERM_PROGRAM=tmux`), so the
+`auto` channel returns `no_method_available` and nothing is written. An explicit channel such as
+`iterm2` or `ghostty` is written DCS-wrapped (see Terminal write path) and reaches the outer
+terminal when tmux 3.3+ has `allow-passthrough on`.
 
-A Notification hook running a subprocess is the reliable path. A hook can also write the
-DCS-wrapped sequence directly to `/dev/tty`, since hook stdout is captured:
-
-```bash
-#!/bin/bash
-[ -z "$TMUX" ] && exit 0
-read -r input
-message=$(echo "$input" | jq -r '.message // "Claude Code"')
-printf '\033Ptmux;\033\033]9;%s\007\033\\' "$message" > /dev/tty
-```
-
-This requires tmux 3.3+ with `allow-passthrough on` in `~/.tmux.conf`. Wrapping OSC sequences in DCS
-passthrough when `$TMUX` is set is a standing feature request:
-https://github.com/anthropics/claude-code/issues/19976
+From a hook, return the sequence in `terminalSequence` rather than writing `/dev/tty`. Claude Code
+wraps it for tmux itself.
 
 ## Version history
 
@@ -219,3 +297,8 @@ https://github.com/anthropics/claude-code/issues/19976
   accepted on both the forced and auto paths. Idle logic extracted into a class with named
   dependencies. Notification type enum grown to 15 members. Attacher-terminal detection and the
   `attacher_term` telemetry field added. Idle return hint added.
+- 2.1.316: dispatch unchanged. Recorded the dialog 6000 ms interval and its interaction gate, the
+  SDK hook-only timer and its disable env var, the generic interactive permission message, the
+  shared terminal writer, tmux/screen DCS wrapping of every OSC (the earlier "tmux swallows OSC"
+  claim was incorrect for explicit channels), and `terminalSequence` validation. The idle notifier
+  also sends at most once per completed query.
