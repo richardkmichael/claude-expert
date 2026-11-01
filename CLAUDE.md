@@ -17,8 +17,9 @@ Claude Desktop bundles Claude Code and runs it as a separate process. Questions 
 Claude Code are answered from `code/`.
 
 This repo also runs as an MCP server other projects can consult instead of `/add-dir`-ing it in:
-`mcp/expert-server.mjs` exposes `ask_claude_code_expert`, backed by a nested headless Claude
-session. See `mcp/README.md` for registration and design.
+`mcp/expert-server.mjs` exposes `ask_claude_code_expert` and `ask_claude_desktop_expert`, each
+backed by a nested headless Claude session started in its product's subdirectory. See
+`mcp/README.md` for registration and design.
 
 # Documenting findings
 

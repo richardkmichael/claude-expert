@@ -13,9 +13,13 @@ source code is a helpful way to better understand the harnesses.
 | `.claude/skills/` | Skills for fetching a Claude Code version, matching code patterns, porting patches |
 | `mcp/`            | An MCP server that makes this repo consultable from another project                |
 
-## Using it from another project: Expert MCP server
+## Claude Expert MCP server
 
-`mcp/expert-server.mjs` exposes this repository as an MCP tool, so another project's session can ask
-a question about Claude Code without adding this repo to its context. The call runs a nested
-headless session rooted here; only the question and the answer cross the boundary. See
-`mcp/README.md` for registration.
+`mcp/expert-server.mjs` exposes two MCP tools:
+
+- `ask_claude_code_expert`
+- `ask_claude_desktop_expert`
+
+Another project's session can use them to ask a question about either product without adding this
+repo to its context. Each call runs a nested headless session in the product's subdirectory, and
+that session adds its findings to the documentation here.  See `mcp/README.md` for registration.
