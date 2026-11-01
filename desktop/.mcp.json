@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "fastmcp_documentation": {
+      "type": "http",
+      "url": "https://gofastmcp.com/mcp"
+    },
+    "prefab_documentation": {
+      "type": "http",
+      "url": "https://prefab.prefect.io/docs/mcp"
+    },
+    "mcp_specification": {
+      "type": "http",
+      "url": "https://modelcontextprotocol.io/mcp"
+    }
+  }
+}
