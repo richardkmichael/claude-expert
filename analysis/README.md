@@ -99,14 +99,15 @@ not part of this family despite the name.
 
 ## Config, settings, and frontmatter
 
-| Doc                              | Scope                                                     | Verified | Style    | Key landmarks                                                         |
-| -------------------------------- | --------------------------------------------------------- | -------- | -------- | --------------------------------------------------------------------- |
-| `SETTINGS.md`                    | Settings scopes/precedence, merge, write, symlink refusal | 2.1.168  | landmark | `CLAUDE_CONFIG_DIR`, `Refusing to write through symlink`              |
-| `MARKDOWN_FRONTMATTER.md`        | Frontmatter parsing, schema, per-file-type validation     | 2.1.296  | landmark | `tengu_frontmatter_shadow_unknown_key`, `does not recognize or apply` |
-| `CLI_OPTIONS.md`                 | Undocumented CLI flags and auto-mode behavior             | 2.1.76   | legacy   | `--permission-mode`, `isAutoModeCircuitBroken`                        |
-| `MAIN_THREAD_AGENT_AND_MODEL.md` | Main-thread agent selection and model precedence          | 2.1.277  | landmark | `Overrides the 'agent' setting`, `agent_frontmatter`, `sdk-cli`       |
-| `CLAUDE_MD_EXTERNAL_INCLUDES.md` | External CLAUDE.md `@import` approval dialog and flags    | 2.1.169  | landmark | `hasClaudeMdExternalIncludesApproved`, `showExternalIncludesDialog`   |
-| `IS_DEMO.md`                     | Demo flag: startup gates, identity redaction, cmd swap    | 2.1.220  | landmark | `IS_DEMO`, `projectOnboardingSeenCount`, `policy_update_modal`        |
+| Doc                              | Scope                                                     | Verified | Style    | Key landmarks                                                                |
+| -------------------------------- | --------------------------------------------------------- | -------- | -------- | ---------------------------------------------------------------------------- |
+| `SETTINGS.md`                    | Settings scopes/precedence, merge, write, symlink refusal | 2.1.168  | landmark | `CLAUDE_CONFIG_DIR`, `Refusing to write through symlink`                     |
+| `MARKDOWN_FRONTMATTER.md`        | Frontmatter parsing, schema, per-file-type validation     | 2.1.296  | landmark | `tengu_frontmatter_shadow_unknown_key`, `does not recognize or apply`        |
+| `CLI_OPTIONS.md`                 | Undocumented CLI flags and auto-mode behavior             | 2.1.76   | legacy   | `--permission-mode`, `isAutoModeCircuitBroken`                               |
+| `MAIN_THREAD_AGENT_AND_MODEL.md` | Main-thread agent selection and model precedence          | 2.1.277  | landmark | `Overrides the 'agent' setting`, `agent_frontmatter`, `sdk-cli`              |
+| `CLAUDE_MD_EXTERNAL_INCLUDES.md` | External CLAUDE.md `@import` approval dialog and flags    | 2.1.169  | landmark | `hasClaudeMdExternalIncludesApproved`, `showExternalIncludesDialog`          |
+| `PROJECT_CONFIG_DISCOVERY.md`    | What a session started in a subdirectory reads, and when  | 2.1.316  | landmark | `getProjectDirsUpToHome`, `dynamicSkillStates`, `in this folder or above it` |
+| `IS_DEMO.md`                     | Demo flag: startup gates, identity redaction, cmd swap    | 2.1.220  | landmark | `IS_DEMO`, `projectOnboardingSeenCount`, `policy_update_modal`               |
 
 ## API, networking, and MCP
 
