@@ -9,8 +9,8 @@ Ports an existing patch to a new Claude Code version. The minified source
 changes completely between versions (different function/variable names,
 different line numbers) but the underlying structure is preserved.
 
-Read patches/METHODOLOGY.md first — it is the authoritative reference for the
-full workflow. This skill adds operational guardrails specific to porting.
+Read code/patches/METHODOLOGY.md first — it is the authoritative reference for the full workflow.
+This skill adds operational guardrails specific to porting.
 
 # Invocation
 
@@ -23,18 +23,18 @@ Examples:
 - `/port-patch search_all_dirs to 2.1.69`
 
 Parse the arguments to determine:
-- Which patch to port — match by number or name against `patches/*/`
+- Which patch to port — match by number or name against `code/patches/*/`
 - Target version — the version after "to"
 
 Find the most recent previous version of the named patch by scanning
-`patches/<prev-version>/<name>.patch`. Read it and the corresponding entry
-in `patches/PATCHES.md` for semantic context.
+`code/patches/<prev-version>/<name>.patch`. Read it and the corresponding entry in
+`code/patches/PATCHES.md` for semantic context.
 
 # Prerequisites
 
-- Pristine prettified source must already exist at `work/<version>/package/cli.prettier.js`
+- Pristine prettified source must already exist at `code/work/<version>/package/cli.prettier.js`
   (use the `prepare-for-patch-generation` skill if not)
-- The previous version's patch must exist in `patches/<prev-version>/`
+- The previous version's patch must exist in `code/patches/<prev-version>/`
 
 # Workflow
 
@@ -60,7 +60,7 @@ Verify the source has no prior edits by checking for a function or variable
 name introduced by a previous patch (e.g., `getAdditionalDirFiles`):
 
 ```
-grep -c 'getAdditionalDirFiles' work/<version>/package/cli.prettier.js
+grep -c 'getAdditionalDirFiles' code/work/<version>/package/cli.prettier.js
 ```
 
 A count of 0 confirms the file is unmodified.
@@ -68,13 +68,13 @@ A count of 0 confirms the file is unmodified.
 If it has edits, re-extract:
 
 ```
-tar xf work/<version>/anthropic-ai-claude-code-<version>.tgz \
-    -C work/<version>/ package/cli.js
+tar xf code/work/<version>/anthropic-ai-claude-code-<version>.tgz \
+    -C code/work/<version>/ package/cli.js
 npx --yes oxfmt@0.73.0 \
     -c .claude/skills/prepare-for-patch-generation/bin/oxfmt.json \
-    --ignore-path /dev/null work/<version>/package/cli.js
-mv work/<version>/package/cli.js work/<version>/package/cli.prettier.js
-chmod +x work/<version>/package/cli.prettier.js
+    --ignore-path /dev/null code/work/<version>/package/cli.js
+mv code/work/<version>/package/cli.js code/work/<version>/package/cli.prettier.js
+chmod +x code/work/<version>/package/cli.prettier.js
 ```
 
 Use the same pinned oxfmt version and config as `prepare-for-patch-generation.sh`;
@@ -82,14 +82,14 @@ a different formatter or settings produces a different layout.
 
 ## 3. Stage the pristine file
 
-Run `pwd` first to confirm cwd is the repository root (not a subdirectory
-like `work/<version>/`). Then stage:
+Run `pwd` first to confirm cwd is the repository root (not a subdirectory like
+`code/work/<version>/`). Then stage:
 
 ```
-git add -f work/<version>/package/cli.prettier.js
+git add -f code/work/<version>/package/cli.prettier.js
 ```
 
-The `work/` directory is gitignored, so `-f` is required.
+The `code/work/` directory is gitignored, so `-f` is required.
 
 ## 4. Apply the semantic changes
 
@@ -101,13 +101,13 @@ Do NOT copy old patch text verbatim — translate it to new symbols.
 ## 5. Generate the patch
 
 ```
-git diff -- work/<version>/package/cli.prettier.js \
-    > patches/<version>/<NNN>-<name>.patch
+git diff -- code/work/<version>/package/cli.prettier.js \
+    > code/patches/<version>/<NNN>-<name>.patch
 ```
 
 Verify the patch is non-empty and contains the expected hunks.
 
-## 6. Update patches/PATCHES.md
+## 6. Update code/patches/PATCHES.md
 
 Add an entry for the new patch under the target version's section. Include:
 - Patch filename and purpose
@@ -119,7 +119,7 @@ Follow the format of existing entries in the file.
 ## 7. Clean up
 
 ```
-git restore --staged work/<version>/package/cli.prettier.js
+git restore --staged code/work/<version>/package/cli.prettier.js
 ```
 
 Then restore the pristine source (step 2) so the file is ready for the next

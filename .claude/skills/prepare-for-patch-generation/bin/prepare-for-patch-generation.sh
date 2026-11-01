@@ -26,21 +26,23 @@ fi
 
 # Anchor the output directories to the repository, not to the caller's working directory: this
 # script is run by a skill, whose shell may be cwd'd anywhere in the tree. Layout is
-# <repo>/.claude/skills/<skill>/bin/<this script>, so the root is four levels above bin/.
+# <repo>/.claude/skills/<skill>/bin/<this script>, so the root is four levels above bin/, and the
+# Claude Code material lives under <repo>/code/.
 SCRIPT_DIR="$(cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -P -- "${SCRIPT_DIR}/../../../.." && pwd)"
-readonly SCRIPT_DIR REPO_ROOT
+CODE_ROOT="${REPO_ROOT}/code"
+readonly SCRIPT_DIR REPO_ROOT CODE_ROOT
 
 # Fail loudly if that derivation is wrong. Writing a 24MB tree into an unexpected directory is
 # quiet enough to go unnoticed for a whole session.
-if [[ ! -d "${REPO_ROOT}/analysis" || ! -d "${REPO_ROOT}/patches" ]]; then
-    echo "Error: expected repository root at ${REPO_ROOT}, but it has no analysis/ and patches/" >&2
+if [[ ! -d "${CODE_ROOT}/analysis" || ! -d "${CODE_ROOT}/patches" ]]; then
+    echo "Error: expected ${CODE_ROOT} to hold analysis/ and patches/, but it does not" >&2
     echo "       (derived from this script's location: ${SCRIPT_DIR})" >&2
     exit 1
 fi
 
-readonly PATCHES_VERSION_DIR="${REPO_ROOT}/patches/${VERSION}"
-readonly WORK_VERSION_DIR="${REPO_ROOT}/work/${VERSION}"
+readonly PATCHES_VERSION_DIR="${CODE_ROOT}/patches/${VERSION}"
+readonly WORK_VERSION_DIR="${CODE_ROOT}/work/${VERSION}"
 readonly CLI_PRETTIER_JS="${WORK_VERSION_DIR}/package/cli.prettier.js"
 
 # Check if version already prepared

@@ -5,7 +5,7 @@
 // Claude Code internals by running a nested headless Claude session (`claude -p`)
 // with its working directory set to this repository. The nested session inherits
 // this project's CLAUDE.md and skills, so it explores the prettified sources under
-// work/<version>/ and the curated docs under analysis/ on its own, and — per this
+// code/work/<version>/ and the curated docs under code/analysis/ on its own, and — per this
 // repo's own "Documenting findings" loop — writes back what it confirms so the
 // same research is never paid for twice. It delegates the actual git commit to a
 // git-committing subagent rather than committing itself; see the system prompt.
@@ -62,21 +62,21 @@ const SERVER_INFO = { name: "claude-code-expert", version: "0.1.0" };
 
 // The nested session's CLAUDE.md already explains the repo, including the
 // "Documenting findings" loop (research a question, then write it back to
-// analysis/ so it isn't re-derived next time). This prompt keeps that loop in
+// code/analysis/ so it isn't re-derived next time). This prompt keeps that loop in
 // force — it does not override it read-only — and adds the write-back
 // mechanics specific to being invoked headlessly by another project.
 const SYSTEM_PROMPT = [
   [
     "You are an expert on Claude Code's internals being consulted by another Claude",
     "Code session in a different project. Answer the question precisely from the",
-    "evidence in THIS repository: the prettified sources under work/<version>/ and",
-    "the curated analysis docs under analysis/. Cite file:line for concrete claims.",
-    "Prefer the highest-numbered work/<version>. Be direct and concrete.",
+    "evidence in THIS repository: the prettified sources under code/work/<version>/ and",
+    "the curated analysis docs under code/analysis/. Cite file:line for concrete claims.",
+    "Prefer the highest-numbered code/work/<version>. Be direct and concrete.",
   ].join(" "),
   [
     "Follow this repository's normal 'Documenting findings' loop from CLAUDE.md:",
     "when your research confirms, corrects, or discovers a durable fact — not for",
-    "trivial or purely exploratory questions — update the matching analysis/ doc (or",
+    "trivial or purely exploratory questions — update the matching code/analysis/ doc (or",
     "add a new one) in landmark style and restamp its verified version, exactly as",
     "an interactive session here would.",
   ].join(" "),

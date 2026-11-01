@@ -9,5 +9,5 @@ wheels/
 # Virtual environments
 .venv
 
-# Use `git add --force work/<version>/package/cli.prettier.js` during patch development.
-work/
+# Use `git add --force code/work/<version>/package/cli.prettier.js` during patch development.
+code/work/

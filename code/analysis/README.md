@@ -149,7 +149,8 @@ not part of this family despite the name.
   docs above; see `schemas/README.md`.
 - `../patches/README.md` — the patch corpus index: the per-patch catalog (`PATCHES.md`) and the
   regeneration methodology (`METHODOLOGY.md`).
-- `../mcp/README.md` — the expert server that turns this repo into an `ask_claude_code_expert` tool.
+- `../../mcp/README.md` — the expert server that turns this repo into an `ask_claude_code_expert`
+  tool.
 
 ## Maintaining this index
 

@@ -10,16 +10,16 @@ answers get written down so they don't have to be re-derived each time.
 
 ## What's here
 
-| Path                | Contents                                                                   |
-| ------------------- | -------------------------------------------------------------------------- |
-| `analysis/`         | The findings, one doc per topic, indexed by `analysis/README.md`           |
-| `analysis/schemas/` | JSON Schemas for Claude Code's own files: frontmatter, session transcripts |
-| `.claude/skills/`   | Skills for fetching a version, matching code patterns, porting patches     |
-| `bin/`              | Generators: rendered prompt text, transcript schema, transcript stripping  |
-| `patches/`          | Out-of-tree patches to the bundle, with a catalog and a porting method     |
-| `mcp/`              | An MCP server that makes this repo consultable from another project        |
-| `verify/`           | Scripts for checking that a patched build behaves as intended              |
-| `work/`             | Where extracted sources land. Git-ignored; you generate it yourself        |
+| Path                 | Contents                                                                   |
+| -------------------- | -------------------------------------------------------------------------- |
+| `analysis/`          | The findings, one doc per topic, indexed by `analysis/README.md`           |
+| `analysis/schemas/`  | JSON Schemas for Claude Code's own files: frontmatter, session transcripts |
+| `../.claude/skills/` | Skills for fetching a version, matching code patterns, porting patches     |
+| `bin/`               | Generators: rendered prompt text, transcript schema, transcript stripping  |
+| `patches/`           | Out-of-tree patches to the bundle, with a catalog and a porting method     |
+| `../mcp/`            | An MCP server that makes this repo consultable from another project        |
+| `verify/`            | Scripts for checking that a patched build behaves as intended              |
+| `work/`              | Where extracted sources land. Git-ignored; you generate it yourself        |
 
 ## Getting a bundle
 
@@ -50,10 +50,10 @@ anchoring style, and the strings to grep to find the behavior again.
 
 ## Using it from another project: Expert MCP server
 
-`mcp/expert-server.mjs` exposes this repository as a single MCP tool, so another project's session
-can ask a question about Claude Code without adding this repo to its context. The call runs a nested
-headless session rooted here; only the question and the answer cross the boundary. See
-`mcp/README.md` for registration.
+`../mcp/expert-server.mjs` exposes this repository as a single MCP tool, so another project's
+session can ask a question about Claude Code without adding this repo to its context. The call runs
+a nested headless session rooted here; only the question and the answer cross the boundary. See
+`../mcp/README.md` for registration.
 
 Complements the `@claude-code-guide` agent native to Claude Code.
 
