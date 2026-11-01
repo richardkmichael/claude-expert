@@ -1,8 +1,16 @@
 # Claude Desktop Internals
 
 Notes on how the macOS Claude Desktop app is laid out and what config files, environment variables,
-and managed preferences influence its behavior. These notes track the build in the banner below;
-update the banner and any drifted details when re-extracting a newer build.
+and managed preferences influence its behavior.
+
+Each doc records the build it was last verified against, in the Verified column of the document map
+below. When the installed build is newer, treat a doc's build-specific details as suspect and
+re-check them. Docs are brought up to date when a question needs them, not all at once, so their
+builds differ. A build marked with `*` means the doc as a whole was verified against that build,
+with the sections its Version history names re-checked against a later one. A stamp only moves
+forward.
+
+The last build the whole set was verified against:
 
 | Field             | Value                                      |
 |-------------------|--------------------------------------------|
@@ -15,27 +23,27 @@ update the banner and any drifted details when re-extracting a newer build.
 
 ## Document map
 
-| File                                                | Covers                                                                             |
-| --------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| [ARCHITECTURE](./ARCHITECTURE.md)                   | Process model, `app.asar` file tree, workers, native modules, IPC                  |
-| [EXTRACTION](./EXTRACTION.md)                       | Unpacking, repacking/re-signing, re-verification recipes                           |
-| [CONFIGURATION](./CONFIGURATION.md)                 | Config stores, preferences schema, enterprise/user layering                        |
-| [DEPLOYMENT_MODES](./DEPLOYMENT_MODES.md)           | First-party vs third-party (`Claude-3p`), enterprise sources, org policy           |
-| [ENVIRONMENT_VARIABLES](./ENVIRONMENT_VARIABLES.md) | Main-process env vars; the bundled Claude Code surface                             |
-| [MCP](./MCP.md)                                     | MCP SDK/protocol, server hosting, transports, `.dxt`/`.mcpb`                       |
-| [MCP_APPS](./MCP_APPS.md)                           | MCP Apps (MCP-UI) support, including `updateModelContext`                          |
-| [FEATURES](./FEATURES.md)                           | Feature codenames, Cowork/VM download control, `chillingSloth`                     |
-| [COWORK_VM](./COWORK_VM.md)                         | `vm_bundles/` on disk: sparse images, guest filesystems, VM versioning and updates |
-| [DEBUGGING](./DEBUGGING.md)                         | Main-process, renderer, and native debugging; CDP auth                             |
-| [RESET_LIMITS](./RESET_LIMITS.md)                   | Usage-limit reset grants: the claude.ai endpoints that read and apply them         |
+| File                                                | Covers                                                                             | Verified  |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------- | --------- |
+| [ARCHITECTURE](./ARCHITECTURE.md)                   | Process model, `app.asar` file tree, workers, native modules, IPC                  | 1.26832.0 |
+| [EXTRACTION](./EXTRACTION.md)                       | Unpacking, repacking/re-signing, re-verification recipes                           | 1.26832.0 |
+| [CONFIGURATION](./CONFIGURATION.md)                 | Config stores, preferences schema, enterprise/user layering                        | 1.26832.0 |
+| [DEPLOYMENT_MODES](./DEPLOYMENT_MODES.md)           | First-party vs third-party (`Claude-3p`), enterprise sources, org policy           | 1.26832.0 |
+| [ENVIRONMENT_VARIABLES](./ENVIRONMENT_VARIABLES.md) | Main-process env vars; the bundled Claude Code surface                             | 1.26832.0 |
+| [MCP](./MCP.md)                                     | MCP SDK/protocol, server hosting, transports, `.dxt`/`.mcpb`                       | 1.26832.0 |
+| [MCP_APPS](./MCP_APPS.md)                           | MCP Apps (MCP-UI) support, including `updateModelContext`                          | 1.26832.0 |
+| [FEATURES](./FEATURES.md)                           | Feature codenames, Cowork/VM download control, `chillingSloth`                     | 1.26832.0 |
+| [COWORK_VM](./COWORK_VM.md)                         | `vm_bundles/` on disk: sparse images, guest filesystems, VM versioning and updates | 1.26832.0 |
+| [DEBUGGING](./DEBUGGING.md)                         | Main-process, renderer, and native debugging; CDP auth                             | 1.26832.0 |
+| [RESET_LIMITS](./RESET_LIMITS.md)                   | Usage-limit reset grants: the claude.ai endpoints that read and apply them         | 1.26832.0 |
 
-Every file in the set was re-verified against the banner build.
 
 
 ## Refreshing after an update
 
 Re-run the extraction and the [re-verification recipes](./EXTRACTION.md) against the fresh build,
-then update the banner and any drifted facts. Key things that move between builds:
+then restamp each doc you re-check in the document map and update any drifted facts. Key things that
+move between builds:
 
 - The bundle is code-split: `index.pre.js` is the entry point, alongside 203 `index.chunk-*.js`,
   130 `index2.chunk-*.js` and 14 entry-point files. Search the whole `.vite/build/` directory
