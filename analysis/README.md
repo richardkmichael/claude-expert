@@ -127,11 +127,12 @@ not part of this family despite the name.
 
 ## Architecture and dependencies
 
-| Doc                       | Scope                                                             | Verified | Style    | Key landmarks                                     |
-| ------------------------- | ----------------------------------------------------------------- | -------- | -------- | ------------------------------------------------- |
-| `ENTRYPOINTS.md`          | Execution surfaces and entrypoint detection                       | 2.1.76*  | landmark | `CLAUDE_CODE_ENTRYPOINT`, `remote_cowork_trigger` |
-| `FUNCTIONAL_BREAKDOWN.md` | Orientation map: where app concerns live, and which doc owns each | 2.1.277  | landmark | `CLAUDE_CONFIG_DIR`, `.config.json`, `triBool`    |
-| `DEPENDENCIES.md`         | Inlined third-party libraries and version anchors                 | 2.1.76   | landmark | `AxiosError`, `BehaviorSubject`, `UndiciError`    |
+| Doc                       | Scope                                                                                                  | Verified | Style    | Key landmarks                                                          |
+| ------------------------- | ------------------------------------------------------------------------------------------------------ | -------- | -------- | ---------------------------------------------------------------------- |
+| `ENTRYPOINTS.md`          | Execution surfaces and entrypoint detection                                                            | 2.1.76*  | landmark | `CLAUDE_CODE_ENTRYPOINT`, `remote_cowork_trigger`                      |
+| `GITHUB_REPO_PATHS.md`    | `githubRepoPaths` in ~/.claude.json: when it is written, teleport and deep-link readers, stale entries | 2.1.316  | landmark | `githubRepoPaths`, `Teleport to Repo`, `No local clone found for repo` |
+| `FUNCTIONAL_BREAKDOWN.md` | Orientation map: where app concerns live, and which doc owns each                                      | 2.1.277  | landmark | `CLAUDE_CONFIG_DIR`, `.config.json`, `triBool`                         |
+| `DEPENDENCIES.md`         | Inlined third-party libraries and version anchors                                                      | 2.1.76   | landmark | `AxiosError`, `BehaviorSubject`, `UndiciError`                         |
 
 ## Methodology (not findings)
 
