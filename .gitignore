@@ -11,3 +11,6 @@ wheels/
 
 # Use `git add --force code/work/<version>/package/cli.prettier.js` during patch development.
 code/work/
+
+# Local Claude Code settings, at any depth
+.claude/settings.local.json
