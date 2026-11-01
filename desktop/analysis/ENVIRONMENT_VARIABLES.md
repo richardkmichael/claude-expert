@@ -103,9 +103,24 @@ The bundle ships an Office 365 MCP server (`resources/office365-mcp/`) and an ad
 
 ## Bundled Claude Code
 
-Claude Code (CLI) is bundled inside Claude Desktop and runs out-of-process for the Code sidebar.
-The full `CLAUDE_CODE_*` family (several hundred variables) and the provider/model `ANTHROPIC_*`
-set are honored by that subprocess and the Agent SDK it embeds — including provider routing
+Claude Desktop runs Claude Code (the CLI) out of process for the Code sidebar. It does not ship the
+CLI inside the app bundle. Each Desktop build pins one Claude Code version in an embedded manifest
+and downloads that version at runtime into
+`~/Library/Application Support/Claude/claude-code/<version>/<checksum-prefix>/claude.app`, a macOS
+app wrapper around the `claude` binary, next to a `.verified` file holding the bundle's SHA-256.
+Earlier downloaded versions stay beside it. The Cowork VM gets a separate Linux build of the same
+version at `claude-code-vm/<version>/claude`, with the version recorded in
+`claude-code-vm/.sdk-version`.
+
+Relocate the pin with `rg -n 'manifestSignatureEnforcement' .vite/build`. It is a `JSON.parse('…')`
+literal shaped
+`{"version", "manifest": {"version", "manifestSignatureEnforcement", "commit", "buildDate", "platforms": {"darwin-arm64": {…, "bundle": {"checksum"}}, …}}}`.
+The `prepare-claude-desktop-source` skill reads it into `manifest.json` as `claudeCode`. Build
+4.4212.0 pins Claude Code 2.1.309, and the checksum prefix in its download path matches the
+manifest's `darwin-arm64` bundle checksum.
+
+The full `CLAUDE_CODE_*` family (several hundred variables) and the provider/model `ANTHROPIC_*` set
+are honored by that subprocess and the Agent SDK it embeds — including provider routing
 (`CLAUDE_CODE_USE_BEDROCK`, `_USE_VERTEX`, `_USE_FOUNDRY`, `_USE_MANTLE`, `_USE_ANTHROPIC_AWS`,
 `_USE_ANTHROPIC_GOOGLE_CLOUD`), mTLS (`CLAUDE_CODE_CLIENT_CERT` / `_KEY` / `_KEY_PASSPHRASE`,
 `CLAUDE_CODE_CERT_STORE`), OAuth overrides, and `CLAUDE_CONFIG_DIR` (the Code analogue of
@@ -120,3 +135,9 @@ Others in the same write-only category: `CLAUDE_IMPORT_CONVERSATIONS="1"` (with 
 `CLAUDE_COWORK_MEMORY_PATH_OVERRIDE` / `CLAUDE_COWORK_MEMORY_GUIDELINES`, injected into the guest
 environment pointing at `/sessions/<name>/mnt/…` — see [COWORK_VM](./COWORK_VM.md) for that
 filesystem.
+
+
+## Version history
+
+- 4.4212.0: Bundled Claude Code section re-checked. Desktop pins a Claude Code version in an
+  embedded manifest and downloads it at runtime; it is not shipped inside the app bundle.
