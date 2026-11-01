@@ -21,37 +21,17 @@ npx --yes asar extract "/Applications/Claude.app/Contents/Resources/app.asar" /t
 The Electron runtime, Chromium, and native frameworks under `Claude.app/Contents/Frameworks/` are
 generic Electron, not app-specific.
 
-To search the archive without extracting it — useful for finding which of the ~90 chunks holds a
-string — the format is an 8-byte pickle header, a JSON directory, then concatenated file bodies:
-
-```python
-import json, struct
-f = open('/Applications/Claude.app/Contents/Resources/app.asar', 'rb')
-hsz = struct.unpack('<II', f.read(8))[1]     # bytes 0-7:  pickle size word, then header size
-jsz = struct.unpack('<II', f.read(8))[1]     # bytes 8-15: string framing, then JSON length
-hdr = json.loads(f.read(jsz).decode())
-base = 8 + hsz                               # file bodies start here
-
-def walk(node, path=''):
-    for k, v in node.get('files', {}).items():
-        q = f'{path}/{k}'
-        if 'files' in v: yield from walk(v, q)
-        else: yield q, v
-
-needle = b'vm_bundles'
-for q, v in walk(hdr):
-    if not v.get('size') or 'offset' not in v: continue   # 'unpacked' entries have no body here
-    f.seek(base + int(v['offset'])); body = f.read(int(v['size']))
-    if needle in body:
-        print(q, v['size'], body.count(needle))
-```
+To search the archive without extracting it, which is useful for finding which of the several
+hundred chunks holds a string, run `desktop/bin/asar-search.py <needle> [app.asar]`. It prints each
+matching file's path inside the archive, its size and the match count. The format it reads is an
+8-byte pickle header, a JSON directory, then concatenated file bodies.
 
 Entries flagged `unpacked` appear in the header with a size but no `offset` — their bodies live
 beside the archive in `app.asar.unpacked/` (the native `.node` modules and bundled MCP binaries).
-Skip them or read them from that directory.
+The search skips them; read them from that directory.
 
-`hsz` is measured from offset 8, so bodies start at `8 + hsz` — which is also `16 + jsz` plus the
-pickle's alignment padding. Using `16 + hsz` reads garbage.
+The header size is measured from offset 8, so bodies start at `8 + header size`, which is also
+`16 + JSON length` plus the pickle's alignment padding. Using `16 + header size` reads garbage.
 
 
 ## Modifying the app (ASAR repack)
