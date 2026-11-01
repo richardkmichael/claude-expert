@@ -299,7 +299,7 @@ the disable.
 ## Re-verification recipes
 
 ```bash
-EX=/tmp/claude-asar-extract
+EX=desktop/work/<app-version>/app
 B=~/Library/Application\ Support/Claude/vm_bundles/claudevm.bundle
 
 # Apparent vs allocated, per file

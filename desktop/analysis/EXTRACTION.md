@@ -12,11 +12,17 @@ App-specific code lives in an ASAR archive (Atom Shell Archive — a tar-like El
 /Applications/Claude.app/Contents/Resources/app.asar
 ```
 
-Extract it:
+Prepare it with the `prepare-claude-desktop-source` skill, or run its script directly:
 
 ```bash
-npx --yes asar extract "/Applications/Claude.app/Contents/Resources/app.asar" /tmp/claude-asar-extract
+.claude/skills/prepare-claude-desktop-source/bin/prepare-claude-desktop-source.sh [/path/to/Claude.app]
 ```
+
+It extracts `app.asar` with a pinned `@electron/asar` into `desktop/work/<app-version>/app`, formats
+every file under `.vite/build/` with the same pinned oxfmt the Claude Code pipeline uses, and writes
+`desktop/work/<app-version>/manifest.json`. The manifest records the app's build info (version,
+commit, commit timestamp, build type), the Claude Code version the build pins, and how the
+main-process bundle is split into files. A version already prepared is reported and left alone.
 
 The Electron runtime, Chromium, and native frameworks under `Claude.app/Contents/Frameworks/` are
 generic Electron, not app-specific.
@@ -65,11 +71,9 @@ any drifted details across the doc set. The main-process code is code-split, so 
 `.vite/build/` directory rather than a single file.
 
 ```bash
-EX=/tmp/claude-asar-extract
+EX=desktop/work/<app-version>/app
 
-# Build metadata (version, commit, timestamp, build type)
-grep -rhoE '"appVersion":"[^"]*"|"commitHash":"[^"]*"|"commitTimestamp":"[^"]*"|"buildType":"[^"]*"' \
-  "$EX/.vite/build/"*.js | sort -u
+# Build metadata (version, commit, timestamp, build type): read desktop/work/<app-version>/manifest.json
 
 # All process.env.* references (deduped)
 find "$EX" -name "*.js" -not -path "*/node_modules/*" \
