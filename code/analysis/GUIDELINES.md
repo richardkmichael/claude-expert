@@ -106,6 +106,12 @@ This makes the staleness check mechanical: compare the stamp to the latest local
 (`ls work/ | sort -V | tail -1`). The stamp is a per-release fact — bump it whenever you re-verify,
 even if no wording changed. Mirror the version into the doc's row in `README.md`.
 
+A stamp only moves forward. It means "checked against at least this version", so re-checking a doc
+against an older version never lowers it. That happens when a Claude Desktop question leads to the
+older Claude Code version a Desktop build pins. A claim that holds for the older version needs no
+edit. A claim that differs gets a one-line entry in the doc's dated appendix, such as "2.1.300:
+`PreModelSwitch` not yet present".
+
 ## Updating an existing doc
 
 When source behavior has changed, or a doc trails the latest bundle:
