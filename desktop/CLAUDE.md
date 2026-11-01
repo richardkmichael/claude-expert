@@ -8,7 +8,7 @@ This project is for exploring the operation of Claude Desktop, a macOS app.
 
 Areas of interest are MCP Server integration: Claude Desktop support of MCP and MCP Apps
 
-- MCP Specification is available via the `mcp_specification` tool
+- MCP Specification is available via the `mcp-specification` tool
 - "MCP Apps" is an extension specification to the MCP Specification, it descriptions GUI components inside Claude Desktop
   - ~/src/modelcontextprotocol/ext-apps/main/specification/
   - ~/src/modelcontextprotocol/ext-apps/main/docs/patterns.md
