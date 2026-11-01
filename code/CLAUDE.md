@@ -20,7 +20,7 @@ commit subjects and how to search a bundle, are in the root `CLAUDE.md`.
   bundled inline.
 - The original unminified source is not available.
 - Latest local version: `ls work/ | sort -V | tail -1`. If the version asked about isn't present,
-  the `prepare-for-patch-generation` skill downloads and prettifies it.
+  the `prepare-claude-code-source` skill downloads and prettifies it.
 
 # Answering a question about Claude Code
 
@@ -71,7 +71,7 @@ Full methodology, including the version-stamp and update procedure: `analysis/GU
   bundle.
 - `bin/generate-transcript-schema.py` — evolves `analysis/schemas/transcript.schema.json` from real
   session JSONL under `~/.claude/projects/`.
-- Skills, in the repository root's `.claude/skills/`: `prepare-for-patch-generation`,
+- Skills, in the repository root's `.claude/skills/`: `prepare-claude-code-source`,
   `match-code-patterns`, `port-patch`.
 
 # Where things are

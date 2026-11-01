@@ -21,7 +21,7 @@ answers get written down so they don't have to be re-derived each time.
 
 ## Getting a bundle
 
-The `prepare-for-patch-generation` skill (in the repository root's `.claude/skills/`) downloads a
+The `prepare-claude-code-source` skill (in the repository root's `.claude/skills/`) downloads a
 given version, extracts it, and prettifies it into `work/<version>/package/cli.prettier.js`. It
 handles both distribution eras: the earlier minified npm package, and the later bun-compiled native
 binary whose embedded JavaScript modules have to be pulled out and concatenated.

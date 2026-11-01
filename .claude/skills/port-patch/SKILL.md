@@ -33,7 +33,7 @@ Find the most recent previous version of the named patch by scanning
 # Prerequisites
 
 - Pristine prettified source must already exist at `code/work/<version>/package/cli.prettier.js`
-  (use the `prepare-for-patch-generation` skill if not)
+  (use the `prepare-claude-code-source` skill if not)
 - The previous version's patch must exist in `code/patches/<prev-version>/`
 
 # Workflow
@@ -71,14 +71,14 @@ If it has edits, re-extract:
 tar xf code/work/<version>/anthropic-ai-claude-code-<version>.tgz \
     -C code/work/<version>/ package/cli.js
 npx --yes oxfmt@0.73.0 \
-    -c .claude/skills/prepare-for-patch-generation/bin/oxfmt.json \
+    -c .claude/skills/prepare-claude-code-source/bin/oxfmt.json \
     --ignore-path /dev/null code/work/<version>/package/cli.js
 mv code/work/<version>/package/cli.js code/work/<version>/package/cli.prettier.js
 chmod +x code/work/<version>/package/cli.prettier.js
 ```
 
-Use the same pinned oxfmt version and config as `prepare-for-patch-generation.sh`;
-a different formatter or settings produces a different layout.
+Use the same pinned oxfmt version and config as `prepare-claude-code-source.sh`; a different
+formatter or settings produces a different layout.
 
 ## 3. Stage the pristine file
 

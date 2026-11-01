@@ -16,7 +16,7 @@ The npm package layout split at the bun migration.
   `@anthropic-ai/claude-code-<platform>-<arch>[<-musl>]@<v>`, a large (~220MB) bun-compiled binary. The
   bundle's JavaScript lives inside that binary, which the tarball stores at `package/claude`.
 
-Platform/arch matrix (from `prepare-for-patch-generation.sh`): `<platform>` is `darwin` or `linux`,
+Platform/arch matrix (from `prepare-claude-code-source.sh`): `<platform>` is `darwin` or `linux`,
 `<arch>` is `arm64` or `x64`, and a musl Linux host adds the `-musl` suffix. Example:
 `@anthropic-ai/claude-code-darwin-arm64`.
 
@@ -66,10 +66,10 @@ greps, no prettify, no `tweakcc`.
 - A musl Linux host needs the `-musl` variant to run the binary, but since the embedded JS is identical
   across platforms, JS-level bisection can use a darwin or glibc variant regardless of host.
 
-## Relationship to prepare-for-patch-generation
+## Relationship to prepare-claude-code-source
 
-The `prepare-for-patch-generation` skill runs the full pipeline for one version — pack the native
+The `prepare-claude-code-source` skill runs the full pipeline for one version — pack the native
 package, `tweakcc unpack` the JS out of `package/claude`, prettify to
-`work/<v>/package/cli.prettier.js`. That is what you run once you have localized the version and want to
-read the code. Bisection is the cheaper presence-search that comes first: it answers "which version?"
-with grep alone, so you only prettify the one or two versions you actually need to read.
+`work/<v>/package/cli.prettier.js`. That is what you run once you have localized the version and
+want to read the code. Bisection is the cheaper presence-search that comes first: it answers "which
+version?" with grep alone, so you only prettify the one or two versions you actually need to read.
