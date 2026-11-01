@@ -1,8 +1,12 @@
-This project is for exploring the operation of Claude Desktop, a macOS app.
+This directory is for exploring the operation of Claude Desktop, a macOS app. Paths below are
+relative to `desktop/`. Repository-wide conventions, including commit subjects and how to search a
+bundle, are in the root `CLAUDE.md`.
 
 ## Claude Desktop
 
 - Findings are documented in `analysis/` (start at `analysis/README.md`)
+- Commit findings with the subject `(desktop <version>) analysis: <description>`, where `<version>`
+  is the app version analyzed
 
 ## Model Context Protocol functionality
 

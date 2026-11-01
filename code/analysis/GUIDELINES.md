@@ -119,7 +119,7 @@ When source behavior has changed, or a doc trails the latest bundle:
    landmark anchors while you are there. Don't leave a doc half-migrated with fresh line numbers.
 4. Restamp `Verified against:` and bump the Verified column in `README.md`, in the same commit.
 5. Record genuinely new per-release facts in the doc's dated appendix, one line each.
-6. Commit with `(analysis:<version>) short description`.
+6. Commit with `(code <version>) analysis: <description>`.
 
 The tripwire checklists (technique 4 above) make step 1 cheap: a future reader runs the checks
 against a new bundle and drift surfaces as a failed check instead of silent rot.

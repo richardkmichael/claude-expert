@@ -1,108 +1,71 @@
-This repository analyzes the Claude Code source to answer questions about how it actually behaves.
-The official Anthropic docs lag the product, so the source is the ground truth. Findings are written
-down in `code/analysis/` so they don't have to be re-derived; Claude Code ships often, and nothing
-updates these docs automatically, so keeping them current is part of the work.
+This repository analyzes two Anthropic products from the code they ship, to answer questions about
+how they actually behave:
+
+| Path       | Product                       | Instructions        |
+| ---------- | ----------------------------- | ------------------- |
+| `code/`    | Claude Code, the CLI          | `code/CLAUDE.md`    |
+| `desktop/` | Claude Desktop, the macOS app | `desktop/CLAUDE.md` |
+
+The published docs lag both products, so the shipped code is the ground truth. Findings are written
+down so they don't have to be re-derived. Nothing updates them automatically: a doc is brought up to
+date when a question needs it, so keeping the docs current is part of answering.
+
+Before researching a product, read its `CLAUDE.md`. A session started at the repository root loads a
+subdirectory's `CLAUDE.md` only after it reads a file in that subdirectory.
+
+Claude Desktop bundles Claude Code and runs it as a separate process. Questions about that bundled
+Claude Code are answered from `code/`.
 
 This repo also runs as an MCP server other projects can consult instead of `/add-dir`-ing it in:
-`mcp/expert-server.mjs` exposes one tool, `ask_claude_code_expert`, backed by a nested headless
-Claude session rooted here. See `mcp/README.md` for registration and design.
-
-# The source
-
-- `cli.prettier.js` is Claude Code. For versions \<= 2.1.116 it is a minified Node.js application
-  shipped via npm; for >= 2.1.117 it is the JavaScript extracted from a bun-compiled native binary.
-  Either way the prettified form lives at `code/work/<version>/package/cli.prettier.js`.
-- A bun-compiled binary embeds several JavaScript modules, so `cli.prettier.js` is their
-  concatenation in the binary's own order, each preceded by a `// ==== bun module: <name> ====`
-  banner naming the module a match came from. Chunk names are content hashes and change every
-  release, so read a banner to orient yourself, never as a landmark.
-- How the application is distributed across those modules changed at 2.1.242. Up to 2.1.241 it is
-  one multi-megabyte `cli` module alongside a handful of vendor bundles (mermaid, highlight.js,
-  Chart.js) and native-addon shims. From 2.1.242 it is split across a thousand-odd
-  `chunk-<hash>.js` modules behind a small `cli` entry module, and cross-module references resolve
-  through the `import`/`export` lists at each module's edges. Extracting only the entry module of a
-  split binary yields a stub of a few hundred lines, not the application.
-- It is self-contained: no `package.json`, lock file, or `node_modules` — all dependencies are
-  bundled inline.
-- The original unminified source is not available.
-- Latest local version: `ls code/work/ | sort -V | tail -1`. If the version asked about isn't
-  present, the `prepare-for-patch-generation` skill downloads and prettifies it.
-
-# Answering a question about Claude Code
-
-0. First consult the `@claude-code-guide` subagent with the question.  This may reveal additional
-   strings to help search the source code, or clarify behaviours and findings from the source code.
-
-1. Find prior research. Open `code/analysis/README.md` (the index) and look up the topic. It maps
-   each doc to its scope, the version it was verified against, and stable strings to grep.
-
-2. Pick the source. Use the latest local `code/work/<version>`. If the matching doc's Verified
-   version is behind that, treat its version-specific specifics as suspect and re-check them.
-
-3. Research the bundle. Search the doc's landmark strings with `rg` (not `grep` — see Research
-   tooling) to relocate the behavior; use the `code-intel` MCP for structure-aware navigation and
-   `code/bin/render-prompts.py` for prompt text. App and library code are interleaved in the
-   bun-compiled bundle, so anchor on app-specific strings (`tengu_*`, prompt literals, tool names,
-   `CLAUDE_CODE_*` env vars) — these do not appear inside third-party libraries.
-
-4. Cross-check the official docs when the question is whether documented behavior is current. The
-   `anthropic-docs` and `claude-code-docs` MCP servers hold the published docs; drift between those
-   and the source is the reason this repo exists. Report the drift in your answer.
-
-5. Record what you found (see below). A question answered from the source but not written back is
-   research lost.
+`mcp/expert-server.mjs` exposes `ask_claude_code_expert`, backed by a nested headless Claude
+session. See `mcp/README.md` for registration and design.
 
 # Documenting findings
 
-When you confirm, correct, or discover behavior, update the docs in the same session:
+When you confirm, correct, or discover behavior, update the product's docs in the same session. A
+question answered from the source but not written back is research lost. Each product's `CLAUDE.md`
+gives its procedure. Common to both:
 
-- Update the matching `code/analysis/` doc, or add a new one, in the landmark style: anchor on
-  version-stable strings (literal prompt/UI strings, `tengu_*` names, env vars, config keys, tool
-  names, behavioral logic) — never on minified symbol names, line numbers, or pasted code, which
-  churn every release. Replace line numbers with a grep relocation recipe plus the expected shape.
-- Restamp the doc's verified version and bump its row in `code/analysis/README.md` in the same
-  commit.
-- If the doc was `legacy` style, retrofit the section you touched instead of leaving line-number
-  anchors behind.
-- Commit with a scoped subject: `(analysis:<version>) short description`, where `<version>` is the
-  `cli.prettier.js` version analyzed.
+- Anchor on version-stable strings: literal prompt and UI strings, telemetry event names, env vars,
+  config keys, tool names, and the behavioral logic itself. Never anchor on minified symbol names,
+  line numbers, or pasted code, which churn every release. In place of a line number, give a grep
+  relocation recipe plus the expected shape.
+- Record the version the finding was checked against.
 
-Full methodology, including the version-stamp and update procedure: `code/analysis/GUIDELINES.md`.
+# Commit subjects
 
-# Research tooling
+```
+(<product> <version>) <kind>: <description>
+```
 
-- Search the bundle with `rg`, never `grep`. In the Bash tool, `grep` is bundled `ugrep` dispatched
-  busybox-style from the `claude` binary itself (argv-switched — not installed on the machine, and it
-  presents only as `grep`, so you cannot detect it). It catastrophically backtracks on bounded
-  quantifier + alternation patterns (`[^"]{0,90}(a|b|c)…`) over the 25MB `cli.prettier.js` and hangs.
-  `rg` uses a DFA and stays fast — use it for every bundle scan; restrict `grep` to fixed strings (`-F`).
-- When you grep a raw artifact instead — a native binary, or minified JS with no line breaks (e.g. to
-  bisect versions without prettifying) — match for presence, not lines: `grep -aqF` (true/false via exit
-  code), `-ac` (count), or `-ao` (just the matched substring). Bare line output dumps a multi-KB line or
-  binary bytes; `-a` treats the file as text so the match isn't skipped.
-- A zero-hit grep does not prove absence. Strings the product renders are often assembled from parts,
-  so the rendered text never appears as one literal — a heading built as `` `## ${CONST}` `` will not
-  match a search for the full heading, and neither will text interpolated from a hoisted variable or
-  split across a concatenation. Before concluding a feature was removed, search a distinctive
-  substring that cannot span an interpolation boundary, then follow the constant or variable to its
-  use site. Reserve "absent" for when that shorter search also comes back empty.
-- `code-intel` MCP — structure-aware navigation of the bundle (configured in `.mcp.json`).
-- `anthropic-docs` / `claude-code-docs` MCP — the published docs, for the "is this still current?"
-  check.
-- `code/bin/render-prompts.py <version>` — regenerates `code/analysis/PROMPTS_RENDERED.md` verbatim
-  from a bundle.
-- `code/bin/generate-transcript-schema.py` — evolves `code/analysis/schemas/transcript.schema.json`
-  from real session JSONL under `~/.claude/projects/`.
-- Skills: `prepare-for-patch-generation`, `match-code-patterns`, `port-patch`.
-- `mcp/expert-server.mjs` — exposes this repo to other projects as `ask_claude_code_expert`.
+- product: `code`, `desktop`, or `repo` for a change that serves both products or the repository
+  itself. The product is what the change is about, not where the file lives.
+- version: the product version the change was checked against. Only on a commit about one version,
+  usually `analysis`. Omit it otherwise, as in `(code) skills: ...`.
+- kind: `analysis`, `bin`, `skills`, `mcp`, `patches` or `docs`. `docs` also covers `CLAUDE.md`,
+  READMEs, and config files such as `.mcp.json` and `.gitignore`.
 
-# Where things are
+```
+(code 2.1.316) analysis: Document project config discovery from a subdirectory
+(desktop 1.26832.0) analysis: Update environment variables for 1.26832.0
+(repo) docs: Move the desktop MCP servers into the root .mcp.json
+```
 
-- `code/analysis/README.md` — index of all findings docs. Start here.
-- `code/analysis/GUIDELINES.md` — how to write and update analysis docs.
-- `code/analysis/schemas/` — JSON Schemas for Claude Code's own files (frontmatter, transcript).
-- `code/patches/README.md` — patch corpus index: the per-patch catalog (`PATCHES.md`) and the
-  regeneration workflow (`METHODOLOGY.md`).
-- `code/work/<version>/package/cli.prettier.js` — the prettified sources, one dir per version.
-- `mcp/README.md` — this repo's own MCP server (`ask_claude_code_expert`): register it in another
-  project to query this repo's Claude Code knowledge without leaving that project's context.
+# Searching shipped code
+
+- Search a bundle with `rg`, never `grep`. In the Bash tool, `grep` is bundled `ugrep` dispatched
+  busybox-style from the `claude` binary itself (argv-switched — not installed on the machine, and
+  it presents only as `grep`, so you cannot detect it). It catastrophically backtracks on bounded
+  quantifier + alternation patterns (`[^"]{0,90}(a|b|c)…`) over a multi-megabyte bundle such as the
+  25MB `cli.prettier.js`, and hangs. `rg` uses a DFA and stays fast — use it for every bundle scan;
+  restrict `grep` to fixed strings (`-F`).
+- When you grep a raw artifact instead — a native binary, or minified JS with no line breaks (e.g.
+  to bisect versions without prettifying) — match for presence, not lines: `grep -aqF` (true/false
+  via exit code), `-ac` (count), or `-ao` (just the matched substring). Bare line output dumps a
+  multi-KB line or binary bytes; `-a` treats the file as text so the match isn't skipped.
+- A zero-hit grep does not prove absence. Strings the product renders are often assembled from
+  parts, so the rendered text never appears as one literal — a heading built as `` `## ${CONST}` ``
+  will not match a search for the full heading, and neither will text interpolated from a hoisted
+  variable or split across a concatenation. Before concluding a feature was removed, search a
+  distinctive substring that cannot span an interpolation boundary, then follow the constant or
+  variable to its use site. Reserve "absent" for when that shorter search also comes back empty.

@@ -8,8 +8,8 @@ the behavior in a newer bundle.
 How to use this: find the topic below, open the doc, then confirm it still holds against the latest
 local source (`ls work/ | sort -V | tail -1`). If the doc's Verified column is behind that version,
 treat its version-specific specifics as suspect and re-check against the current bundle. Methodology
-for writing and updating docs is in `GUIDELINES.md`; the doc-update loop is summarized in the root
-`CLAUDE.md`.
+for writing and updating docs is in `GUIDELINES.md`; the doc-update loop is summarized in
+`../CLAUDE.md`.
 
 Style legend:
 
