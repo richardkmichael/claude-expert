@@ -208,8 +208,10 @@ none, so the grant lasts until the next message, as the public docs say.
 
 Skill tool, inline. The tool returns the grant as a permission layer of kind `allowed_tools`
 (relocate with `rg -n 'case "allowed_tools"'`), which unions the list into the existing `command`
-rules. A read-only skill load (`readOnlySkillLoad`) drops the grant. Under `pollEventDeliveryGuard`
-no grant is applied.
+rules. A read-only skill load (`readOnlySkillLoad`, set for an agent's `skills:` preload and for a
+load on the coordinator) does not run the skill's `` !`cmd` `` lines; each is replaced by
+`[shell command not executed: read-only skill load on the coordinator`. Under
+`pollEventDeliveryGuard` no grant is applied.
 
 Fork. The fork preparation wraps `getAppState` so `command` becomes the de-duplicated union of the
 existing rules and the skill's list (or replaces them when the caller asks), merges

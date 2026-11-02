@@ -508,10 +508,12 @@ agent's own system prompt, with no parent history. This is the default isolation
 
 Fork. With the fork gate on, `subagent_type: "fork"` runs the built-in `fork` agent. A fork inherits
 the parent's full message history and rendered system prompt, shares the parent's cache, and always
-runs on the parent's model and effort. Its preamble (grep "You are a worker fork") tells it the
-transcript above is inherited reference, to execute one directive then stop, and not to spawn
-subagents. Forking inside a fork throws "Fork is not available inside a forked worker." A fork
-cannot take `isolation: "remote"`.
+runs on the parent's model. Its effort follows the rule for any subagent (the Agent tool's `effort`
+input, else the session effort): the parent's turn effort, such as one a skill raised for the turn,
+does not carry over (see `MARKDOWN_FRONTMATTER.md`, `effort`). Its preamble (grep "You are a worker
+fork") tells it the transcript above is inherited reference, to execute one directive then stop, and
+not to spawn subagents. Forking inside a fork throws "Fork is not available inside a forked worker."
+A fork cannot take `isolation: "remote"`.
 
 Worktree isolation. `isolation: "worktree"` (grep "gives the agent its own git worktree") creates a
 temporary git worktree so the agent works on an isolated copy. For a fork it injects a context
