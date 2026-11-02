@@ -52,8 +52,8 @@ records, see `MONITORING_USAGE.md`.
 
 `<proj>` is `~/.claude/projects/<encoded-cwd>`, where `<encoded-cwd>` is the project working
 directory with path separators replaced by dashes (e.g.
-`-Users-you-src-claude-code-analysis`). The subagent transcript path is
-what the SubagentStop hook reports as `agent_transcript_path` (see `HOOKS.md`).
+`-Users-you-src-claude-expert`). The subagent transcript path is what the
+SubagentStop hook reports as `agent_transcript_path` (see `HOOKS.md`).
 
 Subagent transcripts use the same record format as the main transcript and carry both categories of
 record: conversation records with `isSidechain: true` and an `agentId` are routed to the subagent

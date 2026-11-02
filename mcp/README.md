@@ -81,7 +81,7 @@ absolute path to the bun binary (the path `mise which bun` prints) in place of t
 User scope makes it available in every project (recommended):
 
     claude mcp add claude-expert -s user -- \
-      bun /path/to/claude-code-analysis/mcp/claude-expert.mjs
+      bun /path/to/claude-expert/mcp/claude-expert.mjs
 
 Or per project, in that project's `.mcp.json`:
 
@@ -90,7 +90,7 @@ Or per project, in that project's `.mcp.json`:
         "claude-expert": {
           "command": "bun",
           "args": [
-            "/path/to/claude-code-analysis/mcp/claude-expert.mjs"
+            "/path/to/claude-expert/mcp/claude-expert.mjs"
           ]
         }
       }

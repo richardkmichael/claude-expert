@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/local/claude-code-analysis/main/analysis/schemas/frontmatter.schema.json",
+  "$id": "https://raw.githubusercontent.com/local/claude-expert/main/code/analysis/schemas/frontmatter.schema.json",
   "title": "Claude Code Markdown Frontmatter",
   "description": "Validates the YAML frontmatter of Claude Code Markdown configuration files (agents, skills, output styles, memory). Verified against cli.prettier.js 2.1.296. See analysis/MARKDOWN_FRONTMATTER.md for narrative documentation. Use #/$defs/Agent, #/$defs/Skill, #/$defs/OutputStyle, or #/$defs/Memory as the entry point per file type.",
   "$defs": {
