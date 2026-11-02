@@ -65,6 +65,10 @@ questions go straight to `ask_claude_desktop_expert`: there is no Desktop guide.
   | `ask_claude_code_expert`    | `claude-code-docs`, `claude-platform-docs`                                                                       |
   | `ask_claude_desktop_expert` | `claude-code-docs`, `claude-platform-docs`, `mcp-specification`, `fastmcp_documentation`, `prefab_documentation` |
 
+- No `claude-code-guide` subagent. The nested sessions run as `claude -p`, and the server clears
+  `CLAUDE_CODE_ENTRYPOINT` before starting them, so Claude Code treats each as an SDK session and
+  does not register the guide (see `code/analysis/CLAUDE_CODE_GUIDE.md`). The routing rule above
+  applies to the calling session, not to the experts.
 - No experts of their own. Every nested session runs with `CLAUDE_EXPERT_NESTED=1`; a copy of this
   server started under that variable offers no tools, so an expert never consults itself even if
   this server is registered at user scope.

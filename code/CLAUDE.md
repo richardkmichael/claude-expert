@@ -24,8 +24,8 @@ commit subjects and how to search a bundle, are in the root `CLAUDE.md`.
 
 # Answering a question about Claude Code
 
-0. First consult the `@claude-code-guide` subagent with the question. This may reveal additional
-   strings to help search the source code, or clarify behaviours and findings from the source code.
+0. If a `claude-code-guide` subagent is available, consult it first with the question. It may reveal
+   additional strings to search for, or clarify behaviours and findings from the source code.
 
 1. Find prior research. Open `analysis/README.md` (the index) and look up the topic. It maps each
    doc to its scope, the version it was verified against, and stable strings to grep.
