@@ -4,8 +4,7 @@ Source: `cli.prettier.js` (`work/<version>/package/cli.prettier.js`)
 Verified against: cli.prettier.js 2.1.76 (2026-06-06); the headline `allowed-tools` preload gap and
 the permission-merge shape re-checked against 2.1.277 (2026-09-19), see Version history.
 
-See also: [Task Tool and Subagents](TASK_TOOL_AND_SUBAGENTS.md),
-[Markdown Frontmatter](MARKDOWN_FRONTMATTER.md)
+See also: [Subagents](SUBAGENTS.md), [Markdown Frontmatter](MARKDOWN_FRONTMATTER.md)
 
 ## Overview
 

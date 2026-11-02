@@ -37,7 +37,7 @@ attribution recipe. It cross-references the field-level references that already 
 | statusLine `context_window` input object         | `PROMPTS_RENDERED.md`           |
 | `compactMetadata.preTokens`, microcompact tokens | `CLEAR_COMPACT_FORK_CONTEXT.md` |
 | Session-memory background billing                | `SESSION_MEMORY_AND_SUMMARY.md` |
-| Subagent output pipeline, the `Done (…)` summary | `TASK_TOOL_AND_SUBAGENTS.md`    |
+| Subagent output pipeline, the `Done (…)` summary | `SUBAGENTS.md`                  |
 | SubagentStop hook input schema                   | `HOOKS.md`                      |
 
 ## The ground-truth token figure

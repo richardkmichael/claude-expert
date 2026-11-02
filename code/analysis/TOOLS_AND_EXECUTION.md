@@ -257,8 +257,8 @@ Subagents (verified 2.1.300). Both gates are process-wide, so a subagent's pool 
 set the session registered. A sync subagent keeps the Task tools. A background subagent loses them
 to the async built-in filter unless it is an Agent Teams teammate, and `TodoWrite`, which that
 filter allows, is not registered under the Task flavor. A background subagent in a Task-flavor
-session therefore has no checklist tool. Details in `TASK_TOOL_AND_SUBAGENTS.md`, "Background
-placement and the async built-in filter".
+session therefore has no checklist tool. Details in `SUBAGENTS.md`, "Background placement and the
+async built-in filter".
 
 A settings file that sets `CLAUDE_CODE_ENABLE_TODO_TOOLS` in `env` is applied to the process, so it
 overrides the inherited environment and has to be excluded when testing the default. A deny rule
@@ -371,7 +371,7 @@ mcp__code-intel__, Bash(cat:), Bash(git restore:), Read, Edit, Grep, Glob
 
 ## The Agent/Task Tool and Subagents
 
-Extracted to [TASK_TOOL_AND_SUBAGENTS.md](TASK_TOOL_AND_SUBAGENTS.md).
+Extracted to [SUBAGENTS.md](SUBAGENTS.md).
 
 Covers: built-in agents (general-purpose, statusline-setup, Explore, Plan, claude-code-guide),
 the team/swarm system (teammates, SendMessageTool, TeammateTool), task management tools
