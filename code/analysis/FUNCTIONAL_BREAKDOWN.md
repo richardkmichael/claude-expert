@@ -48,7 +48,7 @@ Grep `triBool` for the tri-state declarations.
 
 | Concern                  | Landmark                     | Depth                            |
 | ------------------------ | ---------------------------- | -------------------------------- |
-| Agent directory          | `agents` under `.claude`     | `SKILLS.md`                      |
+| Agent directory          | `agents` under `.claude`     | `SUBAGENTS.md`                   |
 | Agent frontmatter schema | `whenToUse`, `allowed-tools` | `MARKDOWN_FRONTMATTER.md`        |
 | Agent discovery          | `agent-` display prefix      | `SUBAGENTS.md`                   |
 | Model resolution         | `CLAUDE_CODE_SUBAGENT_MODEL` | `MAIN_THREAD_AGENT_AND_MODEL.md` |
