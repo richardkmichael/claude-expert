@@ -6,10 +6,11 @@ its main window loads the claude.ai frontend, not because of code in `app.asar`.
 
 ## Where the code lives
 
-The desktop app opens the page by navigating its main window to `<main window URL>/settings/usage`
-(the tray usage menu does the same). The page, the reset UI and the claim request are all in the
-remotely served claude.ai frontend, so they are absent from the extracted `app.asar` and change on
-the web deploy schedule rather than with desktop releases.
+The desktop app's tray usage menu opens the page by navigating its main window to
+`<main window URL>/settings/usage`; that is the only reference to the page in `app.asar`. The page,
+the reset UI and the claim request are all in the remotely served claude.ai frontend, so they are
+absent from the extracted `app.asar` and change on the web deploy schedule rather than with desktop
+releases.
 
 The internal name of the feature is `cedar_ember`. It appears as a query flag, a response key, the
 `program` value of the claim request, and the analytics events `claudeai.cedar_ember.*`. It is an
@@ -119,10 +120,14 @@ Neither of these carries reset grants:
 - `GET https://api.anthropic.com/api/oauth/usage`, called by the desktop Claude Code integration
   with the OAuth bearer token and `anthropic-beta: oauth-2025-04-20`.
 
-The desktop main process polls the first one without `cedar_ember=1`, keeps the result in a
-`plan-usage` store, and appends samples to `plan-usage-history.json` in the app's data directory.
-The second returns the same limit windows, and the desktop app reads only `five_hour`, `seven_day`,
-`seven_day_sonnet`, `seven_day_opus`, `limits[]` and `extra_usage` from it.
+The desktop main process polls the first one without `cedar_ember=1`, adding `?skip_spend=1` to
+background polls except about once an hour. It keeps the result in a `plan-usage` store and appends
+samples to `plan-usage-history.json` in the app's data directory. It reads `five_hour`, `seven_day`,
+`seven_day_opus`, `seven_day_oauth_apps`, `seven_day_cowork`, `seven_day_omelette`,
+`omelette_promotional` (shown in the tray as "Claude Design grant"), `seven_day_sonnet`, `limits[]`
+and `extra_usage` from it. The second returns the same limit windows, and the desktop app reads only
+`five_hour`, `seven_day`, `seven_day_sonnet`, `seven_day_opus`, `limits[]` and `extra_usage` from
+it.
 
 ## Other code-named blocks in the usage response
 
