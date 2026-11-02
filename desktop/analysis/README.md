@@ -31,7 +31,7 @@ The last build the whole set was verified against:
 | [MCP](./MCP.md)                                     | MCP SDK/protocol, server hosting, transports, `.dxt`/`.mcpb`                       | 1.26832.0   |
 | [MCP_APPS](./MCP_APPS.md)                           | MCP Apps (MCP-UI) support, including `updateModelContext`                          | 1.26832.0   |
 | [FEATURES](./FEATURES.md)                           | Feature codenames, Cowork/VM download control, `chillingSloth`                     | 1.26832.0   |
-| [COWORK_VM](./COWORK_VM.md)                         | `vm_bundles/` on disk: sparse images, guest filesystems, VM versioning and updates | 1.26832.0   |
+| [COWORK_VM](./COWORK_VM.md)                         | Where Cowork runs (device or cloud); the local VM's `vm_bundles/`, images, updates | 4.4212.0    |
 | [DEBUGGING](./DEBUGGING.md)                         | Main-process, renderer, and native debugging; CDP auth                             | 1.26832.0   |
 | [RESET_LIMITS](./RESET_LIMITS.md)                   | Usage-limit reset grants: the claude.ai endpoints that read and apply them         | 1.26832.0   |
 
