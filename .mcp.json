@@ -4,6 +4,10 @@
       "type": "http",
       "url": "https://code.claude.com/docs/mcp"
     },
+    "claude-platform-docs": {
+      "type": "http",
+      "url": "https://platform.claude.com/docs/mcp"
+    },
     "mcp-specification": {
       "type": "http",
       "url": "https://modelcontextprotocol.io/mcp"
