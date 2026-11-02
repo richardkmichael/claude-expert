@@ -10,30 +10,30 @@ builds differ. A doc describes only the build it is stamped with, and a stamp on
 
 The last build the whole set was verified against:
 
-| Field             | Value                                      |
-|-------------------|--------------------------------------------|
-| App version       | 1.26832.0                                  |
-| Build commit      | 056ee2be623b207f6a4d24dfb1b2fb5a82db0ecf   |
-| Build timestamp   | 2026-08-06T05:43:05Z                       |
-| Build type        | prod                                       |
-| Platform observed | darwin (macOS)                             |
+| Field             | Value                                    |
+| ----------------- | ---------------------------------------- |
+| App version       | 4.4212.0                                 |
+| Build commit      | cbfe3c56d49c49332ad5a9588303c9dbc70a5e7f |
+| Build timestamp   | 2026-10-29T05:56:32Z                     |
+| Build type        | prod                                     |
+| Platform observed | darwin (macOS)                           |
 
 
 ## Document map
 
-| File                                                | Covers                                                                             | Verified    |
-| --------------------------------------------------- | ---------------------------------------------------------------------------------- | ----------- |
-| [ARCHITECTURE](./ARCHITECTURE.md)                   | Process model, `app.asar` file tree, workers, native modules, IPC                  | 1.26832.0\* |
-| [EXTRACTION](./EXTRACTION.md)                       | Unpacking, repacking/re-signing, re-verification recipes                           | 1.26832.0   |
-| [CONFIGURATION](./CONFIGURATION.md)                 | Config stores, preferences schema, enterprise/user layering                        | 4.4212.0    |
-| [DEPLOYMENT_MODES](./DEPLOYMENT_MODES.md)           | First-party vs third-party (`Claude-3p`), enterprise sources, org policy           | 4.4212.0    |
-| [ENVIRONMENT_VARIABLES](./ENVIRONMENT_VARIABLES.md) | Main-process env vars; the bundled Claude Code surface                             | 4.4212.0    |
-| [MCP](./MCP.md)                                     | MCP SDK/protocol, server hosting, transports, `.dxt`/`.mcpb`                       | 4.4212.0    |
-| [MCP_APPS](./MCP_APPS.md)                           | MCP Apps (MCP-UI) support, including `updateModelContext`                          | 4.4212.0    |
-| [FEATURES](./FEATURES.md)                           | Feature codenames, Cowork/VM download control, `chillingSloth`                     | 1.26832.0   |
-| [COWORK_VM](./COWORK_VM.md)                         | Where Cowork runs (device or cloud); the local VM's `vm_bundles/`, images, updates | 4.4212.0    |
-| [DEBUGGING](./DEBUGGING.md)                         | Main-process, renderer, and native debugging; CDP auth                             | 1.26832.0   |
-| [RESET_LIMITS](./RESET_LIMITS.md)                   | Usage-limit reset grants: the claude.ai endpoints that read and apply them         | 4.4212.0    |
+| File                                                | Covers                                                                             | Verified |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------- | -------- |
+| [ARCHITECTURE](./ARCHITECTURE.md)                   | Product surfaces, process model, Claude Code subprocess, file tree, workers, IPC   | 4.4212.0 |
+| [EXTRACTION](./EXTRACTION.md)                       | Unpacking, repacking/re-signing, re-verification recipes                           | 4.4212.0 |
+| [CONFIGURATION](./CONFIGURATION.md)                 | Config stores, preferences schema, enterprise/user layering                        | 4.4212.0 |
+| [DEPLOYMENT_MODES](./DEPLOYMENT_MODES.md)           | First-party vs third-party (`Claude-3p`), enterprise sources, org policy           | 4.4212.0 |
+| [ENVIRONMENT_VARIABLES](./ENVIRONMENT_VARIABLES.md) | Main-process env vars; the bundled Claude Code surface                             | 4.4212.0 |
+| [MCP](./MCP.md)                                     | MCP SDK/protocol, server hosting, transports, `.dxt`/`.mcpb`                       | 4.4212.0 |
+| [MCP_APPS](./MCP_APPS.md)                           | MCP Apps (MCP-UI) support, including `updateModelContext`                          | 4.4212.0 |
+| [FEATURES](./FEATURES.md)                           | Feature codenames, Cowork/VM download control, `chillingSloth`                     | 4.4212.0 |
+| [COWORK_VM](./COWORK_VM.md)                         | Where Cowork runs (device or cloud); the local VM's `vm_bundles/`, images, updates | 4.4212.0 |
+| [DEBUGGING](./DEBUGGING.md)                         | Main-process, renderer, and native debugging; CDP auth                             | 4.4212.0 |
+| [RESET_LIMITS](./RESET_LIMITS.md)                   | Usage-limit reset grants: the claude.ai endpoints that read and apply them         | 4.4212.0 |
 
 
 
