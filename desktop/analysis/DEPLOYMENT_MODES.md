@@ -1,68 +1,61 @@
 # Deployment Modes and Enterprise Config
 
 First-party vs third-party deployment, the `Claude-3p` data directory, where enterprise config comes
-from, and how the managed-settings tiers resolve. Minified identifiers below are snapshot
-illustrations for this build — anchor on the string literals and behavior.
+from, and how the managed-settings tiers resolve. Anchor on the string literals and behavior below;
+the bundle's minified names change every build.
 
 
 ## First-party (1p) vs third-party (3p)
 
 - 1p (default): connects to Anthropic's hosted services (claude.ai). User data lives at
   `~/Library/Application Support/Claude/`.
-- 3p (enterprise / customer-deployed): connects to a configured inference provider or bootstrap URL.
-  User data lives at `~/Library/Application Support/Claude-3p/`.
+- 3p (enterprise / customer-deployed): connects to a configured inference provider, bootstrap URL or
+  self-hosted backend. User data lives at `~/Library/Application Support/Claude-3p/`.
 
-The `-3p` suffix is applied by the userData path function in `index.pre.js`:
+The `-3p` suffix is applied by the 3p userData path function, in both `index.pre.js` and the main
+chunk (relocate with `` rg -n -- '= "-3p"|`-3p`' "$EX/.vite/build/" ``, next to the
+`claude_desktop_config.json` constant). Its logic:
 
-```js
-// constants: pD = "-3p", Cm = "Claude-3p"
-function On() {
-  // if CLAUDE_USER_DATA_DIR is set, use userData as-is (no suffix)
-  if (process.env.CLAUDE_USER_DATA_DIR) return app.getPath("userData");
-  // on Windows, %LOCALAPPDATA%\Claude-3p
-  if (process.platform === "win32" && process.env.LOCALAPPDATA)
-    return join(process.env.LOCALAPPDATA, Cm);
-  // otherwise append -3p to the default userData dir (idempotently)
-  const g = app.getPath("userData");
-  return g.endsWith(pD) ? g : `${g}${pD}`;
-}
-```
+1. If `CLAUDE_USER_DATA_DIR` is set, return `userData` as-is (no suffix).
+2. On Windows with `LOCALAPPDATA` set, return `%LOCALAPPDATA%\Claude-3p`.
+3. Otherwise append `-3p` to the default `userData` dir (idempotently: a path already ending in
+   `-3p` is returned unchanged).
 
 
 ## How the mode is selected
 
-Re-evaluated at every launch. The resolver returns 3p when an inference/bootstrap backend is
-configured and the app is not pinned to 1p:
+Re-evaluated at every launch. The resolver returns 3p when a third-party backend is configured and
+the app is not pinned to 1p.
 
-```js
-function AsA(g) {   // a backend is configured
-  return g.inference !== undefined ||
-         (g.bootstrap?.url !== undefined && g.bootstrap.enabled !== false);
-}
-function It(g) {    // true => 3p
-  return AsA(g) &&
-    (g.authentication?.disableClaudeAiSignIn === true || persistedDeploymentMode() !== "1p");
-}
-```
+A backend counts as configured when any of these holds:
 
-| Backend configured (`AsA`)? | `disableClaudeAiSignIn`? | Persisted `deploymentMode` | Mode |
-|-----------------------------|--------------------------|----------------------------|------|
-| no                          | —                        | —                          | 1p   |
-| yes                         | true                     | —                          | 3p   |
-| yes                         | false / unset            | `"1p"`                     | 1p   |
-| yes                         | false / unset            | `"3p"` or unset            | 3p   |
+- An `inference` block is set (the `inferenceProvider` key's `activatesThirdPartyMode`).
+- `bootstrap.url` is set and `bootstrap.enabled !== false` (the `bootstrapUrl` key's
+  `activatesThirdPartyMode`).
+- A `selfHosted` block is set.
+- A managed key that would activate 3p mode is present but unreadable.
 
-Mapping from older builds:
+When the result is 3p the resolver also reports why (the Reason column):
 
-- The old "`inferenceProvider` set?" input is now an `inference` block or a `bootstrap.url`.
-- The old `disableDeploymentModeChooser` admin override is now
-  `authentication.disableClaudeAiSignIn`. The old name survives only as that key's legacy `flatKey`
-  alias (scope `["3p"]`, `availableInVersion 1.3834.0`, remote-disabled).
-- The persisted `deploymentMode` still lives in `claude_desktop_config.json` (top level, with
-  `awaitingSignIn`).
+| Backend? | `disableClaudeAiSignIn` | Persisted mode  | Mode | Reason                          |
+| -------- | ----------------------- | --------------- | ---- | ------------------------------- |
+| no       | —                       | —               | 1p   | —                               |
+| yes      | true                    | —               | 3p   | `chooser-disabled`              |
+| yes      | false / unset           | `"1p"`          | 1p   | —                               |
+| yes      | false / unset           | `"3p"` or unset | 3p   | `hybrid-pointer` or `persisted` |
 
-When a backend is configured and sign-in is not disabled, a first-launch chooser writes
-`deploymentMode` into the JSON; later launches read it back.
+`hybrid-pointer` is reported when `bootstrap.url` points at an Anthropic host (`config.claude.com`,
+`api.anthropic.com`, `api.claude.ai`, or their staging counterparts); otherwise `persisted`.
+Relocate with `rg -n '"chooser-disabled"' "$EX/.vite/build/"`.
+
+The admin override is `authentication.disableClaudeAiSignIn`, whose flat (plist) key is
+`disableDeploymentModeChooser` (scope `["3p"]`, `availableInVersion 1.3834.0`,
+`remotePolicy: { hybrid: { scope: "excluded" }, applyUnverified: true }`).
+
+The persisted `deploymentMode` is a top-level field of the 3p store's `claude_desktop_config.json`
+(`Claude-3p/`, or `$CLAUDE_USER_DATA_DIR` when that is set). When a backend is configured and
+sign-in is not disabled, a first-launch chooser writes `deploymentMode` into that file (logged as
+`[custom-3p] deploymentMode written`); later launches read it back.
 
 
 ## CLAUDE_USER_DATA_DIR
@@ -112,26 +105,30 @@ sign-in. See [COWORK_VM](./COWORK_VM.md#entitlements) for the signing constraint
 
 ## Enterprise config sources
 
-Read and merged in priority order:
+Two device-side sources, used one at a time, with the remote overlay on top:
 
 1. macOS managed plist, read key-by-key via `@ant/claude-native`:
-   - `/Library/Managed Preferences/com.anthropic.claudefordesktop.plist`
-   - `/Library/Managed Preferences/<username>/com.anthropic.claudefordesktop.plist`
-2. Local config-library file under the user data dir (`configLibrary/<appliedId>.json`).
+   - `/Library/Managed Preferences/com.anthropic.claudefordesktop.plist` (machine scope)
+   - `/Library/Managed Preferences/<username>/com.anthropic.claudefordesktop.plist` (user scope)
+2. Local config-library file, read only when no managed plist applies:
+   `configLibrary/<appliedId>.json` under the 3p data dir, where `configLibrary/_meta.json` holds
+   `appliedId` (or a `hybridPointer` bootstrap URL, which supplies the config instead).
 3. Remote org-policy backend (1p only) — overlays onto the above. See below.
 
-The resolved managed config is cached on disk as `managedConfig` in `claude_desktop_config.json`,
-and handed to the renderer as `window.desktopEnterpriseConfig` via a
-`--desktop-enterprise-config=<JSON>` switch on each window. If the managed plist is present but
-invalid, local settings are disabled entirely ("managedUnusable").
+The resolved source is reported as `managed`, `local` or `none`. It is rebuilt at each launch and
+not persisted. A renderer-facing subset (org-login restrictions, telemetry switches, banner and
+similar, plus `deploymentMode` and `appVersion`) is passed to each window on a
+`--desktop-managed-config=<JSON>` switch and exposed as `window.desktopManagedConfig` (also as
+`desktopEnterpriseConfig` and `desktopTelemetryConfig`). If the managed plist is present but
+invalid, local settings are disabled entirely ("managedUnusable"; logged as
+`[managedConfig] Managed configuration is invalid; local settings are disabled until it is fixed.`).
 
-Two points that differ from older builds:
-
-- There is no `enterpriseConfig` JSON block anymore; the on-disk field is `managedConfig`.
-- The Windows registry path `SOFTWARE\Policies\Claude` appears only in the ADMX/MDM admin-template
-  generator, not in any runtime reader. In this build the Desktop managed tier is read only from the
-  macOS plist. (The `SOFTWARE\Policies\ClaudeCode` registry reads belong to the separate bundled
-  Claude Code CLI settings system, not Desktop.)
+The Desktop managed tier is read only from the macOS plist. The Windows registry path
+`HKLM\SOFTWARE\Policies\Claude` appears in the ADMX/MDM admin-template generator and in diagnostic
+text about the Windows VM service, which reads `coworkEDRIntegration` and
+`coworkEDRIntegrationVendor` from it itself; the app has no runtime reader for it. (The
+`SOFTWARE\Policies\ClaudeCode` registry reads belong to the bundled Claude Agent SDK's settings
+code, not Desktop.)
 
 
 ## How org policy is retrieved (1p mode)
@@ -142,26 +139,35 @@ The remote managed-settings overlay is fetched by `loadRemoteManagedSettings`, u
 - Endpoint: `${apiHost}/api/claude_code/settings` (the Desktop surface and the bundled Claude Code
   subprocess consume the same managed-settings shape, so the path is shared).
 - Headers: `Authorization: Bearer <oauth-token>`, `anthropic-beta: oauth-2025-04-20`.
-- Gating: skipped unless `getDeploymentMode().hasOrgPolicyBackend()` is true (1p only) and the
-  GrowthBook flag `2216901299` is enabled. Also skipped with no active org (`no_org`), no OAuth
-  token (`no_token`), or a `max` / `pro` subscription tier (`tier_skip`).
+- Gating: skipped unless `getDeploymentMode().hasOrgPolicyBackend()` is true (1p only). Also skipped
+  with no active org (`no_org`), no OAuth token (`no_token`), or a `max` / `pro` subscription tier
+  (`tier_skip`; `refetchRemoteManagedSettingsBypassingTierSkip` overrides it).
 - Responses: `404` and `204` are treated as empty settings and success; other non-2xx is
-  `http_error`. On success the body's `.settings` object is stored in memory. 10-second timeout.
+  `http_error` (a `401` also invalidates the OAuth token once). On success the body's `.settings`
+  object is stored in memory. 10-second timeout; failures retry with backoff from 15 seconds, capped
+  at 60 seconds. Each attempt except `no_org` logs `desktop_ccd_remote_managed_settings_fetch` with
+  its outcome.
+- A second path, `askRemoteManagedSettings`, revalidates with `If-None-Match` on the body's
+  `checksum` and accepts `304`.
 - An org switch invalidates the cache so the next call re-fetches.
 
 
 ## Settings resolution tiers
 
-The merged managed-settings resolver (shared with the bundled Claude Code) ranks tiers, highest
-authority first: `Managed`, then `User`, then `Project` / `ProjectLocal`.
+The settings resolver for Claude Code for Desktop sessions stacks tiers in the order `User`,
+`Project`, `ProjectLocal`, `Managed`; a later tier overrides an earlier one, so `Managed` wins and
+`ProjectLocal` beats `Project` beats `User`. The `Managed` tier comes from the bundled Claude Agent
+SDK's `resolveSettings`, fed with the remote managed settings above. Relocate with
+`rg -n '\[SettingsResolver\]' "$EX/.vite/build/"`.
 
-The Managed-tier settings file is located at (env override `CLAUDE_CODE_MANAGED_SETTINGS_PATH`):
+The Managed-tier settings file is `managed-settings.json` in the directory below (the env var
+`CLAUDE_CODE_MANAGED_SETTINGS_PATH` replaces the directory):
 
-| Platform | Path                                                                      |
-|----------|---------------------------------------------------------------------------|
-| macOS    | `/Library/Application Support/ClaudeCode/managed-settings.json`            |
-| Windows  | `C:\Program Files\ClaudeCode\...` preferred, falling back to `C:\ProgramData\ClaudeCode\...` |
-| Linux    | `/etc/claude-code/managed-settings.json`                                  |
+| Platform | Directory                                                                         |
+| -------- | --------------------------------------------------------------------------------- |
+| macOS    | `/Library/Application Support/ClaudeCode`                                         |
+| Windows  | `C:\Program Files\ClaudeCode` if it exists, otherwise `C:\ProgramData\ClaudeCode` |
+| Linux    | `/etc/claude-code`                                                                |
 
 Two safety checks guard `permissions.defaultMode`:
 
@@ -171,3 +177,7 @@ Two safety checks guard `permissions.defaultMode`:
 - On Windows, an elevated `defaultMode` from a Managed file located under `C:\ProgramData\` is
   rejected because that directory is user-writable; elevation is honored only from the admin-only
   `C:\Program Files\ClaudeCode` location.
+
+`remoteControlAtStartup` is guarded the same way: ignored from `Project` / `ProjectLocal` ("only
+user or managed settings can auto-enable Remote Control") and from a Managed file under
+`C:\ProgramData\`.
