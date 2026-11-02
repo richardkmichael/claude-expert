@@ -121,7 +121,7 @@ const EXPERTS = [
     name: "ask_claude_code_expert",
     subdir: "code",
     addDirs: [],
-    mcpServers: ["claude-code-docs"],
+    mcpServers: ["claude-code-docs", "claude-platform-docs"],
     trailer: "Consulted-by: claude-code-expert",
     description:
       "Ask an expert about Claude Code's internals, behavior, or source. A nested Claude " +
@@ -158,7 +158,13 @@ const EXPERTS = [
     name: "ask_claude_desktop_expert",
     subdir: "desktop",
     addDirs: ["code"],
-    mcpServers: ["claude-code-docs", "mcp-specification", "fastmcp_documentation", "prefab_documentation"],
+    mcpServers: [
+      "claude-code-docs",
+      "claude-platform-docs",
+      "mcp-specification",
+      "fastmcp_documentation",
+      "prefab_documentation",
+    ],
     trailer: "Consulted-by: claude-desktop-expert",
     description:
       "Ask an expert about Claude Desktop's internals: the macOS app's process model, config " +

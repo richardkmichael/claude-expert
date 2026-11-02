@@ -58,7 +58,13 @@ questions go straight to `ask_claude_desktop_expert`: there is no Desktop guide.
 
 - MCP servers: only those in this repo's root `.mcp.json`, through `--strict-mcp-config`. The
   caller's user-scope servers, other projects' servers and claude.ai connectors are not loaded. Each
-  expert's allowlist names the servers it may call.
+  expert's allowlist names the servers it may call:
+
+  | Expert                      | MCP servers                                                                                                      |
+  | --------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+  | `ask_claude_code_expert`    | `claude-code-docs`, `claude-platform-docs`                                                                       |
+  | `ask_claude_desktop_expert` | `claude-code-docs`, `claude-platform-docs`, `mcp-specification`, `fastmcp_documentation`, `prefab_documentation` |
+
 - No experts of their own. Every nested session runs with `CLAUDE_EXPERT_NESTED=1`; a copy of this
   server started under that variable offers no tools, so an expert never consults itself even if
   this server is registered at user scope.
