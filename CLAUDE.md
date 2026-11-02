@@ -32,6 +32,10 @@ gives its procedure. Common to both:
   line numbers, or pasted code, which churn every release. In place of a line number, give a grep
   relocation recipe plus the expected shape.
 - Record the version the finding was checked against.
+- A doc describes the current state of the version it is stamped with, and nothing else. When a
+  claim no longer holds, rewrite or delete it. Do not keep history: no "in earlier versions", no
+  "was renamed from", no Version history sections or dated appendices. Git history records how a doc
+  changed.
 
 # Commit subjects
 

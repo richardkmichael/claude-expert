@@ -101,8 +101,3 @@ Run from a scratch git repo with a root `CLAUDE.md`, a root `.claude/skills/root
 - [ ] Same session, after reading `../code/<file>`, still does not load code's `CLAUDE.md`
 - [ ] Same session with `--add-dir ../code` and the env var set loads code's `CLAUDE.md` before any
   read
-
-## Version history
-
-- 2.1.316: first documented. Rows above confirmed by headless runs against the installed 2.1.316
-  binary; ancestor walk, `.mcp.json` and settings rows located in the bundle.

@@ -37,11 +37,11 @@ bundle, are in the root `CLAUDE.md`.
 5. Record what you found:
 
    - Desktop findings go in `analysis/`. Restamp the doc's Verified build in the document map in the
-     same commit. Use `*` when only some sections were re-checked, and say which in the doc's
-     Version history.
+     same commit. The doc describes that build only, so delete what no longer holds rather than
+     noting the change.
    - Claude Code findings go in `../code/analysis/`, following `../code/CLAUDE.md`. Its stamps only
-     move forward, so a check against an older pinned version adds a Version history line instead of
-     lowering the stamp.
+     move forward: if the pinned version is older than a doc's stamp and differs from it, say so in
+     your answer and leave the doc describing its own version.
    - Commit Desktop findings with the subject `(desktop <version>) analysis: <description>`, where
      `<version>` is the app build analyzed.
 

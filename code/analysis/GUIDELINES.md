@@ -58,9 +58,10 @@ for anyway. Minified names are the worst.
    `match-code-patterns` skill (ast-grep with metavariables) to express the logic while letting
    renamed identifiers float as metavars — rename-proof landmarking.
 
-6. Separate evergreen from version-stamped. Keep the behavioral model version-agnostic; confine
-   per-release facts to a short dated appendix where each entry is one line (e.g. "2.1.154: Bash
-   description split into model-selected terse/legacy variants").
+6. Describe the current state only. A doc describes the version it is stamped with. When a claim no
+   longer holds, rewrite or delete it rather than annotating what it used to be: no "in earlier
+   versions", no Version history sections or dated appendices. Git history records how a doc
+   changed.
 
 ## Generated artifacts over hand-transcription
 
@@ -106,25 +107,25 @@ This makes the staleness check mechanical: compare the stamp to the latest local
 (`ls work/ | sort -V | tail -1`). The stamp is a per-release fact — bump it whenever you re-verify,
 even if no wording changed. Mirror the version into the doc's row in `README.md`.
 
-A stamp only moves forward. It means "checked against at least this version", so re-checking a doc
-against an older version never lowers it. That happens when a Claude Desktop question leads to the
-older Claude Code version a Desktop build pins. A claim that holds for the older version needs no
-edit. A claim that differs gets a one-line entry in the doc's dated appendix, such as "2.1.300:
-`PreModelSwitch` not yet present".
+A stamp only moves forward, and a check against an older version is not recorded in the doc. That
+check happens when a Claude Desktop question leads to the older Claude Code version a Desktop build
+pins. If the older version differs from the doc, say so in the answer; the doc keeps describing the
+version it is stamped with.
 
 ## Updating an existing doc
 
 When source behavior has changed, or a doc trails the latest bundle:
 
 1. Relocate the behavior in the current bundle using the doc's landmark strings (and the Key
-   landmarks column in `README.md`). If a landmark string itself changed, that is a finding — record
-   the old and new strings.
+   landmarks column in `README.md`). If a landmark string itself changed, update the doc's landmarks
+   to the new string.
 2. Rewrite only the claims that actually changed, in landmark style. Leave correct evergreen prose
    alone; the goal is minimal, truthful drift, not a rewrite for its own sake.
 3. If the section you touched was legacy style (line numbers, pasted minified code), retrofit it to
    landmark anchors while you are there. Don't leave a doc half-migrated with fresh line numbers.
 4. Restamp `Verified against:` and bump the Verified column in `README.md`, in the same commit.
-5. Record genuinely new per-release facts in the doc's dated appendix, one line each.
+5. Delete claims that no longer hold, and any history the doc still carries (Version history
+   sections, dated appendices, "in earlier versions" asides).
 6. Commit with `(code <version>) analysis: <description>`.
 
 The tripwire checklists (technique 4 above) make step 1 cheap: a future reader runs the checks

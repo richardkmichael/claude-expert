@@ -6,9 +6,7 @@ and managed preferences influence its behavior.
 Each doc records the build it was last verified against, in the Verified column of the document map
 below. When the installed build is newer, treat a doc's build-specific details as suspect and
 re-check them. Docs are brought up to date when a question needs them, not all at once, so their
-builds differ. A build marked with `*` means the doc as a whole was verified against that build,
-with the sections its Version history names re-checked against a later one. A stamp only moves
-forward.
+builds differ. A doc describes only the build it is stamped with, and a stamp only moves forward.
 
 The last build the whole set was verified against:
 
