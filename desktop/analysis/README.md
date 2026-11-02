@@ -29,7 +29,7 @@ The last build the whole set was verified against:
 | [DEPLOYMENT_MODES](./DEPLOYMENT_MODES.md)           | First-party vs third-party (`Claude-3p`), enterprise sources, org policy           | 4.4212.0    |
 | [ENVIRONMENT_VARIABLES](./ENVIRONMENT_VARIABLES.md) | Main-process env vars; the bundled Claude Code surface                             | 4.4212.0    |
 | [MCP](./MCP.md)                                     | MCP SDK/protocol, server hosting, transports, `.dxt`/`.mcpb`                       | 4.4212.0    |
-| [MCP_APPS](./MCP_APPS.md)                           | MCP Apps (MCP-UI) support, including `updateModelContext`                          | 1.26832.0   |
+| [MCP_APPS](./MCP_APPS.md)                           | MCP Apps (MCP-UI) support, including `updateModelContext`                          | 4.4212.0    |
 | [FEATURES](./FEATURES.md)                           | Feature codenames, Cowork/VM download control, `chillingSloth`                     | 1.26832.0   |
 | [COWORK_VM](./COWORK_VM.md)                         | Where Cowork runs (device or cloud); the local VM's `vm_bundles/`, images, updates | 4.4212.0    |
 | [DEBUGGING](./DEBUGGING.md)                         | Main-process, renderer, and native debugging; CDP auth                             | 1.26832.0   |
