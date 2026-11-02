@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/local/claude-expert/main/code/analysis/schemas/frontmatter.schema.json",
   "title": "Claude Code Markdown Frontmatter",
-  "description": "Validates the YAML frontmatter of Claude Code Markdown configuration files (agents, skills, output styles, memory). Verified against cli.prettier.js 2.1.296. See analysis/MARKDOWN_FRONTMATTER.md for narrative documentation. Use #/$defs/Agent, #/$defs/Skill, #/$defs/OutputStyle, or #/$defs/Memory as the entry point per file type.",
+  "description": "Validates the YAML frontmatter of Claude Code Markdown configuration files (agents, skills, output styles, memory). Verified against cli.prettier.js 2.1.316. See analysis/MARKDOWN_FRONTMATTER.md for narrative documentation. Use #/$defs/Agent, #/$defs/Skill, #/$defs/OutputStyle, or #/$defs/Memory as the entry point per file type.",
   "$defs": {
     "ModelAlias": {
       "description": "Model identifier. One of the documented aliases, the literal 'inherit', or a full Claude model ID (e.g. 'claude-sonnet-5-5'). Claude Code passes unknown strings through to the model resolver.",
@@ -27,10 +27,10 @@
       ]
     },
     "Effort": {
-      "description": "Thinking effort: a named preset or an integer token budget. Claude Code matches presets without regard to case and also accepts 'med' for 'medium'. 'ultracode' is a --effort CLI value only and is rejected in frontmatter.",
+      "description": "Effort level. Claude Code matches levels without regard to case (the value is not trimmed) and accepts 'med' for 'medium'. It also accepts any integer, or a string that parseInt reads as one, but a request sends only a string level as output_config.effort: an integer sends no effort (the API default applies), or 'high' when a maxEffortLevel cap is in force. 'ultracode' is a --effort CLI value only and is rejected in frontmatter.",
       "oneOf": [
         { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max", "med"] },
-        { "type": "integer", "minimum": 0 }
+        { "type": "integer" }
       ]
     },
     "PermissionMode": {
@@ -248,7 +248,7 @@
       "description": "Matcher group. Only 'matcher' and 'hooks' are fields; Claude Code strips any other key, including 'if', without a warning. Put 'if' on each hook entry."
     },
     "Hooks": {
-      "description": "Hook registrations, keyed by event name. Values are arrays of matcher groups. An invalid PreToolUse or PermissionRequest entry stops an agent loading and strips a skill's hooks and allowed-tools; other invalid entries and unknown events are dropped with a warning.",
+      "description": "Hook registrations, keyed by event name. Values are arrays of matcher groups. An invalid PreToolUse or PermissionRequest entry, or an unknown event key that holds such hooks, stops an agent loading and strips a skill's hooks and allowed-tools; other invalid entries and unknown events are dropped with a warning.",
       "type": "object",
       "propertyNames": { "$ref": "#/$defs/HookEvent" },
       "additionalProperties": { "type": "array", "items": { "$ref": "#/$defs/HookMatcher" } }
@@ -295,6 +295,11 @@
         "headersHelper": { "type": "string" },
         "oauth": { "$ref": "#/$defs/McpOAuth" },
         "timeout": { "type": "integer", "exclusiveMinimum": 0 },
+        "request_timeout_ms": {
+          "description": "@internal: becomes 'timeout' when 'timeout' is absent, capped at 300000. Invalid values are dropped.",
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
         "tools": {
           "type": "array",
           "items": {
@@ -364,6 +369,11 @@
         "headersHelper": { "type": "string" },
         "oauth": { "$ref": "#/$defs/McpOAuth" },
         "timeout": { "type": "integer", "exclusiveMinimum": 0 },
+        "request_timeout_ms": {
+          "description": "@internal: becomes 'timeout' when 'timeout' is absent, capped at 300000. Invalid values are dropped.",
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
         "tools": {
           "type": "array",
           "items": {
@@ -413,7 +423,28 @@
         "name": { "type": "string" },
         "timeout": { "type": "integer", "exclusiveMinimum": 0 },
         "alwaysLoad": { "type": "boolean" },
-        "disableAutoBackground": { "type": "boolean" }
+        "disableAutoBackground": { "type": "boolean" },
+        "tools": {
+          "description": "@internal. Invalid values are dropped.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string" },
+              "permission_policy": {
+                "type": "string",
+                "enum": ["always_allow", "always_ask", "always_deny"]
+              }
+            }
+          }
+        },
+        "connectorId": {
+          "description": "@internal. Invalid values are dropped.",
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "McpServerClaudeAiProxy": {
@@ -455,7 +486,7 @@
       ]
     },
     "AgentMcpServerEntry": {
-      "description": "Either a string reference to a named MCP server, or a one-key map from server name to server config.",
+      "description": "Either a string reference to a named MCP server, or a map from one or more server names to server configs.",
       "oneOf": [
         { "type": "string" },
         {
@@ -485,10 +516,16 @@
           "minLength": 1
         },
         "model": { "$ref": "#/$defs/ModelAlias" },
-        "tools": { "$ref": "#/$defs/ToolList" },
+        "tools": {
+          "description": "Tools available to this agent. '*' means all tools; an empty value, or one holding no strings, means no tools.",
+          "$ref": "#/$defs/ToolList"
+        },
         "disallowedTools": { "$ref": "#/$defs/ToolList" },
         "color": { "$ref": "#/$defs/AgentColor" },
-        "effort": { "$ref": "#/$defs/Effort" },
+        "effort": {
+          "description": "Effort for every request this agent makes, for its whole run. The Agent tool's effort input and a forking skill's effort override it; CLAUDE_CODE_EFFORT_LEVEL overrides all three.",
+          "$ref": "#/$defs/Effort"
+        },
         "permissionMode": { "$ref": "#/$defs/PermissionMode" },
         "mcpServers": { "type": "array", "items": { "$ref": "#/$defs/AgentMcpServerEntry" } },
         "hooks": { "$ref": "#/$defs/Hooks" },
@@ -515,17 +552,17 @@
         },
         "isolation": { "$ref": "#/$defs/Isolation" },
         "observer": {
-          "description": "Agent type auto-spawned as a background observer whenever this agent runs.",
+          "description": "Agent type auto-spawned as a background observer whenever this agent runs. It receives read-only activity digests and can send one-way advisory reports with the ObserverReport tool. Requires CLAUDE_CODE_EXPERIMENTAL_OBSERVER_AGENTS and the tengu_observer_agents_enabled gate; an observer's own observer is ignored.",
           "type": "string",
           "minLength": 1
         },
         "observerMessage": {
-          "description": "Text appended to each activity digest sent to the observer.",
+          "description": "Text appended after the default postamble of each activity digest sent to the observer.",
           "type": "string",
           "minLength": 1
         },
         "observeSubagents": {
-          "description": "If false, subagents this agent spawns do not inherit its observer. Defaults to true.",
+          "description": "If false, subagents this agent spawns do not inherit its observer. Defaults to true. Fan-out is gated by tengu_observer_subagent_fanout and stops at depth 2.",
           "$ref": "#/$defs/BooleanLike"
         },
         "experimental": {
@@ -544,11 +581,11 @@
     "Skill": {
       "type": "object",
       "title": "Skill and command frontmatter (.claude/skills/<name>/SKILL.md, .claude/commands/**/*.md)",
-      "description": "Frontmatter schema for SKILL.md and .claude/commands/*.md files (commands ignore 'name' and 'paths'). All fields are optional; a skill's identifier is the containing directory name. The Agent Skills field 'compatibility' is absent from Claude Code's strict validator (it records an unknown-key telemetry event, then has no effect), so this schema rejects it.",
+      "description": "Frontmatter schema for SKILL.md and .claude/commands/*.md files (commands ignore 'name' and 'paths'; plugin skills and commands ignore 'paths', 'fallback', 'created_by' and 'improved_by'). All fields are optional; a skill's identifier is the containing directory name. The Agent Skills field 'compatibility' is absent from Claude Code's strict validator (it records an unknown-key telemetry event, then has no effect), so this schema rejects it.",
       "additionalProperties": false,
       "properties": {
         "name": {
-          "description": "Display name override. Defaults to the directory name.",
+          "description": "Display name override, at most 256 characters. Defaults to the directory name. Ignored for commands.",
           "type": ["string", "number", "boolean", "null"]
         },
         "description": {
@@ -578,7 +615,10 @@
         },
         "disable-model-invocation": { "$ref": "#/$defs/LenientBoolean" },
         "user-invocable": { "$ref": "#/$defs/LenientBoolean" },
-        "effort": { "$ref": "#/$defs/Effort" },
+        "effort": {
+          "description": "Effort for the rest of the turn the skill runs in (typed /name or the Skill tool, inline), or for the forked subagent's whole run with context: fork. Overrides the session effort, not CLAUDE_CODE_EFFORT_LEVEL. Subagents spawned during the turn and agent skills: preloads do not use it.",
+          "$ref": "#/$defs/Effort"
+        },
         "shell": { "$ref": "#/$defs/ShellInterpreter" },
         "version": {
           "description": "Version string. Passed through; not validated.",
@@ -708,7 +748,7 @@
           "type": ["string", "number", "boolean", "null"]
         },
         "description": {
-          "description": "Shown in the /output-style picker.",
+          "description": "Shown in the Output style picker in /config.",
           "type": ["string", "number", "boolean"]
         },
         "keep-coding-instructions": {
