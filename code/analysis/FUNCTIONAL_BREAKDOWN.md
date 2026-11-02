@@ -46,12 +46,12 @@ Grep `triBool` for the tri-state declarations.
 
 ## Agents and skills
 
-| Concern                  | Landmark                        | Depth                            |
-| ------------------------ | ------------------------------- | -------------------------------- |
-| Agent directory          | `agents` under `.claude`        | `SKILLS_AND_SUBAGENTS.md`        |
-| Agent frontmatter schema | `whenToUse`, `allowed-tools`    | `MARKDOWN_FRONTMATTER.md`        |
-| Agent discovery          | `agent-` display prefix         | `TASK_TOOL_AND_SUBAGENTS.md`     |
-| Model resolution         | `CLAUDE_CODE_SUBAGENT_MODEL`    | `MAIN_THREAD_AGENT_AND_MODEL.md` |
+| Concern                  | Landmark                     | Depth                            |
+| ------------------------ | ---------------------------- | -------------------------------- |
+| Agent directory          | `agents` under `.claude`     | `SKILLS.md`                      |
+| Agent frontmatter schema | `whenToUse`, `allowed-tools` | `MARKDOWN_FRONTMATTER.md`        |
+| Agent discovery          | `agent-` display prefix      | `TASK_TOOL_AND_SUBAGENTS.md`     |
+| Model resolution         | `CLAUDE_CODE_SUBAGENT_MODEL` | `MAIN_THREAD_AGENT_AND_MODEL.md` |
 
 A discovered agent is surfaced as a completion entry whose display text is `agent-` followed by the
 agent type, with the description taken from the agent's `whenToUse` and a per-type color.

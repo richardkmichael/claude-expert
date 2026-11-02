@@ -240,7 +240,7 @@ with `kind: "improvement"`.
 
 ## Related
 
-- [SKILLS_AND_SUBAGENTS.md](SKILLS_AND_SUBAGENTS.md) — skill `allowed-tools` and where grants apply
+- [SKILLS.md](SKILLS.md) — skill `allowed-tools` and where grants apply
 - [SESSION_MEMORY_AND_SUMMARY.md](SESSION_MEMORY_AND_SUMMARY.md) — the `summary.md` pipeline that
   Skillify's removed `{{sessionMemory}}` variable once read
 - [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md) — the memory files `propose_skills` cites as evidence

@@ -9,7 +9,7 @@ puts into one. Claude Code's own request construction is in `ANTHROPIC_API_USAGE
 This doc was previously a line-indexed listing of configuration and agent functions by minified
 name. That material is covered, in landmark form, by `SETTINGS.md` (config paths and settings
 merge), `FUNCTIONAL_BREAKDOWN.md` (orientation map), `MARKDOWN_FRONTMATTER.md` (agent and skill
-frontmatter schema), and `SKILLS_AND_SUBAGENTS.md` (agent loading).
+frontmatter schema), and `SKILLS.md` (agent loading).
 
 ## Endpoint
 

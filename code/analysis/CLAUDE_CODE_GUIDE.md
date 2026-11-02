@@ -6,7 +6,7 @@ Claude Code ships two ways for the model to answer questions about Claude Code i
 `claude-code-guide` subagent, and a bundled `claude-code-docs` skill that is off by default. Both
 draw on reference documents compiled into the binary, which never appear in `cli.prettier.js`. For
 the Agent tool and the other built-in agents, see `TASK_TOOL_AND_SUBAGENTS.md`; for skill
-registration and visibility, see `SKILLS_AND_SUBAGENTS.md`.
+registration and visibility, see `SKILLS.md`.
 
 ## The claude-code-guide subagent
 
