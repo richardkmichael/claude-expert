@@ -27,7 +27,9 @@ bundle, are in the root `CLAUDE.md`.
    details as suspect and re-check them.
 
 3. Research the extracted code under `work/<app-version>/app/`, mostly `.vite/build/`. Search with
-   `rg` (see the root `CLAUDE.md`), and anchor on string literals and behavior, not minified names.
+   `rg` (see the root `CLAUDE.md`), and name `work/<app-version>/app/.vite/build` explicitly:
+   `.vite/` is a hidden directory and `work/` is gitignored, so a recursive `rg` from elsewhere
+   skips them. Anchor on string literals and behavior, not minified names.
 
 4. For anything about the Claude Code that Desktop runs, research the version the manifest pins
    (`claudeCode.version`), not the newest one in `../code/work/`. Run the

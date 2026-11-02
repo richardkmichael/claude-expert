@@ -27,4 +27,6 @@ Prepared versions: !`ls desktop/work 2>/dev/null | sort -V | tr '\n' ' '`
      check `code/work/<version>/` and run the `prepare-claude-code-source` skill if it is missing.
    - `buildFiles`: how the main-process bundle is split into files.
 
-3. Search the code under `desktop/work/<app-version>/app/.vite/build/`, or the whole extracted tree.
+3. Search the code under `desktop/work/<app-version>/app/.vite/build/`, naming that path explicitly:
+   `.vite/` is hidden and `desktop/work/` is gitignored, so a recursive `rg` from elsewhere skips
+   them. For the whole extracted tree, pass `rg -uu`.
