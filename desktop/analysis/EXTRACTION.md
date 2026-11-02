@@ -19,10 +19,15 @@ Prepare it with the `prepare-claude-desktop-source` skill, or run its script dir
 ```
 
 It extracts `app.asar` with a pinned `@electron/asar` into `desktop/work/<app-version>/app`, formats
-every file under `.vite/build/` with the same pinned oxfmt the Claude Code pipeline uses, and writes
-`desktop/work/<app-version>/manifest.json`. The manifest records the app's build info (version,
-commit, commit timestamp, build type), the Claude Code version the build pins, and how the
+every `.js` file under `.vite/build/` with the same pinned oxfmt the Claude Code pipeline uses, and
+writes `desktop/work/<app-version>/manifest.json`. The manifest records the app's build info
+(version, commit, commit timestamp, build type), the Claude Code version the build pins, and how the
 main-process bundle is split into files. A version already prepared is reported and left alone.
+`.vite/renderer/` and `resources/` are extracted but not formatted.
+
+A second archive sits beside it: `Contents/Resources/ion-dist.asar` (~190 MB), the bundled web
+frontend that custom third-party mode serves (see [ARCHITECTURE](./ARCHITECTURE.md)). The skill does
+not extract it; `desktop/bin/asar-search.py <needle> .../ion-dist.asar` searches it in place.
 
 The Electron runtime, Chromium, and native frameworks under `Claude.app/Contents/Frameworks/` are
 generic Electron, not app-specific.
@@ -39,26 +44,49 @@ The search skips them; read them from that directory.
 The header size is measured from offset 8, so bodies start at `8 + header size`, which is also
 `16 + JSON length` plus the pickle's alignment padding. Using `16 + header size` reads garbage.
 
+Each file entry also carries an `integrity` record (SHA-256 of the whole file plus per-4 MiB block
+hashes), and the app's `Info.plist` key `ElectronAsarIntegrity` holds a SHA-256 of the header JSON
+for both `app.asar` and `ion-dist.asar`.
+
 
 ## Modifying the app (ASAR repack)
 
+The shipped Electron has the `EnableEmbeddedAsarIntegrityValidation` and `OnlyLoadAppFromAsar` fuses
+on (see [DEBUGGING](./DEBUGGING.md#electron-fuses)). Electron checks `app.asar`'s header against the
+`ElectronAsarIntegrity` hash in `Info.plist` at launch, so a repacked archive needs that hash
+updated too, and editing `Info.plist` in turn breaks the code signature. Work on a copy of the app,
+never on `/Applications/Claude.app`:
+
 ```bash
+APP=~/claude-patched/Claude.app            # a copy: cp -R /Applications/Claude.app ~/claude-patched/
+EX=$(mktemp -d)/app
+
 # Extract
-npx --yes asar extract "/Applications/Claude.app/Contents/Resources/app.asar" /tmp/claude-asar-extract
+npx --yes @electron/asar extract "$APP/Contents/Resources/app.asar" "$EX"
 
-# Edit files in /tmp/claude-asar-extract/...
+# Edit files in "$EX"/... (native modules stay in app.asar.unpacked/ and must stay unpacked)
 
-# Repack
-npx asar pack /tmp/claude-asar-extract "/Applications/Claude.app/Contents/Resources/app.asar"
+# Repack, keeping the same entries unpacked
+npx @electron/asar pack "$EX" "$APP/Contents/Resources/app.asar" \
+  --unpack '{*.node,*.dylib,spawn-helper,github-mcp-server}'
 
-# Re-sign (repacking invalidates the code signature)
-codesign --force --deep --sign - /Applications/Claude.app
+# Update the integrity hash: SHA-256 of the new header JSON
+NEW_HASH=$(python3 -I -c '
+import hashlib, struct, sys
+f = open(sys.argv[1], "rb"); f.read(12); n = struct.unpack("<I", f.read(4))[0]
+print(hashlib.sha256(f.read(n)).hexdigest())' "$APP/Contents/Resources/app.asar")
+/usr/libexec/PlistBuddy -c "Set :ElectronAsarIntegrity:Resources/app.asar:hash $NEW_HASH" \
+  "$APP/Contents/Info.plist"
+
+# Re-sign (repacking and the plist edit invalidate the code signature)
+codesign --force --deep --sign - "$APP"
 ```
 
 Caveats:
 
-- Repacking invalidates the app signature. The ad-hoc re-sign above satisfies macOS, but Gatekeeper
-  may quarantine the result.
+- The ad-hoc re-sign drops Anthropic's Team ID and entitlements, so keychain-backed sign-in and
+  entitlement-gated features (the Cowork VM needs `com.apple.security.virtualization`) may fail;
+  Gatekeeper may also quarantine the result.
 - The next app update overwrites `app.asar` with a fresh copy, losing the changes.
 - Prefer config-file edits or env vars over asar patching where possible — those survive updates.
   See [CONFIGURATION](./CONFIGURATION.md) and [ENVIRONMENT_VARIABLES](./ENVIRONMENT_VARIABLES.md).
@@ -68,77 +96,85 @@ Caveats:
 
 Run these against a fresh extract after an update, then refresh the [README](./README.md) banner and
 any drifted details across the doc set. The main-process code is code-split, so search the whole
-`.vite/build/` directory rather than a single file.
+`.vite/build/` directory rather than a single file. Use `rg` (see the root `CLAUDE.md`). The
+prepared source is formatted one statement per line, so print matching lines rather than fixed-width
+context windows. `Q` is a quote class that matches `"`, `'` or a backtick, so the recipes do not
+depend on the quote character.
+
+`rg` can skip the code without saying so. The code sits under `.vite/`, a hidden directory, which
+`rg` skips unless `--hidden` is set (a `~/.ripgreprc` may set it). `desktop/work/` is gitignored, so
+a search that recurses into it from `desktop/` or the repository root skips it entirely. Name
+`$EX/.vite/build` explicitly, as below, or pass `-uu`.
 
 ```bash
 EX=desktop/work/<app-version>/app
+Q="[\"'\`]"
 
 # Build metadata (version, commit, timestamp, build type): read desktop/work/<app-version>/manifest.json
 
 # All process.env.* references (deduped)
-find "$EX" -name "*.js" -not -path "*/node_modules/*" \
-  | xargs grep -ohE 'process\.env\.[A-Z][A-Z0-9_]+' \
+rg -uu -oN --no-filename -g '*.js' -g '!node_modules' 'process\.env\.[A-Z][A-Z0-9_]+' "$EX" \
   | sed 's/process.env.//' | sort -u
 
-# Env vars accessed through the lazy-getter accessor map (misses the grep above)
-grep -rhoE '(CLAUDE|ANTHROPIC|COWORK|OFFICE|OAUTH|API)_[A-Z0-9_]+:\(\)=>' "$EX/.vite/build/"*.js \
-  | sed -E 's/:\(\)=>.*//' | sort -u
+# Upper-case names in the chunks' lazy-getter export maps (misses the search above). The formatted
+# source writes these as `NAME: () =>`.
+rg -oN --no-filename '(CLAUDE|ANTHROPIC|COWORK|OFFICE|OAUTH|API)_[A-Z0-9_]+: \(\) =>' "$EX/.vite/build" \
+  | sed -E 's/: \(\) =>.*//' | sort -u
 
 # MCP core protocol negotiation list (latest first). The latest version is hoisted into a variable
-# and the array's first element is that identifier, not a literal — so anchor on the OLDEST version
-# and read leftward. Literals are backtick-quoted; a double-quote pattern finds nothing.
-grep -rhoE '.{110}`2024-10-07`' "$EX/.vite/build/"*.js | sort -u
+# and the array's first element is that identifier, not a literal, so anchor on the OLDEST version.
+# The formatted array sits on one line; read the hoisted variable one line above it.
+rg -N --no-filename -B1 "${Q}2024-10-07${Q}" "$EX/.vite/build"
 
-# MCP Apps (ui/*) method vocabulary referenced anywhere
-grep -rhoE '"ui/[a-z/-]+"' "$EX/.vite/build/"*.js "$EX/.vite/renderer/"**/*.js 2>/dev/null | sort -u
+# MCP Apps (ui/*) method vocabulary referenced anywhere. The quote class also matches an escaped
+# \"ui/...\" inside a template literal.
+rg -oN --no-filename "${Q}ui/[a-z][a-z/-]*" "$EX/.vite/build" "$EX/.vite/renderer" | cut -c2- | sort -u
 
 # Preference schema keys. The zod object and the defaults object live in different chunks; the
-# defaults object is the easier read. Brace-match rather than using a fixed-width window — the
-# schema outgrew any constant .{N}, and the zod helper names are re-minified every build.
-grep -rl 'menuBarEnabled' "$EX/.vite/build/"*.js        # then brace-match in Python
+# defaults object is the easier read. In the formatted source both are one key per line.
+rg -l 'menuBarEnabled' "$EX/.vite/build"
 
-# -3p suffix logic (Claude-3p directory mechanism). Backtick-quoted since the minifier switched
-# to template literals; the '"-3p"' form matches nothing.
-grep -rn -- '`-3p`' "$EX/.vite/build/"*.js
+# -3p suffix logic (Claude-3p directory mechanism)
+rg -n -- "${Q}-3p${Q}" "$EX/.vite/build"
 
 # Remote managed-settings / org-policy fetcher
-grep -rn 'loadRemoteManagedSettings\|/api/claude_code/settings' "$EX/.vite/build/"*.js
+rg -n 'loadRemoteManagedSettings|/api/claude_code/settings' "$EX/.vite/build"
 
-# One-line context for a single variable or identifier
-grep -rhoE '.{45}NAME_HERE.{55}' "$EX/.vite/build/"*.js | head -1
+# Context for a single variable or identifier: the line, plus neighbors
+rg -n -C3 'NAME_HERE' "$EX/.vite/build" | head -20
 ```
 
-Minified identifiers (`_9()`-style function names, single-letter vars) change every build — treat
-any that appear in this doc set as snapshot illustrations, not stable names. The behaviors and
-string literals they anchor to are the durable facts.
+Minified identifiers (single-letter and short mangled names) change every build — treat any that
+appear in this doc set as snapshot illustrations, not stable names. The behaviors and string
+literals they anchor to are the durable facts.
 
-String quoting is not durable either. This build's minifier emits template literals, so `` `-3p` ``
-and `` `2025-11-25` `` rather than `"-3p"` and `"2025-11-25"`. A recipe that pins the quote
-character will silently return nothing after a toolchain change, which reads identically to the
-feature having been removed. When a recipe comes back empty, re-check the quoting before concluding
-anything is gone.
+String quoting is not durable either. oxfmt normalizes string literals to double quotes in the
+formatted extract, but literals that are part of a template literal stay backtick-quoted, and
+strings nested inside one keep their escapes (`\"…\"`). The shipped `app.asar` is matched byte for
+byte by `asar-search.py`, so a needle there must match the minifier's choice: this build ships
+`"-3p"` and `"2024-10-07"`, with no backtick forms. When a recipe comes back empty, re-check the
+quoting before concluding anything is gone.
 
 
 ## A search trap: bounded repetition on minified lines
 
-The context-window recipes above use fixed-length `.{N}` deliberately. Do not reach for the
-bounded-range form when adapting them:
+The formatted extract is one statement per line, so line-oriented `rg` works on it directly. The raw
+`app.asar` is not: its chunks are minified single lines of up to several MB, and the archive is one
+~58 MB blob as far as a line-oriented tool is concerned.
+
+On raw files, do not use the bundled `grep` with bounded ranges:
 
 ```bash
 grep -aoE '.{0,80}(foo|bar)[^a-z].{0,200}' app.asar      # hangs
 grep -aoE '.{100}realpath(Sync)?\(.{120}' app.asar       # hangs
 ```
 
-Minified chunks are single lines of hundreds of KB, and `app.asar` is one ~40 MB line as far as
-`grep` is concerned. Combining `.{0,N}` ranges with alternation or an optional group makes the
-regex engine backtrack essentially without bound — two such greps ran for over 40 minutes here
-without producing output. Fixed-length `.{N}` with no alternation is far safer but still slow on the
-whole archive.
-
-The reliable pattern is to locate with a fixed string, then slice context in Python:
+Combining `.{0,N}` ranges with alternation or an optional group makes that regex engine backtrack
+essentially without bound. `rg` does not have this problem. For raw files, locate with a fixed
+string, then slice context in Python:
 
 ```bash
-grep -l 'someStringLiteral' "$EX/.vite/build/"*.js      # which chunk
+desktop/bin/asar-search.py 'someStringLiteral'           # which file inside app.asar
 ```
 
 ```python
@@ -146,6 +182,3 @@ s = open(chunk, errors='replace').read()
 i = s.find('someStringLiteral')
 print(s[max(0, i-400):i+400])
 ```
-
-Re-indenting a chunk first (`re.sub(r';(?=[A-Za-z$_\[(])', ';\n', s)`) makes it greppable by line
-without changing semantics, which is worth doing once per chunk under investigation.
