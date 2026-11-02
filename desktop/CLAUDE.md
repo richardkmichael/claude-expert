@@ -12,8 +12,8 @@ bundle, are in the root `CLAUDE.md`.
   the build info and the Claude Code version the build pins. Running it again for a prepared build
   only prints the manifest.
 - Claude Desktop runs Claude Code as a separate process. It does not ship it in the bundle. It
-  downloads the pinned version at runtime (see `analysis/ENVIRONMENT_VARIABLES.md`, "Bundled Claude
-  Code").
+  downloads the pinned version at runtime (see `analysis/ARCHITECTURE.md`, "Claude Code
+  subprocess").
 - `bin/asar-search.py <needle>` lists the files inside `app.asar` that contain a string, without
   extracting it.
 

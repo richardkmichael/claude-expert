@@ -8,9 +8,10 @@ and native modules. See [README](./README.md) for the build banner and the rest 
 
 Standard Electron two-process design.
 
-- Main process (Node.js): manages windows, IPC, config, spawns MCP servers, handles OS
-  integration, and hosts the bundled Claude Code / Agent SDK subprocess. Entry point is
-  `.vite/build/index.pre.js` (the `main` field in `package.json`).
+- Main process (Node.js): manages windows, IPC, config, spawns MCP servers, handles OS integration,
+  and runs the Claude Code / Agent SDK subprocess (see
+  [Claude Code subprocess](#claude-code-subprocess)). Entry point is `.vite/build/index.pre.js` (the
+  `main` field in `package.json`).
 - Renderer process (Chromium): the native window chrome is a set of local bundles under
   `.vite/renderer/` (`main_window`, `about_window`, `buddy_window`, `find_in_page`,
   `local_exec_consent`, `quick_window`), but the actual Claude app is the remote `https://claude.ai`
@@ -112,6 +113,28 @@ The MCP SDK is inlined into the main-process bundle by Vite; there is no separat
 entry for `@modelcontextprotocol/sdk`.
 
 
+## Claude Code subprocess
+
+Claude Desktop runs Claude Code (the CLI) out of process for the Code sidebar. It does not ship the
+CLI inside the app bundle. Each Desktop build pins one Claude Code version in an embedded manifest
+and downloads that version at runtime into
+`~/Library/Application Support/Claude/claude-code/<version>/<checksum-prefix>/claude.app`, a macOS
+app wrapper around the `claude` binary, next to a `.verified` file holding the bundle's SHA-256.
+Earlier downloaded versions stay beside it. The Cowork VM gets a separate Linux build of the same
+version at `claude-code-vm/<version>/claude`, with the version recorded in
+`claude-code-vm/.sdk-version`.
+
+Relocate the pin with `rg -n 'manifestSignatureEnforcement' .vite/build`. It is a `JSON.parse('…')`
+literal shaped
+`{"version", "manifest": {"version", "manifestSignatureEnforcement", "commit", "buildDate", "platforms": {"darwin-arm64": {…, "bundle": {"checksum"}}, …}}}`.
+The `prepare-claude-desktop-source` skill reads it into `manifest.json` as `claudeCode`. Build
+4.4212.0 pins Claude Code 2.1.309, and the checksum prefix in its download path matches the
+manifest's `darwin-arm64` bundle checksum.
+
+The env vars that subprocess honors are in
+[ENVIRONMENT_VARIABLES](./ENVIRONMENT_VARIABLES.md#bundled-claude-code).
+
+
 ## IPC
 
 Renderer-to-main IPC uses a custom channel-name format:
@@ -136,3 +159,9 @@ Observed namespaces:
 | `claude.coworkArtifact`     | Cowork artifact preview                           |
 | `claude.officeAddin`        | Office add-in bridge                              |
 | `claude.simulator`          | iOS/Android simulator access                      |
+
+
+## Version history
+
+- 4.4212.0: Claude Code subprocess section added. Desktop pins a Claude Code version in an embedded
+  manifest and downloads it at runtime; it is not shipped inside the app bundle.
