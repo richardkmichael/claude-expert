@@ -1,666 +1,420 @@
-# Skills and Subagent Integration
-
-Source: `cli.prettier.js` (`work/<version>/package/cli.prettier.js`)
-Verified against: cli.prettier.js 2.1.76 (2026-06-06); the headline `allowed-tools` preload gap and
-the permission-merge shape re-checked against 2.1.277 (2026-09-19), see Version history.
-
-See also: [Subagents](SUBAGENTS.md), [Markdown Frontmatter](MARKDOWN_FRONTMATTER.md)
-
-## Overview
-
-Skills (`.claude/skills/*/SKILL.md`) can declare `allowed-tools:` in their YAML frontmatter to
-auto-permit specific tools without user approval.  When a skill is invoked directly in the main
-session (`/my-skill`), this works as expected.  When a subagent references a skill via its YAML
-`skills:` field, the `allowed-tools` are not applied — the user is prompted for permission.
-
-This document traces the three code paths that load skills and shows exactly where the
-`allowed-tools` permission grant occurs (or doesn't).
-
-
-## Two Axes of Tool Control: Availability vs Permission
-
-Agent and skill YAML frontmatter use different keywords that operate on different axes, which
-makes the system difficult to intuit.
-
-### Axis 1: Tool Availability (Agent Frontmatter)
-
-Agent YAML (`.claude/agents/*.md`) uses `tools:` and `disallowedTools:` to control which tools
-the subagent can see and call at all.  These are enforced by a filter that reduces
-the tool list before the subagent starts.
-
-| Field              | Effect                                       | Example                      |
-| ------------------ | -------------------------------------------- | ---------------------------- |
-| `tools:`           | Whitelist: only these tools are available    | `tools: [Read, Grep, Glob]`  |
-| `disallowedTools:` | Blacklist: these tools are removed           | `disallowedTools: [Edit]`    |
-
-If `tools:` is `["*"]` or omitted, all tools are available (minus any `disallowedTools`).
-An unavailable tool cannot be called at all — the subagent doesn't even see it.
-
-### Axis 2: Tool Permission (Skill Frontmatter)
-
-Skill YAML (`.claude/skills/*/SKILL.md`) uses `allowed-tools:` to control which tools are
-auto-permitted without user approval.  The tool must still be available (axis 1); this only
-affects whether the user is prompted before the tool executes.
-
-| Field              | Effect                                       | Example                                 |
-| ------------------ | -------------------------------------------- | --------------------------------------- |
-| `allowed-tools:`   | Auto-permit: no user approval prompt needed  | `allowed-tools: Bash(git diff:*), Read` |
-| (no counterpart)   | There is no `disallowed-tools:` for skills   |                                         |
-
-### Naming Confusion
-
-The naming is inconsistent across the two systems:
-
-| Concept            | Agent keyword      | Skill keyword      | Syntax       |
-| ------------------ | ------------------ | ------------------ | ------------ |
-| Tool whitelist     | `tools:`           | (none)             | camelCase    |
-| Tool blacklist     | `disallowedTools:` | (none)             | camelCase    |
-| Auto-permit        | (none)             | `allowed-tools:`   | kebab-case   |
-| Auto-deny          | (none)             | (none)             |              |
-
-- Agent keywords use camelCase: `tools`, `disallowedTools`
-- Skill keywords use kebab-case: `allowed-tools`
-- "tools" (agent) means "available to call" — not "permitted without asking"
-- "allowed-tools" (skill) means "permitted without asking" — not "available to call"
-- There is no `disallowed-tools` counterpart in skill frontmatter
-- There is no `allowed-tools` counterpart in agent frontmatter
-
-A subagent that references a skill (`skills: [my-skill]`) must contend with both axes: the
-agent's `tools:` determines what tools are available; the skill's `allowed-tools:` determines
-which of those are auto-permitted.  Except that, as documented below, the skill's
-`allowed-tools:` is not actually applied in this context.
-
-
-## Skill Execution Context
-
-### The `context:` and `agent:` Frontmatter Fields
-
-Skill YAML frontmatter supports two fields that control execution:
-
-| Field       | Values           | Effect                                                    |
-| ----------- | ---------------- | --------------------------------------------------------- |
-| `context:`  | `fork` or absent | `fork`: run in an isolated subagent; absent: run inline   |
-| `agent:`    | agent type name  | Which agent definition runs the forked subagent           |
-
-The `agent:` field only has effect when `context: fork` is present.  Without `context: fork`,
-the `agent:` field is parsed and stored on the skill object but never read by any execution path.
-
-Both the direct invocation path and the Skill tool path check only `context === "fork"`. The
-non-fork path calls the prompt slash-command processor, which does not reference
-`A.agent`.
-
-### Three Execution Modes
-
-| Frontmatter                        | Execution mode           | Conversation context        | Agent type used           |
-| ---------------------------------- | ------------------------ | --------------------------- | ------------------------- |
-| (neither field)                    | Inline in main session   | Full conversation history   | Main session (none)       |
-| `context: fork` only               | Isolated subagent        | Skill content only          | `general-purpose`         |
-| `context: fork` + `agent: Explore` | Isolated subagent        | Skill content only          | `Explore`                 |
-| `agent: Explore` only (no fork)    | Inline in main session   | Full conversation history   | `agent:` ignored          |
-
-### What "Fork" Means (and Doesn't Mean)
-
-The name `context: fork` is misleading.  It does not fork the conversation — the subagent does
-not receive any of the current conversation history.  "Fork" means "fork execution" — spawn a
-separate subagent process that runs independently.
-
-This is a naming collision with the `/fork` command, which does the opposite: `/fork` duplicates
-the entire conversation transcript into a new JSONL session file and switches to it, preserving
-all history (see [Context Ops](CLEAR_COMPACT_FORK_CONTEXT.md)).  The two uses of "fork" are
-unrelated.
-
-The subagent receives:
-
-- The skill's rendered content as a single user message (the only `promptMessages`)
-- The selected agent definition's system prompt
-- The skill's `allowed-tools` propagated by wrapping `getAppState`
-- Tool availability determined by the agent definition's `tools:`/`disallowedTools:`
-- All tools from the main session (via `availableTools: K.options.tools`) unless the agent
-  definition restricts them
-
-The subagent does NOT receive:
-
-- The current conversation history
-- The main session's system prompt
-- Any prior tool results or assistant messages
-
-### The `forkContextMessages` Mechanism
-
-The subagent loop supports a `forkContextMessages` parameter that, when provided, prepends
-conversation history to the subagent's initial messages. Relocate by grepping
-`forkContextMessages`.
-
-The initial message array is the filtered fork context followed by the prompt messages. Passing
-fork context also switches the file-state seed: with fork context the subagent inherits the
-parent's read-file state, without it the subagent starts from an empty one.
-
-The filter removes orphaned `tool_use` blocks, meaning assistant messages carrying a `tool_use` id
-with no matching `tool_result` in the user messages. Without that step a forked subagent would open
-on a malformed conversation.
-
-This mechanism exists and is used by other callers:
-
-| Caller                      | Passes `forkContextMessages`         |
-| --------------------------- | ------------------------------------ |
-| Agent tool                  | Conditionally, the parent's messages |
-| Context packager            | The current context's messages       |
-| Skill fork, direct `/skill` | Not passed                           |
-| Skill fork, Skill tool      | Not passed                           |
-
-Neither skill fork entry point passes `forkContextMessages`.  The parent's
-`toolUseContext.messages` does flow through the spread (`{ ...K, getAppState: $ }`) but is
-overridden when the child context is created: the child takes the computed message array when one
-is supplied and falls back to the parent's only when it is not. For a skill fork that computed array
-is the fork context plus the prompt messages, which is to say the prompt messages alone.
-
-
-## Skill Object Construction
-
-### Parsing `allowed-tools` from Frontmatter
-
-Relocate by grepping `allowed-tools`.
-
-The parser accepts a string or an array of strings, normalizes the result, and distinguishes three
-outcomes: `null` when the field is absent, an empty array when it is present but yields nothing,
-and the normalized list otherwise. A list containing `*` collapses to exactly `["*"]`.
-
-A non-string member of an array is dropped rather than coerced or rejected.
-
-The distinction between absent and empty matters only inside the parser: its wrapper folds `null`
-into an empty array, so every downstream consumer sees a list. Tracing a bug through this code
-means knowing which of the two you are looking at.
-
-### The skill object
-
-Skills are loaded from `SKILL.md` files and constructed by a factory taking a named-argument
-object: skill name, markdown content, the parsed `allowedTools` list, and the rest of the
-frontmatter.
-
-It returns a command object of type `prompt`, carrying the name and the `allowedTools` list, whose
-`getPromptForCommand` resolves the template and injects `allowedTools` into the app state the skill
-body sees. See "Template Resolution" below.
-
-Relocate by grepping `getPromptForCommand`; the factory is the enclosing function.
-
-### Skill Loading Pipeline
-
-Skills are loaded from two directory patterns and one plugin source:
-
-| Source                           |
-| -------------------------------- |
-| `.claude/skills/*/SKILL.md`      |
-| `.claude/commands/*.md`, legacy  |
-| Plugin skills                    |
-
-All three paths extract `allowed-tools` from frontmatter through the same parser and pass the
-result to the skill factory.
-
-### Template Variables
-
-The skill's `getPromptForCommand` method resolves template variables and performs substitutions
-before returning the rendered content.  Two built-in template variables are available in SKILL.md:
-
-| Variable               | Value                          |
-| ---------------------- | ------------------------------ |
-| `${CLAUDE_SKILL_DIR}`  | Absolute path to skill's dir   |
-| `${CLAUDE_SESSION_ID}` | Current session UUID           |
-
-`CLAUDE_SKILL_DIR` resolves to the skill's directory (e.g., `.claude/skills/my-skill`).  On
-Windows, backslashes are normalized to forward slashes.  This lets SKILL.md reference companion
-files (scripts, templates, data) relative to the skill's own location.  The substitution occurs
-in both the standard skill path and the plugin skill path.
-
-`CLAUDE_SESSION_ID` resolves to the session UUID.
-
-### Template Resolution and `getPromptForCommand`
-
-The method also creates a modified `getAppState` that includes the skill's `allowedTools` in the
-`alwaysAllowRules.command` array, but that modification is scoped to the template resolver.
-
-Resolution runs in a fixed order on the markdown body:
-
-1. Argument substitution, filling the skill's invocation arguments.
-2. `${CLAUDE_SKILL_DIR}` replaced with the skill's base directory, when one exists. On Windows the
-   path is converted to forward slashes first, so a skill body can interpolate it into a command
-   without escaping.
-3. `${CLAUDE_SESSION_ID}` replaced with the session UUID.
-4. The template resolver runs over the result, given a context whose `getAppState` is wrapped.
-
-The wrapper is a shallow spread of the real app state with one substitution: inside
-`toolPermissionContext.alwaysAllowRules`, the `command` list is replaced by the skill's
-`allowedTools`. Everything else passes through unchanged.
-
-The resolved text is returned as a single text block.
-
-The modified `getAppState` is used only by the template resolver. The caller of
-`getPromptForCommand` receives only the resolved text content — the `allowedTools` injection does
-not propagate to the caller's permission context.
-
-
-## Code Path 1: Direct Skill Invocation (`/my-skill`)
-
-`allowed-tools`: applied
-
-When a user invokes `/my-skill` in the main session, the Skill tool's `call` method processes it.
-
-### Flow
-
-```
-User types /my-skill
-  → Skill tool call
-    → prompt slash-command processor
-      → skill.getPromptForCommand        — prompt content
-      → normalize skill.allowedTools
-      → append a command_permissions message carrying the list
-      → return { messages, allowedTools }
-    ← Skill tool receives the result
-      → read allowedTools off it
-      → contextModifier merges them into alwaysAllowRules.command
-```
-
-### The prompt slash-command processor
-
-Relocate by grepping `command_permissions`.
-
-It calls the skill's `getPromptForCommand` for the prompt content, normalizes
-`skill.allowedTools ?? []` through the same list normalizer the frontmatter parser uses, and appends
-a `command_permissions` message carrying the normalized list and the model.
-
-It returns the messages, a `shouldQuery` flag, and the same `allowedTools` list, so the caller
-receives the permission grant as data rather than having it applied behind its back.
-
-### Key Code: Skill Tool `contextModifier`
-
-The Skill tool's `call` method applies the `allowedTools` by wrapping the tool-use context before
-the skill body runs. At 2.1.76 the wrapper was named `contextModifier`; that name is gone by
-2.1.277. Relocate by grepping `alwaysAllowRules` and looking for the merge into its `command` list.
-
-When the list is empty the context is passed through untouched. Otherwise the modifier wraps
-`getAppState`, and the wrapper returns the real app state with one substitution: inside
-`toolPermissionContext.alwaysAllowRules`, the `command` list becomes the de-duplicated union of the
-existing entries and the skill's `allowedTools`.
-
-That union is the difference from the template-resolution wrapper described earlier, which replaces
-the list outright. Here the skill's grants are added to what the session already allows.
-
-This is what makes the tools auto-permitted for the remainder of the skill's execution in the main
-session.
-
-
-## Code Path 2: Forked Skill Execution (`context: fork`)
-
-`allowed-tools`: applied
-
-When a skill has `context: fork` in its frontmatter, it runs in a separate subagent with an
-isolated context (see "Skill Execution Context" above).  The fork path handles `allowed-tools`
-correctly.
-
-There are two entry points for forked skills:
-
-| Entry point          | Function                                       | Trigger                                     | Location     |
-| -------------------- | ---------------------------------------------- | ------------------------------------------- | ------------ |
-| Direct `/skill`      | User types `/skill` at the prompt              |                                             |              |
-| Skill tool           | Model calls the Skill tool with a forked skill |                                             |              |
-
-Both prepare the fork context, then run the subagent loop.
-
-### Flow
-
-```
-Either entry point
-  → prepare fork context
-    → skill.getPromptForCommand          — prompt content
-    → normalize skill.allowedTools
-    → wrap getAppState with those tools
-    → select agent definition            — agent: field, else general-purpose
-    → promptMessages = one user message holding the skill content
-  ← returns { modifiedGetAppState, baseAgent, promptMessages, skillContent }
-  → subagent loop
-      promptMessages                     — skill content only, no conversation history
-      toolUseContext with the wrapped getAppState
-      availableTools                     — inherits the main session's tool list
-                                         — note: no forkContextMessages passed
-```
-
-### Preparing the fork context
-
-Relocate by grepping `No agent available for forked execution`, the error thrown when agent
-selection finds nothing.
-
-The preparation step resolves the skill's prompt content, flattening the returned blocks to their
-text and joining with newlines, normalizes `allowedTools`, wraps `getAppState` with those tools,
-selects a base agent, and builds the initial message list as a single user message holding the
-rendered skill content.
-
-It returns the skill content, the wrapped `getAppState`, the base agent, and those prompt messages.
-
-The `promptMessages` array contains only one user message: the rendered skill content.  No
-conversation history is included. Both callers pass it to the subagent loop without
-`forkContextMessages`, so the subagent starts with a clean context.
-
-### Wrapping getAppState with the allowed tools
-
-An empty list returns the original accessor untouched, so the wrap is skipped entirely rather than
-producing an identity wrapper.
-
-Otherwise it returns an accessor that reads the real app state and substitutes one field: inside
-`toolPermissionContext.alwaysAllowRules`, `command` becomes the de-duplicated union of the existing
-entries and the skill's list. This is the same merge the Skill tool's `contextModifier` performs,
-for the fork path instead of the main session.
-
-The wrapped `getAppState` is passed to the subagent loop, so the forked subagent inherits
-the skill's tool permissions.
-
-### Agent Type Selection for Forked Skills
-
-The fork path selects which agent definition to run the skill under, from the skill's `agent:`
-frontmatter field, searched against the active agent definitions.
-
-Fallback chain: specified agent type → `general-purpose` → first available agent.
-
-This means a skill can declare `agent: Explore` to run in a read-only Explore subagent, or leave
-the field unset to get the full-tool-access `general-purpose` agent.
-
-### Tool Availability in Forked Skills
-
-Both callers pass the main session's tool list through as `availableTools`, so the subagent starts
-from the same set. The agent definition's `tools:` and `disallowedTools:` then narrow it, filtered
-inside the subagent loop.
-
-
-## Code Path 3: Subagent Skill Preloading (`skills:` in Agent YAML)
-
-`allowed-tools`: NOT applied
-
-When a subagent YAML file (`.claude/agents/*.md`) includes `skills: [my-skill]`, the skills are
-preloaded at the start of the agent execution function.
-
-### Flow
-
-```
-Agent tool call
-  → agent execution function
-    → read the agent's skills list
-    → for each skill:
-        find the skill among the available commands
-        resolve it to a skill object
-        skill.getPromptForCommand("")    — prompt content ONLY
-        format the skill-loading metadata tags
-        push a user message with metadata plus content
-    ← skills loaded as prompt content only
-    ← NO allowedTools extraction
-    ← NO permission context modification
-```
-
-### Subagent skill preloading
-
-Relocate by grepping `Preloaded skill`, the debug line emitted per skill.
-
-For each name in the agent's `skills:` list the loader resolves the skill object and skips it with a
-warning when the resolved command is not prompt-based. It then renders each surviving skill by
-calling `getPromptForCommand` with empty arguments, formats the skill-loading metadata tags, and
-pushes a user message whose first content block is the metadata and whose remaining blocks are the
-rendered skill content.
-
-The resolved skill object carries `allowedTools`, exactly as on the other two paths.
-
-The preload path never reads that property and never modifies the permission context.
-
-### Skill Metadata Tags
-
-When skill content is injected into the conversation as a user message, a metadata string is
-prepended as a separate text content block.  The metadata contains XML tags that are not
-consumed by the model — they are parsed back out by Claude Code's own JavaScript for UI
-rendering, prompt extraction, and conversation compaction.
-
-The tag names are `command-name`, `command-message` and `command-args`, defined as constants and
-interpolated into the metadata strings. Grep a tag name rather than a full rendered line: the
-surrounding text is assembled from those constants, so the complete tag never appears as a literal.
-
-Two metadata formats exist:
-
-Direct `/skill` invocation:
-
-```xml
-<command-message>skill-name</command-message>
-<command-name>/skill-name</command-name>
-<command-args>user arguments</command-args>
-```
-
-Preloaded or non-user-invocable skills, formatted by `formatSkillLoadingMetadata`:
-
-```xml
-<command-message>skill-name</command-message>
-<command-name>skill-name</command-name>
-<skill-format>true</skill-format>
-```
-
-A dispatcher chooses between the two formats. A skill whose `userInvocable` is not explicitly false
-gets the `/name` format. A skill loaded from `skills` or from a plugin gets the skill format.
-Anything else falls back to `/name`.
-
-The subagent preload path calls the skill formatter directly, bypassing that dispatcher.
-
-| Aspect          | Direct invocation              | Preloaded / non-invocable         |
-| --------------- | ------------------------------ | --------------------------------- |
-| `command-name`  | `/skill-name` (with `/`)       | `skill-name` (no `/`)             |
-| Extra tag       | `<command-args>` (if present)  | `<skill-format>true`              |
-
-These tags are sent to the Anthropic API as part of user message content — the model sees them.
-There is no system prompt instruction explaining them, but the model processes them as structured
-context about what is happening in the conversation (e.g., "a skill named X was invoked").  Claude
-Code's JavaScript also parses them client-side with a general-purpose XML tag extractor, for UI
-rendering and bookkeeping:
-
-| Consumer                       | Location                                           | Purpose                                          |
-| ------------------------------ | -------------------------------------------------- | ------------------------------------------------ |
-| UI message rendering           | Display `Skill(name)` vs `/name args` in terminal  |                                                  |
-| UI message rendering, alt path | Same distinction in the alternate renderer         |                                                  |
-| Prompt summary extraction      | Label compact summaries, e.g. the ctrl+o view      |                                                  |
-| Conversation compaction        | Label what a user message was during summarization |                                                  |
-
-The tags serve dual purpose: they provide the model with structured context about skill
-invocations (as part of the user message content sent to the API), and they provide the
-client-side TUI with rendering hints.  The `<skill-format>true` tag switches the UI between
-`Skill(name)` and `/name args` display styles.  The leading `/` in `<command-name>`
-distinguishes user-invoked from preloaded in the summary extractors.
-
-Note: skill content messages are marked `isMeta: true`, which sets `isSynthetic: true` on the
-API-facing message. However, `isSynthetic` does not
-filter the message from API calls — it is a round-trip flag preserved through serialization.
-Both the metadata tags and the skill content are sent to the model.
-
-### Why This Is a Gap, Not Intentional Scoping
-
-The `getAppState` wrapping in the agent execution function is intentionally restrictive for
-subagents. The subagent's own `getAppState` wrapper controls what permission state it inherits:
-
-1. It reads the parent's `getAppState()` each call (to pick up CLI-arg or global permissions)
-2. It applies the agent's `permissionMode` (e.g., `dontAsk`, `acceptEdits`)
-3. When `allowedTools` is explicitly provided, it replaces session-level
-   rules — it doesn't merge with the parent's session grants
-
-This means subagents don't inherit the main session's "always allow" grants (e.g., a user
-pressing "always allow" for `Bash(git:*)` in the main session doesn't carry into subagents).
-This is intentional.
-
-Separately, the `getPromptForCommand` method's `getAppState` wrapping is also
-intentionally scoped — it injects `allowedTools` into the template resolver's context so that
-template variables can be resolved based on available permissions.  This does not propagate to
-the caller.
-
-But the absence of `allowedTools` extraction in the preload path is a gap, not a consequence of
-either scoping design.  Both the direct invocation and fork paths explicitly read
-`skill.allowedTools` and apply it; the preload path simply does not. The subagent's `getAppState`
-wrapper already
-has a mechanism for accepting `allowedTools`:
-
-### What Would Need to Change
-
-The subagent builds its own `getAppState` wrapper, and that wrapper already handles an
-`allowedTools` argument when the agent execution function receives one: it replaces
-`alwaysAllowRules` with the parent's `cliArg` entries plus the passed list as the session entries.
-
-That argument is only passed by the in-process teammate runner. The Agent tool's invocation of the
-agent execution function does not set it.
-
-There is also an ordering problem. The wrapper is built before the skill preloading loop runs, and
-the argument it checks is supplied by the caller rather than computed inside the function, so by the
-time a preloaded skill's `allowedTools` are known the wrapper already exists.
-
-To fix this, the skill preloading code could:
-
-1. Collect `allowedTools` from each preloaded skill
-2. Re-wrap the `getAppState` accessor after the loop, merging the collected list the same way the
-   fork path's wrapper does.
-
-Rebuilding the accessor after preloading is the shape the fork path already uses, so the fix is
-structural rather than novel.
-
-## Comparison Table
-
-| Step                            | Direct (`/skill`)                        | Fork (`context: fork`)   | Subagent preload       |
-| ------------------------------- | ---------------------------------------- | ------------------------ | ---------------------- |
-| Execution context               | Inline in main session                   | Isolated subagent        | Inside parent subagent |
-| Conversation history included   | Yes (full)                               | No (skill content only)  | No (agent context)     |
-| `agent:` field used             | Ignored                                  | Yes (selects agent)      | N/A                    |
-| Get prompt content              | Prompt slash-command processor           | Fork preparation         | Preload loop           |
-| Read `allowedTools` from skill  | Yes                                      | Yes                      | Not done               |
-| Normalize the list              | Yes                                      | Yes                      | Not done               |
-| Inject into permission context  | Skill tool `contextModifier`             | Fork `getAppState` wrap  | Not done               |
-| `forkContextMessages` passed    | N/A (inline)                             | Not passed               | N/A                    |
-| Tools auto-permitted            | Yes                                      | Yes                      | No                     |
-
-
-## Bundled Skills
-
-Bundled skills are hardcoded into the bundle and registered through a factory function. Unlike
-user-defined skills loaded from `.claude/skills/*/SKILL.md`, they carry `source: "built-in"` and
-have no disk file. Relocate by grepping `built-in`.
-
-### Registration
-
-The factory creates skill objects and pushes them into a module-level array, which a collector
-returns as a copy. An initialization function calls each bundled skill's registration in sequence at
-startup.
-
-### Bundled Skill Inventory
-
-| Name               | Invocable | allowed-tools                      | disableModel | Line   |
-| ------------------ | --------- | ---------------------------------- | ------------ | ------ |
-| `claude-in-chrome` | yes       | `mcp__claude-in-chrome__*`         | no           | 547511 |
-| `keybindings-help` | no        | `Read`                             | no           | 548165 |
-| `debug`            | yes       | `Read`, `Grep`, `Glob`             | yes          | 548643 |
-| `simplify`         | yes       | (none)                             | no           | 549123 |
-| `batch`            | yes       | (none)                             | yes          | 549265 |
-| `loop`             | yes       | (none)                             | no           | 549363 |
-| `claude-api`       | yes       | `Read`, `Grep`, `Glob`, `WebFetch` | no           | 555890 |
-
-Column notes:
-- Invocable: whether the skill can be invoked by the user via `/name`.  Non-invocable skills
-  are only triggered automatically by the model.
-- `disableModel`: when `true`, the model will not auto-trigger the skill — it can only be
-  invoked explicitly by the user via `/name`.
-
-### Skill Descriptions
-
-`claude-in-chrome` — browser automation via Chrome DevTools MCP tools.  Conditionally enabled
-only when the Chrome extension is available. On invocation, instructs the model to
-call `mcp__claude-in-chrome__tabs_context_mcp` first.
-
-`keybindings-help` — help for customizing keyboard shortcuts and `~/.claude/keybindings.json`.
-Not user-invocable; auto-triggered when the model detects keybinding questions.
-
-`debug` — enables debug logging for the current session and helps diagnose issues.  Reads
-session debug log files.  Argument hint: `[issue description]`.
-
-`simplify` — reviews changed code (via `git diff`) for reuse, quality, and efficiency, then
-fixes issues found.  Launches three parallel review agents internally.
-
-`batch` — parallel work orchestration for large-scale mechanical changes across many files
-(migrations, refactors, bulk renames).  Uses worktrees and PR creation.
-Argument hint: `<instruction>`.
-
-`loop` — schedules a recurring prompt or slash command on an interval.  Parses
-`[interval] <prompt>` and uses `CronCreate` to schedule it.  Conditionally enabled (`VR`)
-based on cron support.  Argument hint: `[interval] <prompt>`.
-
-`claude-api` — helps build apps with the Claude API or Anthropic SDK.  Auto-detects project
-language and provides SDK documentation.  Triggered when code imports `anthropic`,
-`@anthropic-ai/sdk`, or `claude_agent_sdk`.
-
-### Differences from User-Defined Skills
-
-| Aspect                   | User-defined                              | Bundled                                  |
-| ------------------------ | ----------------------------------------- | ---------------------------------------- |
-| Source                   | `.claude/skills/*/SKILL.md` on disk       | Embedded in cli.prettier.js              |
-| `source` property        | `"userSettings"` or `"projectSettings"`   | `"built-in"`                             |
-| Factory function         | Skill factory                             | Bundled-skill factory                    |
-| `disableModelInvocation` | Not supported in frontmatter              | Supported (`batch`, `debug` use it)      |
-| Conditional enable       | Always enabled if file exists             | Can be gated by runtime checks           |
-| `progressMessage`        | From frontmatter                          | Hardcoded to `"running"`                 |
-
-
-## Plugin Skill: `security-review`
-
-`security-review` is a plugin skill and is not registered
-via the bundled-skill factory.
-
-
-## How `alwaysAllowRules.command` Works
-
-The `alwaysAllowRules` object in `toolPermissionContext` has multiple sources:
-
-| Source    | Where Set                                    | Scope                 |
-| --------- | -------------------------------------------- | --------------------- |
-| `cliArg`  | CLI `--allowed-tools` flag                   | Entire session        |
-| `session` | Session-level grants (user presses "always") | Entire session        |
-| `command` | Skill `allowed-tools` frontmatter            | While skill is active |
-
-When a tool permission check occurs, all three arrays are merged and checked for matching patterns.
-The `command` source is the one set by skill `allowed-tools`.
-
-The pattern syntax supports:
-- Simple tool names: `Read`, `Edit`, `Bash`
-- Parameterized patterns: `Bash(git diff:*)`, `Bash(npm run:*)`
-- These are parsed by the shared list normalizer, which handles parenthesized arguments and
-  comma/space separation
-
-
-## Workaround
-
-Since `allowed-tools` from skills is not applied in the subagent preload path, users who need
-tools auto-permitted for a subagent cannot rely on the skill's `allowed-tools`.
-
-Note: agent YAML frontmatter has `tools:` (which tools are available) and `disallowedTools:`
-(which tools are excluded), but these control tool availability, not auto-permission.  There is
-no `allowed-tools:` field in agent YAML.
-
-Options for auto-permitting tools in subagents:
-
-1. Use the `--allowed-tools` CLI flag when launching Claude Code
-2. Grant tool permissions when prompted (they persist in session rules)
-3. Pre-approve specific tool patterns in `settings.json` under `permissions.allow`
-
-## Version history
-
-- 2.1.76: three paths, of which the subagent preload path does not apply `allowed-tools`. The
-  permission merge is written inline at each call site, and a skill's grants persist for the
-  remainder of its execution.
-- 2.1.277 spot-check. The gap is unchanged: the preload loop resolves each skill object, renders it
-  and pushes it as a user message, and never reads `allowedTools`. Everything around it moved:
-  - The `contextModifier` name is gone. The merge is now a pair of pure helpers, one for
-    `alwaysAllowRules.command` and one for `alwaysDenyRules.command`, each a no-op on an empty list.
-  - The prompt slash-command processor returns `disallowedTools` and `effort` alongside
-    `allowedTools`, so a skill can now deny as well as grant.
-  - Skill permissions are explicitly reset after the skill's turn unless the caller passes
-    `skipSkillPermissionReset`. Grants are torn down rather than persisting, which contradicts the
-    2.1.76 description above.
-  - A `pollEventDeliveryGuard` clears `alwaysAllowRules.command` outright for poll-event delivery.
-  - The preload loop gained three more skip conditions, each logging its own warning: not a
-    prompt-based skill, disabled by policy, and an account-synced skill while skills sync is off.
-  - Preloaded skills are rendered in parallel, with `isSkillPreload` set in the options, and carry a
-    `promptShellHandOff` channel for commands handed to a shell.
-
-  The rest of this doc has not been re-verified against 2.1.277. Treat its specifics as 2.1.76
-  facts.
+# Skills
+
+Verified against: cli.prettier.js 2.1.316 (2026-11-02)
+
+The parent document for skills: where they come from, how they are registered and filtered, who can
+invoke them, how they run, and where a skill's `allowed-tools` grant applies. It then catalogs the
+skills that ship inside Claude Code. It records what the source shows beyond the public docs
+(https://code.claude.com/docs/en/skills), and notes where the two disagree.
+
+Related docs, linked rather than repeated:
+
+- `MARKDOWN_FRONTMATTER.md`: every `SKILL.md` and command frontmatter key and how it parses.
+- `SUBAGENTS.md`: the Agent tool, agent definitions, and the `skills:` field's host.
+- `CLAUDE_CODE_GUIDE.md`: the bundled `claude-code-docs` skill in full.
+- `SKILLIFY.md`: skill proposals (`propose_skills`) and the dead Skillify prompt.
+
+Minified names collide across bun modules. Every recipe below anchors on a string; read the
+enclosing module's `import` list to resolve any helper it calls.
+
+## How skills work
+
+### Sources
+
+One loader gathers every skill. Its debug line, found by `rg -n 'getSkills returning'`, counts four
+of the sources: skill dir commands, plugin skills, bundled skills and builtin plugin skills.
+The caller then merges those with workflows, plugin commands and the built-in command table into a
+single loaded command list, cached in `loadedCommands`.
+
+| Source                   | Marker on the command                               | Where it comes from                                       |
+| ------------------------ | --------------------------------------------------- | --------------------------------------------------------- |
+| Skill directories        | `loadedFrom: "skills"` or `"commands_DEPRECATED"`   | `.claude/skills/<name>/SKILL.md`, `.claude/commands/*.md` |
+| Account-synced skills    | `loadedFrom: "syncedSkills"`                        | claude.ai skills synced to disk                           |
+| Attached folders         | `loadedFrom: "attachedFolder"`                      | folders a host attaches to the session                    |
+| Plugin skills            | `source: "plugin"`, `loadedFrom: "plugin"`          | installed plugins                                         |
+| MCP skills               | `loadedFrom: "mcp"`                                 | MCP servers                                               |
+| Bundled skills           | `source: "bundled"`, `loadedFrom: "bundled"`        | compiled into the binary, see the catalog                 |
+| Built-in plugins' skills | `source: "bundled"`, plugin id `<name>@builtin`     | the `cc-plugin-*` registry, see Built-in plugins          |
+| Built-in prompt commands | `type: "prompt"`, `source: "builtin"`               | the built-in command table (`init`, `security-review`, …) |
+
+The public docs cover the user-facing locations, precedence when names collide, and synced skills.
+
+Built-in prompt commands are slash commands written as prompts. The ones without
+`disableModelInvocation` are eligible for the model's skill listing, which is how the docs' "A few
+built-in commands are also available through the Skill tool, including `/init` and
+`/security-review`" works: `init`, `security-review` and `commit-push-pr`. `insights`, `statusline`
+and `team-onboarding` set `disableModelInvocation` and stay user-only. Relocate the list with
+`rg -n 'source: "builtin"'`; `security-review` is built by a small factory whose object carries
+`pluginName: "security-review"`.
+
+### One list feeds both the user and the model
+
+The loaded command list is filtered once, then serves both audiences:
+
+- Every command passes three checks to stay in the list: its `availability` (claude.ai or Console
+  accounts), its `policyGate`, and its `isEnabled()`. The policy-and-enabled check reads
+  `policyGate.policy` as an org policy key, then calls `isEnabled?.()`, treating an absent function
+  as enabled. A command that fails is gone for both audiences: typing it gives
+  `Unknown command: /<name>`, and the Skill tool answers `Unknown skill: <name>`.
+- The `/` menu shows what survives, minus `isHidden` entries.
+- The model's skill listing (the `skill_listing` attachment and the Skill tool's own list) keeps a
+  prompt-type command only when `disableModelInvocation` is false, `skillOverrides` does not resolve
+  to `user-invocable-only` or `off`, and its source is one the listing accepts. Relocate that
+  predicate by the source names it tests together: `"commands_DEPRECATED"` beside
+  `hasUserSpecifiedDescription`.
+
+### Registering a bundled skill
+
+`rg -n 'source: "bundled"'` returns two object literals. One is the bundled-skill registrar, whose
+caller pushes the object onto `bundledSkills` and, when `survivesBundledKillSwitch` is set, onto
+`bundledSkillKillSwitchSurvivors`. The other wires a built-in plugin's skills, caching them in
+`builtinPluginWiredSkills`. Both build the same command shape:
+
+- `type: "prompt"`, `contentLength: 0`, `hasUserSpecifiedDescription: true`.
+- `userInvocable` defaults to true, and `isHidden` is always `!(userInvocable ?? true)`. A skill is
+  never hidden from the menu while still user-invocable, and never shown while not.
+- `disableModelInvocation` defaults to false. When the definition passes a function, the literal is
+  first set to true and then replaced by a live getter, so the value is re-read on every access.
+  `description`, `menuDescription`, `argumentHint`, `whenToUse` and `policyGate` get the same getter
+  treatment when given as functions.
+- `progressMessage` defaults to `"running"`.
+- `isEnabled` is passed through by the bundled registrar (absent means enabled). The built-in plugin
+  registrar defaults it to `() => true`.
+
+Registration happens once per process, guarded by `bundledSkillsInitialized`
+(`rg -n 'bundledSkillsInitialized'`). The initializer calls each registration function in turn, then
+requires several from their own modules by exported name: `registerCoworkSetupSkill`,
+`registerLoopSkill`, `registerScheduleRemoteAgentsSkill`, `registerContinueInProjectsSkill`,
+`registerClaudeApiSkill`, `registerClaudeCodeSkill`, `registerWorkflowAuthoringSkill`,
+`registerRunSkill` and `registerRunSkillGeneratorSkill`.
+
+When `CLAUDE_CODE_ENTRYPOINT` is `local-agent` the initializer takes an early branch. It registers
+`design` (with its hub and sync modes off), and, only when Artifacts are wired into that host,
+`artifact-design`, `artifact-diagramming`, `slides` and `artifact-capabilities`. Nothing else.
+
+Seven registration functions the initializer calls register nothing. Four have the body `return;`:
+two sit right after unreferenced prompts (Skillify, and the `/stuck` prompt anchored on
+`diagnose frozen/slow Claude Code sessions`), two have no prompt beside them. Three have an empty
+body. See `SKILLIFY.md`.
+
+### Filters, in order
+
+1. Kill switch. `CLAUDE_CODE_DISABLE_BUNDLED_SKILLS`, or the setting `disableBundledSkills: true`.
+   The bundled-skill collector then returns only the kill-switch survivors, which are `design` and
+   `doctor` (`rg -n 'survivesBundledKillSwitch: !0'`, two hits). Built-in prompt commands stay
+   typable but resolve to `user-invocable-only`, so the model loses them. The skills of built-in
+   plugins are not dropped by the kill switch, with one exception: `cc-plugin-claude-platform`
+   withholds its `claude-api` copy. The setting's own description: "bundled skills and workflows are
+   removed entirely; built-in slash commands stay typable but are hidden from the model."
+
+2. Org policy `allow_bundled_skills`. Defined beside the other policy keys
+   (`rg -n 'allow_bundled_skills: \{'`): denied under `hipaa`, `onCacheMiss: "allow"`, labelled
+   `Bundled skills`. When the policy denies, bundled skills and built-in plugins' skills survive
+   only if they are kill-switch survivors or named in the core list. The core list is the server's
+   `core_skills` from the policy verdict, remembered from the last one served; a hardcoded default
+   stands in when none was ever served: `artifact-diagramming`, `batch`, `claude-code-docs`,
+   `code-review`, `commit`, `dataviz`, `debug`, `explain-usage`, `fewer-permission-prompts`,
+   `keybindings-help`, `loop`, `memory-types`, `plugin-authoring`, `pr`, `simplify`,
+   `update-config`, `verify`, `workflow-authoring`. Relocate the default by grepping
+   `"fewer-permission-prompts",` beside `"memory-types",`. Built-in prompt commands become
+   `user-invocable-only`. Typing a dropped bundled skill yields a policy notice for `Bundled skills`
+   rather than `Unknown command`.
+
+3. `policyGate`, then `isEnabled()`, per command (see above). Each bundled skill's gate is in the
+   catalog.
+
+4. `userInvocable: false` (frontmatter `user-invocable: false`). Hidden from the menu. Typing it
+   returns "This skill can only be invoked by Claude, not directly by users. Ask Claude to use the
+   "<name>" skill for you." The model still lists and invokes it.
+
+5. `disableModelInvocation: true` (frontmatter `disable-model-invocation: true`). Not in the model's
+   listing. The Skill tool refuses it with "Skill <name> cannot be used with Skill tool due to
+   disable-model-invocation." unless the user typed `/<name>` in the current turn.
+
+6. `skillOverrides`. Values `on`, `name-only`, `user-invocable-only`, `off`; most restrictive wins
+   across matching entries. The public docs cover the menu and the alias rules. The source adds the
+   refusal texts: typed while `off` gives `Skill "<name>" is disabled via skillOverrides.`; the
+   Skill tool reports `Skill <name> is disabled for model invocation in skillOverrides settings`, or
+   names the kill switch or the denying policy when either is the cause.
+
+| Setting on the skill                       | User types `/name`              | Model lists it | Model invokes it               |
+| ------------------------------------------ | ------------------------------- | -------------- | ------------------------------ |
+| `isEnabled()` false or `policyGate` denied | `Unknown command: /<name>`      | No             | `Unknown skill: <name>`        |
+| Kill switch, bundled non-survivor          | `Unknown command: /<name>`      | No             | `Unknown skill: <name>`        |
+| Kill switch, built-in prompt command       | Yes                             | No             | Refused, names the kill switch |
+| Policy denies, bundled outside core list   | Policy notice (interactive)     | No             | `Unknown skill: <name>`        |
+| `userInvocable: false`                     | Refused, "only … by Claude"     | Yes            | Yes                            |
+| `disableModelInvocation: true`             | Yes                             | No             | Only if typed this turn        |
+| `skillOverrides: "name-only"`              | Yes                             | Name only      | Yes                            |
+| `skillOverrides: "user-invocable-only"`    | Yes                             | No             | Only if typed this turn        |
+| `skillOverrides: "off"`                    | Refused, names `skillOverrides` | No             | Refused                        |
+
+### Three execution paths
+
+| Path              | Trigger                                    | Context the skill sees                      |
+| ----------------- | ------------------------------------------ | ------------------------------------------- |
+| Inline            | `/name`, or the Skill tool, without `fork` | The full conversation; body inserted inline |
+| `context: fork`   | Either trigger, with fork resolved         | Only the skill body, in a new subagent      |
+| `skills:` preload | An agent definition lists the skill        | The subagent's own context, body at start   |
+
+Fork is resolved per call: a skill's `getContext()` wins over its `context` field, else `"inline"`.
+The bundled `code-review` uses this to fork by default and run inline in some sessions. `agent:` is
+read only on the fork path.
+
+`context: fork` does not fork the conversation, unlike the Agent tool's `fork` subagent and `/fork`
+(see `SUBAGENTS.md`, `CLEAR_COMPACT_FORK_CONTEXT.md`). Both fork entry points, the user's `/name`
+and the Skill tool, prepare the fork through the function exported as `prepareForkedCommandContext`
+(`rg -n 'No agent available for forked execution'`), and neither passes `forkContextMessages`. The
+forked subagent gets:
+
+- A single meta user message holding the rendered skill body, plus attachments extracted from that
+  text (its `@` mentions).
+- A fresh read-file state, not the parent's.
+- The agent named by `agent:`, else `general-purpose`, else the first active agent. A named agent
+  that is missing logs `Forked command <name>: agent '<x>' is not available as a fork base`.
+- The parent's tool list, narrowed by the agent definition.
+- With `background` left at its default, the result arrives later:
+  `Running in the background as @<name>`.
+
+The preload path is described in `SUBAGENTS.md`'s territory, but its permission behavior is below.
+Preload resolves each name against the model's skill listing, so a `disable-model-invocation` skill
+is "not found", as the public docs say. It skips, with a debug warning each, a skill that is not
+found, `is not a prompt-based skill`, `is disabled by policy` (fails the policy-and-enabled check),
+`is turned off by the organization's Skills setting`, or is an account-synced skill while skills
+sync is off. Survivors render in parallel with `isSkillPreload` set, then log
+`Preloaded skill '<name>'` and `tengu_skill_tool_invocation` with `execution_context: "preload"`.
+
+### Where `allowed-tools` applies
+
+A skill's `allowed-tools` entries land in `toolPermissionContext.alwaysAllowRules.command`;
+`disallowed-tools` land in `alwaysDenyRules.command`. Frontmatter parsing, including how an entry
+naming `${CLAUDE_SKILL_DIR}` is dropped from a skill with no folder
+(`naming CLAUDE_SKILL_DIR, because the skill has no folder of its own`), is in
+`MARKDOWN_FRONTMATTER.md`.
+
+| Path                  | Grant applied | Mechanism                                                                  |
+| --------------------- | ------------- | -------------------------------------------------------------------------- |
+| Typed `/name`, inline | Yes           | The input's `allowedTools` replace the `command` rules for that turn       |
+| Skill tool, inline    | Yes           | An `allowed_tools` permission layer, unioned into the `command` rules      |
+| `context: fork`       | Yes           | A wrapped `getAppState` plus `allowed_tools` and `disallowed_tools` layers |
+| `skills:` preload     | No            | The loop renders the body and never reads `allowedTools`                   |
+| Injected `` !`cmd` `` | Yes, scoped   | Commands are checked with `command` set to the skill's own list            |
+
+Typed `/name`. The prompt slash-command processor (`rg -n 'type: "command_permissions"'`) returns
+`allowedTools`, `disallowedTools`, `model` and `effort`, and appends a `command_permissions`
+message. When the query engine processes each user input it sets `alwaysAllowRules.command` to that
+input's `allowedTools`, unless the input carries `skipSkillPermissionReset`. A plain prompt carries
+none, so the grant lasts until the next message, as the public docs say.
+
+Skill tool, inline. The tool returns the grant as a permission layer of kind `allowed_tools`
+(relocate with `rg -n 'case "allowed_tools"'`), which unions the list into the existing `command`
+rules. A read-only skill load (`readOnlySkillLoad`) drops the grant. Under `pollEventDeliveryGuard`
+no grant is applied.
+
+Fork. The fork preparation wraps `getAppState` so `command` becomes the de-duplicated union of the
+existing rules and the skill's list (or replaces them when the caller asks), merges
+`disallowed-tools` into `alwaysDenyRules.command`, and records both as layers.
+
+Injected commands. Before a skill body's `` !`cmd` `` lines run, the runner is handed a
+`getAppState` whose `command` rules are exactly the skill's `allowed-tools`. That is the only effect
+of the grant during rendering; it does not reach the caller.
+
+The preload gap. The preload loop resolves the skill object, which carries `allowedTools`, and never
+reads it. The agent runner (exported as `runAgent`) does accept an `allowedTools` argument, which
+replaces the subagent's session rules with the parent's `cliArg` rules plus the list. Only the
+in-process teammate runner passes it (`rg -n 'In-process teammate: '` finds that caller); the Agent
+tool does not. The runner builds its permission wrapper before the preload loop, so the loop's
+skills could not feed it anyway. To pre-approve tools for a preloading subagent, use
+`--allowedTools`, `permissions.allow` in settings, or session grants.
+
+Neither agent nor skill frontmatter has a key for the other's axis. Agent `tools` and
+`disallowedTools` control which tools exist for the subagent; skill `allowed-tools` pre-approves and
+`disallowed-tools` denies. A preloaded skill's `allowed-tools` does not widen an agent's `tools`,
+and an agent's `tools` does not pre-approve anything.
+
+### Skill-loading metadata tags
+
+A skill body enters the conversation as a meta user message preceded by a metadata text block. The
+tag names are constants: `command-name`, `command-message`, `command-args`, `skill-format`. Grep a
+tag name, not a rendered line, because the lines are assembled from the constants.
+
+| Format       | Produced for                                  | Tags                                                          |
+| ------------ | --------------------------------------------- | ------------------------------------------------------------- |
+| Slash format | A user-invocable skill                        | `command-message`, `command-name` with `/`, `command-args`    |
+| Skill format | Preloads, non-user-invocable skills           | `command-message`, `command-name` without `/`, `skill-format` |
+
+The skill format is exported as `formatSkillLoadingMetadata`; the preload loop calls it directly. A
+dispatcher picks the slash format for any skill whose `userInvocable` is not false. The model sees
+the tags; the UI parses them back out to render `Skill(name)` versus `/name args`.
+
+### Bundled skill files
+
+A bundled skill may ship a `files` map (or a function returning one). Its prompt function is then
+wrapped so that on first invocation the files are written out, once per process:
+
+- Location: `<Claude temp dir>/bundled-skills/<version>/<random hex>/<skill name>`, or a host's
+  `bundledSkillFilesElsewhere` writer when one is set.
+- Writes refuse to overwrite (exclusive create, no symlink following), files are mode 0600 and
+  directories 0700, and a relative path that climbs out throws
+  `bundled file path escapes its extraction dir`. An existing file passes only if its content
+  matches.
+- Success logs `skill_bundled_extract`; failure logs `skill_bundled_extract_write_failed` and
+  `Failed to extract bundled skill '<name>' to <dir>`, and the skill runs without its files.
+- On success the prompt is prefixed with `Base directory for this skill: <dir>`, the same prefix a
+  disk skill gets for its own folder.
+
+The skill bodies and reference files themselves are embedded in the binary's `$bunfs` as
+zstd-compressed `.md.zst` assets (`rg -o 'SKILL-[0-9a-f]+\.md\.zst'`), decompressed on load. A
+missing or corrupt asset throws `embedded asset is missing or corrupt`.
+
+Per-session caches inside a bundled skill clear through session-reset hooks; a failing hook logs
+`[skills] session-reset hook failed:`.
+
+### Template variables
+
+The public docs list `${CLAUDE_SKILL_DIR}`, `${CLAUDE_PROJECT_DIR}`, `${CLAUDE_SESSION_ID}` and
+`${CLAUDE_EFFORT}` and say where each is substituted. The source matches. Substitution order:
+arguments first, then `${CLAUDE_SKILL_DIR}`, then `${CLAUDE_PROJECT_DIR}` and `${CLAUDE_SESSION_ID}`
+(skipped for the synced skills the public docs name), then `${CLAUDE_EFFORT}`, then injected
+commands.
+
+## Bundled skills
+
+31 bundled skills register through the bundled registrar. Columns: U is user-invocable, M is
+model-invocable (and listed), Files is a `files` map extracted on first use. "Core" means the skill
+is on the default core list that survives a policy denial of `allow_bundled_skills`.
+
+| Skill (aliases)                 | Summary                                            | Gate                                           | U   | M    | Files |
+| ------------------------------- | -------------------------------------------------- | ---------------------------------------------- | --- | ---- | ----- |
+| `artifact-capabilities`         | Runtime capabilities for published Artifacts       | Artifacts, capabilities on                     | Yes | Yes  | Yes   |
+| `artifact-design`               | Design pass before writing any Artifact            | Artifacts                                      | No  | Yes  | No    |
+| `artifact-diagramming`          | Diagramming guidance for Artifacts                 | Artifacts; core                                | Yes | Yes  | No    |
+| `slides`                        | New Slides deck Artifact from a brief              | Artifact types, `allow_cobalt_plinth_juniper`  | Yes | No   | No    |
+| `design`                        | Claude Design: new design, hub, or consent         | See below; survives kill switch                | Yes | No   | No    |
+| `design-sync`                   | Push a React design system to claude.ai/design     | `allow_design_sync`                            | Yes | No   | Yes   |
+| `batch`                         | Plan a large change; worktree agents each open PRs | None; core                                     | Yes | No   | No    |
+| `claude-in-chrome`              | Drive the user's Chrome                            | Extension wired, or install upsell             | Yes | Yes  | No    |
+| `code-review` (`review`)        | Review the diff or a PR for bugs                   | None; core                                     | Yes | Yes  | No    |
+| `commit`                        | Create a git commit                                | `tengu_cinder_relay`; core                     | Yes | Yes  | No    |
+| `pr`                            | Create a pull request                              | `tengu_cinder_relay`; core                     | Yes | Yes  | No    |
+| `cowork-plugin`                 | Create or customize a Cowork plugin                | Cowork                                         | No  | Yes  | Yes   |
+| `dataviz`                       | Chart and dashboard design guidance                | None; core                                     | Yes | Yes  | Yes   |
+| `debug`                         | Turn on debug logging and investigate              | None; core                                     | Yes | No   | No    |
+| `doctor` (`checkup`)            | Health-check the setup and fix issues              | `DISABLE_DOCTOR_COMMAND`; survives             | Yes | No   | No    |
+| `explain-usage`                 | Where this session's tokens went                   | Cowork; core                                   | Yes | Yes  | No    |
+| `fewer-permission-prompts`      | Allowlist read-only calls from transcripts         | None; core                                     | Yes | Yes  | No    |
+| `keybindings-help`              | Customize `~/.claude/keybindings.json`             | `tengu_keybinding_customization_release`; core | No  | Yes  | No    |
+| `memory-types`                  | Memory type taxonomy reference                     | Auto memory, `tengu_ochre_finch`; core         | No  | Yes  | No    |
+| `simplify`                      | Cleanups only, then apply the fixes                | None; core                                     | Yes | Yes  | No    |
+| `update-config`                 | Configure the harness via `settings.json`          | None; core                                     | Yes | Yes  | No    |
+| `verify`                        | Try the change and report if it works              | None; core                                     | Yes | Flag | Yes   |
+| `setup-claude` (`setup-cowork`) | Guided Cowork setup                                | Cowork                                         | Yes | Yes  | No    |
+| `loop` (`proactive`)            | Repeat a prompt on an interval                     | `tengu_kairos_cron`; core                      | Yes | Yes  | No    |
+| `schedule` (`routines`)         | Cloud agents on a cron schedule                    | Routines, see below                            | Yes | Yes  | No    |
+| `send-to-project`               | Send this session's work to a Claude Project       | `tengu_amber_tributary_dotterel`               | Yes | No   | No    |
+| `claude-api`                    | Claude API and SDK reference                       | `CLAUDE_CODE_DISABLE_CLAUDE_API_SKILL`         | Yes | Yes  | Yes   |
+| `claude-code-docs`              | Answer questions about Claude Code                 | `tengu_birch_kettle`; core                     | Yes | Yes  | Yes   |
+| `workflow-authoring`            | Reference for Workflow tool scripts                | Workflow tool available; core                  | Yes | Yes  | No    |
+| `run`                           | Launch the project's app to see a change           | None                                           | Yes | Yes  | Yes   |
+| `run-skill-generator`           | Write a project skill that runs the app            | None                                           | Yes | No   | Yes   |
+
+Dedicated doc: `claude-code-docs` is covered in `CLAUDE_CODE_GUIDE.md`. No other bundled skill has
+one; `code-review`, `doctor`, `verify` and `run` are covered in depth by the public docs.
+
+Gate notes. A flag's default follows its name in parentheses.
+
+- Artifacts. The Artifacts availability check: first-party API, not essential-traffic-only,
+  `CLAUDE_CODE_ARTIFACT` not set falsy, `tengu_cobalt_plinth` (on by default for claude.ai consumer
+  sign-in or no auth), org policy `allow_cobalt_plinth`, and Artifacts not switched off in settings.
+  The three `artifact-*` skills are also off when the built-in Artifact tool is hidden in favour of
+  an MCP artifact server. `artifact-capabilities` fetches its type-definition files from the server
+  at invocation (`artifact_capability_section` logs the outcome). `slides` also needs Artifact types
+  available.
+- `design`. Its mode decides description, gate and behavior. With bundled skills killed or denied by
+  policy: consent mode when `allow_design_sync` allows, else disabled. With Artifact types
+  available: types mode (a new Design artifact) when `allow_cobalt_plinth_bramble` allows. Else hub
+  mode when `allow_design_sync` allows, the session is first-party and not essential-traffic-only,
+  and `tengu_omelette_fouet` (false) is on. Else consent mode (`consent`, `revoke`). Every mode but
+  types carries `policyGate: { policy: "allow_design_sync" }`. The source also carries the notice
+  "Standalone Claude Design (claude.ai/design) closes by December 14, 2026."
+- `design-sync`. `allow_design_sync`, not essential-traffic-only, first-party API; also its
+  `policyGate`.
+- `claude-in-chrome`. On when the Chrome extension was wired this session or an install upsell
+  applies; off with `CLAUDE_CODE_DISABLE_CFC_PROMPT`.
+- `commit`, `pr`. `tengu_cinder_relay` (false), latched for the session on first read.
+  `allowedTools` pre-approve the git commands each needs. The built-in `commit-push-pr` prompt
+  command is not gated by this flag.
+- `verify`. Always enabled and user-invocable. `disableModelInvocation` is a getter that returns
+  `!tengu_opal_circuit` (false), so the model can invoke it only with that flag on.
+- Cowork. `CLAUDE_CODE_ENTRYPOINT` is `remote_cowork`, or a diskless session whose derived surface
+  is `remote_cowork`.
+- `memory-types`. Auto memory on (see `AUTO_MEMORY.md`) and `tengu_ochre_finch` (false).
+- `keybindings-help`. `tengu_keybinding_customization_release` (true).
+- `loop`. `CLAUDE_CODE_DISABLE_CRON` unset and `tengu_kairos_cron` (true).
+- `schedule`. claude.ai sign-in, first-party API, not `CLAUDE_CODE_REMOTE`, and org policy
+  `allow_routines`; `policyGate` is `allow_remote_sessions`.
+- `send-to-project`. `tengu_amber_tributary_dotterel` (false), a local workspace, not
+  `CLAUDE_CODE_REMOTE`, a remote-session eligibility check, claude.ai sign-in with org policy
+  `allow_remote_sessions`, not essential-traffic-only; `policyGate` is `allow_remote_sessions`.
+- `claude-api`. `CLAUDE_CODE_DISABLE_CLAUDE_API_SKILL` turns it off. It pre-approves
+  `WebFetch(domain:platform.claude.com)` and denies `Agent(web-fetch)`.
+- `claude-code-docs`. `tengu_birch_kettle` (false); `CLAUDE_CODE_DISABLE_CLAUDE_CODE_SKILL` turns it
+  off.
+- `workflow-authoring`. The Workflow tool's availability: `tengu_workflows_enabled` (true),
+  `CLAUDE_CODE_WORKFLOWS`, `CLAUDE_CODE_DISABLE_WORKFLOWS`, the `enableWorkflows` and
+  `disableWorkflows` settings, and org policy `allow_workflows`.
+- `doctor`. `DISABLE_DOCTOR_COMMAND` turns it off; it needs a workspace.
+
+Drift from the public docs:
+
+- The skills and commands pages do not mention `slides`, `explain-usage`, `send-to-project`,
+  `setup-claude`, `memory-types`, `cowork-plugin` or `keybindings-help`; most are gated to Cowork
+  sessions, Artifacts hosts or off-by-default flags.
+- The docs say `/verify` runs only when the user invokes it. True by default; the source keeps a
+  flag (`tengu_opal_circuit`) that makes it model-invocable.
+- The docs list `/doctor` as the skill that stays typable under `disableBundledSkills`. `design`
+  also survives the kill switch, in consent mode.
+
+### Built-in plugins
+
+A separate registry registers 13 built-in plugins, each a lazily required module, guarded by
+`builtinPluginsInitialized` (`rg -n 'builtinPluginsInitialized'`; the initializer calls one
+registration per `"cc-plugin-…"` id). Each is enabled through `enabledPlugins` under
+`<name>@builtin`, falling back to its own default. Only three supply skills:
+
+| Plugin                       | Skills                                                    | Notes                                               |
+| ---------------------------- | --------------------------------------------------------- | --------------------------------------------------- |
+| `cc-plugin-plugin-authoring` | `plugin-authoring`                                        | User and model; ships files; on the core list       |
+| `cc-plugin-claude-platform`  | `claude-api`                                              | Only when the bundled `claude-api` is absent        |
+| `cc-plugin-claude-test`      | `claude-test`, `claude-test-execute`, `claude-test-draft` | Off by default; the last two are forked, model-only |
+
+`cc-plugin-claude-platform` supplies its `claude-api` copy only when no bundled `claude-api` is
+registered (the `local-agent` entrypoint registers none) and `claude-api` is neither killed nor
+policy-denied; its availability includes `tengu_peppy_crescent`. `claude-test-execute` runs on agent
+`claude-test:runner`, `claude-test-draft` on `claude-test:author`.
+
+The other ten have no skills: `cc-plugin-sec-default`, `cc-plugin-agents-md`, `cc-plugin-telemetry`,
+`cc-plugin-mods-guide`, `cc-plugin-tips`, `cc-plugin-mermaid`, `cc-plugin-responsive-mode`,
+`cc-plugin-diff`, `cc-plugin-you-should-know`, `cc-plugin-easel`. `sec-default`, `agents-md` and
+`telemetry` register on every entrypoint; the rest skip `local-agent`. `tips`, `mermaid`, `diff`,
+`claude-platform` and `claude-test` also skip entrypoints starting with `remote`; `responsive-mode`
+keeps `remote` and `easel` keeps `remote_cowork`. `PLUGIN_PANES_AND_COMPOSER.md` covers the `diff`
+mod.
+
+Built-in plugins' skills are dropped by an `allow_bundled_skills` denial unless on the core list,
+but not by the kill switch.
+
+## Re-verify
+
+- □ `rg -n 'source: "bundled"'`: 2 hits, both with `loadedFrom: "bundled"` and
+  `isHidden: !(e.userInvocable ?? !0)`.
+- □ `rg -n 'survivesBundledKillSwitch: !0'`: 2 hits, `design` and `doctor`.
+- □ The default core list holds 18 names, beginning `"artifact-diagramming"`.
+- □ `allow_bundled_skills` is denied under `hipaa` with `onCacheMiss: "allow"`.
+- □ The `bundledSkillsInitialized` initializer's `local-agent` branch registers design plus the
+  Artifacts skills only.
+- □ The preload loop's warnings (`is not a prompt-based skill`, `is disabled by policy`,
+  `is turned off by the organization's Skills setting`) are present and it never reads
+  `allowedTools`.
+- □ `rg -n 'In-process teammate: '` is the only `runAgent` caller passing `allowedTools`.
+- □ `builtinPluginsInitialized` initializer registers 13 `cc-plugin-*` ids.

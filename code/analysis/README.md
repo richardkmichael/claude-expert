@@ -41,7 +41,7 @@ Style legend:
 | `FILE_INCLUSION.md`        | `@`-file completion: git/ripgrep index, `.ignore` re-include, `.claude/**`, `fileSuggestion` payload, caps | 2.1.316  | landmark | `[FileIndex]`, `respectGitignore`, `re-included by .ignore`, `generateFileSuggestionsWithBase`               |
 | `SUBAGENTS.md`             | Agent/Task tool: schema, launch, output, isolation                                                         | 2.1.316  | landmark | `tengu_agent_tool_completed`, `delegate work to a subagent`, headless                                        |
 | `CLAUDE_CODE_GUIDE.md`     | claude-code-guide agent, `claude-code-docs` skill, bundled refs                                            | 2.1.316  | landmark | `You are the Claude guide agent.`, `tengu_birch_kettle`                                                      |
-| `SKILLS.md`                | Skill `allowed-tools` and where grants do/don't apply                                                      | 2.1.76   | landmark | `allowed-tools`, `command_permissions`, `Preloaded skill`                                                    |
+| `SKILLS.md`                | Skills: sources, filters, invocation, `allowed-tools` paths, bundled catalog                               | 2.1.316  | landmark | `bundledSkillsInitialized`, `allow_bundled_skills`, `Preloaded skill`                                        |
 | `SKILLIFY.md`              | Dead Skillify prompt; live `propose_skills` proposals                                                      | 2.1.277  | landmark | `# Skillify`, `propose_skills`, `CLAUDE_CODE_SKILL_PROPOSALS`                                                |
 
 ## Permissions and safety
