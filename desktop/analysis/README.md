@@ -25,7 +25,7 @@ The last build the whole set was verified against:
 | --------------------------------------------------- | ---------------------------------------------------------------------------------- | ----------- |
 | [ARCHITECTURE](./ARCHITECTURE.md)                   | Process model, `app.asar` file tree, workers, native modules, IPC                  | 1.26832.0\* |
 | [EXTRACTION](./EXTRACTION.md)                       | Unpacking, repacking/re-signing, re-verification recipes                           | 1.26832.0   |
-| [CONFIGURATION](./CONFIGURATION.md)                 | Config stores, preferences schema, enterprise/user layering                        | 1.26832.0   |
+| [CONFIGURATION](./CONFIGURATION.md)                 | Config stores, preferences schema, enterprise/user layering                        | 4.4212.0    |
 | [DEPLOYMENT_MODES](./DEPLOYMENT_MODES.md)           | First-party vs third-party (`Claude-3p`), enterprise sources, org policy           | 1.26832.0   |
 | [ENVIRONMENT_VARIABLES](./ENVIRONMENT_VARIABLES.md) | Main-process env vars; the bundled Claude Code surface                             | 1.26832.0   |
 | [MCP](./MCP.md)                                     | MCP SDK/protocol, server hosting, transports, `.dxt`/`.mcpb`                       | 1.26832.0   |
