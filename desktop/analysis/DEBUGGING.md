@@ -4,12 +4,42 @@ How to attach debuggers and raise log verbosity across the main process, rendere
 modules.
 
 
+## Electron fuses
+
+The shipped Electron binary has its fuses set, and they decide what debugging is possible. Read them
+from the fuse wire in `Contents/Frameworks/Electron Framework.framework/Electron Framework`: the
+sentinel `dL7pKGdnNz796PbbjQWNKmHXBZaB9tsX` is followed by a version byte, a count, and one ASCII
+byte per fuse (`0` off, `1` on). `npx @electron/fuses read --app /Applications/Claude.app` prints
+the same. This build's wire is `010011011`:
+
+| Fuse                                    | State |
+| --------------------------------------- | ----- |
+| `RunAsNode`                             | off   |
+| `EnableCookieEncryption`                | on    |
+| `EnableNodeOptionsEnvironmentVariable`  | off   |
+| `EnableNodeCliInspectArguments`         | off   |
+| `EnableEmbeddedAsarIntegrityValidation` | on    |
+| `OnlyLoadAppFromAsar`                   | on    |
+| `LoadBrowserProcessSpecificV8Snapshot`  | off   |
+| `GrantFileProtocolExtraPrivileges`      | on    |
+| `EnableWasmTrapHandlers`                | on    |
+
+
 ## JavaScript (main process)
 
-Launch Electron with `--inspect=9229` or `--inspect-brk=9229` and connect via `chrome://inspect`.
+The shipped app has no main-process inspector. `EnableNodeCliInspectArguments` is off, so Electron
+ignores `--inspect` and `--inspect-brk` and does not start the inspector on `SIGUSR1`.
+`EnableNodeOptionsEnvironmentVariable` is off, so `NODE_OPTIONS=--inspect` is ignored too, and
+`RunAsNode` is off, so `ELECTRON_RUN_AS_NODE` does nothing.
 
-With `--remote-debugging-port` or `--remote-debugging-pipe`, the app additionally requires a valid
-`CLAUDE_CDP_AUTH` token (see below). Normal launches do not need it.
+Chromium debugging and network-override switches are refused outright. `index.pre.js` checks argv
+for `remote-debugging-port`, `remote-debugging-pipe`, `ignore-certificate-errors`,
+`host-resolver-rules`, `host-rules`, `disable-web-security`, `log-net-log`, `net-log-capture-mode`,
+`ssl-key-log-file` and the `*-cmd-prefix` / launcher / subprocess-path switches, matching by prefix
+after stripping a leading `--`, `-` or `/`, any `=value`, and lowercasing. Unless a valid
+`CLAUDE_CDP_AUTH` token is present (see below), the app writes "Claude: refusing to start — a
+debugging or network-override switch is present on the command line." to stderr and exits with
+status 1. Relocate with `rg -n 'refusing to start' .vite/build`.
 
 Raise verbosity with `ELECTRON_ENABLE_LOGGING=1`, `DESKTOP_LOG_LEVEL=debug`, and
 `CLAUDE_ENABLE_LOGGING=1`. See [ENVIRONMENT_VARIABLES](./ENVIRONMENT_VARIABLES.md).
@@ -17,8 +47,12 @@ Raise verbosity with `ELECTRON_ENABLE_LOGGING=1`, `DESKTOP_LOG_LEVEL=debug`, and
 
 ## JavaScript (renderer)
 
-Renderer DevTools work in the app window (Cmd+Option+I, or the View menu) once enabled. Create
-`developer_settings.json` with `{"allowDevTools": true}` in the user data directory to enable them.
+Create `developer_settings.json` with `{"allowDevTools": true}` in the user data directory to enable
+renderer DevTools. The menu items "Show Dev Tools" (Cmd+Option+I) and "Show All Dev Tools", and the
+context-menu "Inspect Element", then appear. Menu visibility is read once at launch, so restart
+after creating the file. DevTools stay off even with the file when the managed key
+`developerModeEnabled` is `false`, or when the install is in restricted (`coworkHipaaRestricted`)
+mode. Relocate with `rg -n 'allowDevTools' .vite/build`.
 
 The main window renders the remote `https://claude.ai` frontend in a `WebContentsView`, so
 renderer DevTools inspect that frontend — this is where web-frontend features such as the MCP Apps
@@ -27,9 +61,8 @@ host live. See [ARCHITECTURE](./ARCHITECTURE.md) and [MCP_APPS](./MCP_APPS.md).
 
 ## CDP authentication
 
-The CDP-auth guard protects against unauthorized debugger attaches. It fires only when argv contains
-`--remote-debugging-port` or `--remote-debugging-pipe` (matched after stripping a leading `--`, `-`
-or `/` and lowercasing), and is validated in `index.pre.js` (function `_9()` in this build).
+The CDP-auth token is the only way past the argv guard above. It is validated in `index.pre.js`
+(relocate with `rg -n 'CDP auth rejected' .vite/build`).
 
 Token format:
 
@@ -53,14 +86,23 @@ requires.
 
 Each failure logs a specific `CDP auth rejected: <reason>` warning.
 
-The same guard doubles as the gate for the developer dev-URL override and for
-`CLAUDE_E2E_PKCE_LOG` — see [ENVIRONMENT_VARIABLES](./ENVIRONMENT_VARIABLES.md).
+In a packaged build without a valid token, the app deletes `CLAUDE_USER_DATA_DIR` and
+`SSLKEYLOGFILE` from its environment at startup, so a custom user data directory also needs the
+token.
+
+The same guard doubles as the gate for the developer dev-URL override (`CLAUDE_AI_URL` on a
+`.ant.dev` host or `localhost`), for `CLAUDE_E2E_PKCE_LOG`, and for the e2e test hooks — see
+[ENVIRONMENT_VARIABLES](./ENVIRONMENT_VARIABLES.md).
 
 
 ## Native modules (.node)
 
 `@ant/claude-native`, `@ant/claude-swift` (which includes `computer_use.node`), and `node-pty` are
-compiled Mach-O shared libraries. Debug with `lldb -p <pid>` against the running Electron process;
-they are likely stripped of symbols.
-
-`SIGUSR1` to the Electron process enables the Node.js inspector (JS side), not native debugging.
+compiled Mach-O shared libraries (arm64 in this install), unpacked to
+`Contents/Resources/app.asar.unpacked/node_modules/`. They load into the Electron main process, so
+native debugging means `lldb -p <pid>` against it. The app is signed with the hardened runtime and
+without the `com.apple.security.get-task-allow` entitlement
+(`codesign -d --entitlements :- /Applications/Claude.app`), so macOS refuses the attach unless
+System Integrity Protection's debugging restriction is disabled or the app is re-signed. Symbols are
+sparse: `claude-native-binding.node` defines only `_napi_register_module_v1` (`nm -U`), while
+`swift_addon.node` keeps some Swift symbols.
