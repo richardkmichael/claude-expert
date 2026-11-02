@@ -4,7 +4,7 @@ Verified against: cli.prettier.js 2.1.316 (2026-11-02)
 
 How Claude Code receives, caches and reads its `tengu_*` feature flags. The flags come from a
 GrowthBook client that Anthropic's servers answer per account; nothing in the CLI decides a flag's
-value from targeting rules. For one flag followed end to end, see `FUNCTION_HOOKS_ROLLOUT.md`.
+value from targeting rules. For one flag followed end to end, see `MODS.md`.
 
 ## Fetching
 
