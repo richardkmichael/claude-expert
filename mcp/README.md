@@ -66,9 +66,9 @@ questions go straight to `ask_claude_desktop_expert`: there is no Desktop guide.
 ## Runtime: bun
 
 The server runs under bun. It imports the MCP SDK with the SDK version pinned in the import
-specifiers, so bun auto-installs the SDK into its global cache on first run — no `package.json`,
-no `node_modules`, no build step. Everything else is Node built-ins. Bump the SDK by editing the
-pinned version in the three import specifiers at the top of `expert-server.mjs`.
+specifiers, so bun auto-installs the SDK into its global cache on first run — no `package.json`, no
+`node_modules`, no build step. Everything else is Node built-ins. Bump the SDK by editing the pinned
+version in the three import specifiers at the top of `claude-expert.mjs`.
 
 Install bun however you like and make sure `bun` is on PATH. One caveat if you manage bun with a
 per-directory version manager (mise, asdf, and the like): the server is launched from whatever
@@ -81,7 +81,7 @@ absolute path to the bun binary (the path `mise which bun` prints) in place of t
 User scope makes it available in every project (recommended):
 
     claude mcp add claude-expert -s user -- \
-      bun /path/to/claude-code-analysis/mcp/expert-server.mjs
+      bun /path/to/claude-code-analysis/mcp/claude-expert.mjs
 
 Or per project, in that project's `.mcp.json`:
 
@@ -90,7 +90,7 @@ Or per project, in that project's `.mcp.json`:
         "claude-expert": {
           "command": "bun",
           "args": [
-            "/path/to/claude-code-analysis/mcp/expert-server.mjs"
+            "/path/to/claude-code-analysis/mcp/claude-expert.mjs"
           ]
         }
       }
@@ -103,7 +103,7 @@ repository regardless of which project invokes it.
 
 All optional, via environment variables on the server entry:
 
-    CLAUDE_CODE_ANALYSIS_DIR   Repo root the experts explore (default: parent of the script)
+    CLAUDE_EXPERT_DIR          Repo root the experts explore (default: parent of the script)
     CLAUDE_BIN                 Path to the claude binary (default: claude on PATH)
     EXPERT_ALLOWED_TOOLS       Comma-separated built-in tool allowlist
                                (default: Read,Grep,Glob,Bash,WebFetch,Write,Edit,Agent,Skill)

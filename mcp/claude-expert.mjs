@@ -27,7 +27,7 @@
 // messages; all diagnostics go to stderr.
 //
 // Configuration (environment variables):
-//   CLAUDE_CODE_ANALYSIS_DIR  Repo root the experts explore (default: parent of this file)
+//   CLAUDE_EXPERT_DIR         Repo root the experts explore (default: parent of this file)
 //   CLAUDE_BIN                Path to the claude binary (default: "claude" on PATH)
 //   EXPERT_ALLOWED_TOOLS      Comma-separated built-in tool allowlist (default: research +
 //                             write-back set). Each expert's MCP servers are added to it.
@@ -50,7 +50,7 @@ import {
 } from "@modelcontextprotocol/sdk@1.30.0/types.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = process.env.CLAUDE_CODE_ANALYSIS_DIR || resolve(HERE, "..");
+const REPO_ROOT = process.env.CLAUDE_EXPERT_DIR || resolve(HERE, "..");
 const CLAUDE_BIN = process.env.CLAUDE_BIN || "claude";
 const BASE_ALLOWED_TOOLS =
   process.env.EXPERT_ALLOWED_TOOLS || "Read,Grep,Glob,Bash,WebFetch,Write,Edit,Agent,Skill";

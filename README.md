@@ -15,7 +15,7 @@ source code is a helpful way to better understand the harnesses.
 
 ## Claude Expert MCP server
 
-`mcp/expert-server.mjs` exposes two MCP tools:
+`mcp/claude-expert.mjs` exposes two MCP tools:
 
 - `ask_claude_code_expert`
 - `ask_claude_desktop_expert`
