@@ -34,14 +34,14 @@ commit subjects and how to search a bundle, are in the root `CLAUDE.md`.
    behind that, treat its version-specific specifics as suspect and re-check them.
 
 3. Research the bundle. Search the doc's landmark strings with `rg` (not `grep` — see the root
-   `CLAUDE.md`) to relocate the behavior; use the `code-intel` MCP for structure-aware navigation
-   and `bin/render-prompts.py` for prompt text. App and library code are interleaved in the
-   bun-compiled bundle, so anchor on app-specific strings (`tengu_*`, prompt literals, tool names,
-   `CLAUDE_CODE_*` env vars) — these do not appear inside third-party libraries.
+   `CLAUDE.md`) to relocate the behavior; use `bin/render-prompts.py` for prompt text. App and
+   library code are interleaved in the bun-compiled bundle, so anchor on app-specific strings
+   (`tengu_*`, prompt literals, tool names, `CLAUDE_CODE_*` env vars) — these do not appear inside
+   third-party libraries.
 
 4. Cross-check the official docs when the question is whether documented behavior is current. The
-   `anthropic-docs` and `claude-code-docs` MCP servers hold the published docs; drift between those
-   and the source is the reason this repo exists. Report the drift in your answer.
+   `claude-code-docs` MCP server holds the published docs; drift between those and the source is the
+   reason this repo exists. Report the drift in your answer.
 
 5. Record what you found (see below). A question answered from the source but not written back is
    research lost.
@@ -64,9 +64,7 @@ Full methodology, including the version-stamp and update procedure: `analysis/GU
 
 # Research tooling
 
-- `code-intel` MCP — structure-aware navigation of the bundle.
-- `anthropic-docs` / `claude-code-docs` MCP — the published docs, for the "is this still current?"
-  check.
+- `claude-code-docs` MCP — the published docs, for the "is this still current?" check.
 - `bin/render-prompts.py <version>` — regenerates `analysis/PROMPTS_RENDERED.md` verbatim from a
   bundle.
 - `bin/generate-transcript-schema.py` — evolves `analysis/schemas/transcript.schema.json` from real
