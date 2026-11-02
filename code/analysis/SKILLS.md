@@ -280,6 +280,35 @@ arguments first, then `${CLAUDE_SKILL_DIR}`, then `${CLAUDE_PROJECT_DIR}` and `$
 (skipped for the synced skills the public docs name), then `${CLAUDE_EFFORT}`, then injected
 commands.
 
+### Read-only skill loads
+
+`readOnlySkillLoad` is an internal option on a skill load's tool-use context. Neither the user nor
+the model can set it, and no frontmatter key maps to it. The model sees only its effect.
+
+Its one reader is the injected-command step. With the option set, the skill body renders without
+running any `` !`cmd` `` line; each is replaced by
+`[shell command not executed: read-only skill load on the coordinator — delegate to a worker to run it]`
+(stored with a `—` escape, so grep
+`shell command not executed: read-only skill load on the coordinator`). Injected commands are the
+only part of rendering that executes anything, so the load has no side effects.
+
+It is set in two places:
+
+1. An agent's `skills:` preload. The preloaded body is context for the agent, not an invocation, so
+   its commands do not run. Grep `isSkillPreload: !0, readOnlySkillLoad: !0`.
+2. A served request to render a skill for another process. The request carries the skill name and
+   arguments, a `readOnly` option, an optional expected SHA-256 of the skill file, and the caller's
+   session permission rules. The load is read-only when the request asks for it or when the caller's
+   rules cannot be applied. A file whose hash no longer matches is refused with "this skill's file
+   changed after the session listed it, so it was not rendered". A successful response holds the
+   rendered text blocks, an optional `handedOff` list of the commands not run, and `fromHostCatalog`
+   when the skill came from the host's catalog.
+
+The placeholder's wording reflects the coordinator design: a coordinator session plans and delegates
+instead of running tools, so a skill it loads hands its commands to a worker. A related branch has
+the same effect without the option: a served call in auto mode with no hand-off list also renders
+the placeholder; it sits in the same function, a few lines below the `readOnlySkillLoad` check.
+
 ## Bundled skills
 
 31 bundled skills register through the bundled registrar. Columns: U is user-invocable, M is
