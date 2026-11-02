@@ -83,12 +83,12 @@ Style legend:
 
 ## Memory
 
-| Doc                | Scope                                                    | Verified | Style    | Key landmarks                                                                   |
-| ------------------ | -------------------------------------------------------- | -------- | -------- | ------------------------------------------------------------------------------- |
-| `MEMORY_SYSTEM.md` | Hub: shared memory machinery, gates, stores comparison   | 2.1.186  | landmark | `pE = "MEMORY.md"`, `function Gc(`, `tengu_memdir_loaded`                       |
-| `AUTO_MEMORY.md`   | Per-project auto memory: dir resolution, load, `/memory` | 2.1.186  | landmark | `iid = "MEMORY.md"`, `autoMemoryDirectory`, `Open a memory file in your editor` |
-| `AGENT_MEMORY.md`  | Per-subagent memory: `memory:` field, dirs, permissions  | 2.1.186  | landmark | `Persistent Agent Memory`, `function met(e, t)`, `tengu_agent_memory_loaded`    |
-| `TEAM_MEMORY.md`   | Shared memory-service memory: mounts, sync, prompt shape | 2.1.186  | landmark | `CLAUDE_MEMORY_STORES`, `fetched from memory-service`, `function uI()`          |
+| Doc                | Scope                                                    | Verified | Style    | Key landmarks                                                                    |
+| ------------------ | -------------------------------------------------------- | -------- | -------- | -------------------------------------------------------------------------------- |
+| `MEMORY_SYSTEM.md` | Hub: shared memory machinery, gates, stores comparison   | 2.1.186  | landmark | `pE = "MEMORY.md"`, `function Gc(`, `tengu_memdir_loaded`                        |
+| `AUTO_MEMORY.md`   | Per-project auto memory: dir resolution, load, `/memory` | 2.1.316  | landmark | `"MEMORY.md"`, `autoMemoryDirectory`, `Edit CLAUDE.md files and memory settings` |
+| `AGENT_MEMORY.md`  | Per-subagent memory: `memory:` field, dirs, permissions  | 2.1.186  | landmark | `Persistent Agent Memory`, `function met(e, t)`, `tengu_agent_memory_loaded`     |
+| `TEAM_MEMORY.md`   | Shared memory-service memory: mounts, sync, prompt shape | 2.1.186  | landmark | `CLAUDE_MEMORY_STORES`, `fetched from memory-service`, `function uI()`           |
 
 The durable memory family is auto / agent / team; start at `MEMORY_SYSTEM.md`. Session memory
 (`summary.md`, in `SESSION_MEMORY_AND_SUMMARY.md`) is a separate, removed compaction experiment —
