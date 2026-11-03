@@ -1,14 +1,17 @@
 # Mods (Plugin Hooks Modules)
 
-Verified against: cli.prettier.js 2.1.316 (2026-11-02)
+Verified against: cli.prettier.js 2.1.317 (2026-11-03)
 
 A mod is a plugin's hooks module: the JavaScript or TypeScript file that a plugin's
 `hooks/hooks.json` names under `modules`, whose `register(on, options)` adds hooks and calls the `$`
 API. The source calls it a "hooks module", its telemetry calls it "function hooks"
 (`plugin_function_hooks_*`), and its user-facing text calls it a "mod".
 
-The public docs cover authoring, the API, events, testing, administration and troubleshooting:
-[overview](https://code.claude.com/docs/en/plugins/mods/overview.md),
+The public docs cover authoring, drawing, the API, events, testing, administration and
+troubleshooting: [overview](https://code.claude.com/docs/en/plugins/mods/overview.md),
+[create](https://code.claude.com/docs/en/plugins/mods/create.md),
+[interface](https://code.claude.com/docs/en/plugins/mods/interface.md),
+[gallery](https://code.claude.com/docs/en/plugins/mods/gallery.md),
 [reference](https://code.claude.com/docs/en/plugins/mods/reference.md),
 [api](https://code.claude.com/docs/en/plugins/mods/api.md),
 [events](https://code.claude.com/docs/en/plugins/mods/events.md),
@@ -16,14 +19,15 @@ The public docs cover authoring, the API, events, testing, administration and tr
 [admin](https://code.claude.com/docs/en/plugins/mods/admin.md) and
 [troubleshoot](https://code.claude.com/docs/en/plugins/mods/troubleshoot.md). This doc records what
 the source shows beyond them: which processes and plugins load a module and in what order the
-refusals apply, the `tengu_plugin_hooks_modules` rollout gate, and how a session follows that switch
-while it runs.
+refusals apply, which built-in plugins ship a mod, the `tengu_plugin_hooks_modules` rollout gate,
+and how a session follows that switch while it runs. The `$` API surfaces are in the docs listed
+under "Mod surfaces in other docs".
 
 ## Summary
 
 - Hooks modules come from installed plugins, `--plugin-dir` / `CLAUDE_CODE_PLUGIN_DIRS`, the
-  session's dev-mods folder, plugins the organization's managed settings enable, and built-in
-  plugins (`<name>@builtin`).
+  session's dev-mods folder, plugins the organization's managed settings enable, and 14 built-in
+  plugins (`<name>@builtin`), 13 of which carry a mod; all but two are on by default.
 - One registration pass decides which modules load. It is memoized and re-run by `/reload-plugins`,
   a plugin-affecting settings change, and a change of the rollout switch.
 - The rollout switch is the GrowthBook flag `tengu_plugin_hooks_modules`, default `true`, read live
@@ -39,18 +43,60 @@ while it runs.
 
 ## Where hooks modules come from
 
-| Source                    | Plugin id shape                  | Notes                                                                                                       |
-| ------------------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| Installed plugin          | `<name>@<marketplace>`           | Enabled in `enabledPlugins`; counts as a person's mod                                                       |
-| `--plugin-dir`            | `<name>@inline`                  | Also `CLAUDE_CODE_PLUGIN_DIRS`; hot-reloads on save (`CLAUDE_CODE_PLUGIN_DIR_WATCH` for long headless runs) |
-| Dev mods (Claude-written) | session folder                   | `<config dir>/dev-mods/<session id>`, recorded in the transcript as a `dev-mods` entry                      |
-| Organization's plugin     | `<name>@<marketplace>`           | Enabled by managed settings and vouched for as the organization's (see the admin doc)                       |
-| Built-in plugin           | `<name>@builtin` (`cc-plugin-*`) | Shipped in the binary; `SKILLS.md` lists them                                                               |
+| Source                    | Plugin id              | Notes                                       |
+| ------------------------- | ---------------------- | ------------------------------------------- |
+| Installed plugin          | `<name>@<marketplace>` | In `enabledPlugins`; a person's mod         |
+| `--plugin-dir`            | `<name>@inline`        | Also `CLAUDE_CODE_PLUGIN_DIRS`; hot-reloads |
+| Dev mods (Claude-written) | session folder         | `<config dir>/dev-mods/<session id>`        |
+| Organization's plugin     | `<name>@<marketplace>` | Enabled by managed settings, vouched for    |
+| Built-in plugin           | `<name>@builtin`       | `cc-plugin-*`, in the binary (below)        |
 
-A plugin enabled by managed settings is not automatically the organization's. When it is loaded from
-a copy rather than read in place from a registered local marketplace folder, the loader logs
-`is enabled by managed settings, but it is not read in place` and runs its module in the user tier.
-The admin doc's "Install your organization's mods and set the order" covers the rules.
+- `--plugin-dir` hot reloading stops in a long headless run unless `CLAUDE_CODE_PLUGIN_DIR_WATCH` is
+  set.
+- The dev-mods folder is recorded in the transcript as a `dev-mods` entry.
+- A plugin enabled by managed settings is not automatically the organization's. When it is loaded
+  from a copy rather than read in place from a registered local marketplace folder, the loader logs
+  `is enabled by managed settings, but it is not read in place` and runs its module in the user
+  tier. The admin doc's "Install your organization's mods and set the order" covers the rules.
+
+### Built-in plugins
+
+One initializer, guarded by `builtinPluginsInitialized` (`rg -n 'builtinPluginsInitialized'`),
+registers 14 built-in plugins, each a lazily required module whose `"cc-plugin-…"` id is a literal
+at its registration call. Every one except `cc-plugin-claude-platform` carries a hooks module.
+
+A built-in is enabled by `enabledPlugins` under `cc-plugin-<name>@builtin`, else by its own
+`defaultEnabled`, else on. Only `cc-plugin-you-should-know` and `cc-plugin-responsive-mode` default
+off. `cc-plugin-sec-default` is enabled from managed settings only (`enabledFromPolicyOnly`) and
+`cc-plugin-privacy` from trusted settings only (`enabledFromTrustedSettingsOnly`). Each also has an
+availability check; an unavailable built-in is not listed at all. A flag default below is the flag's
+code default, before GrowthBook answers.
+
+| Plugin             | Registered on                 | Availability check, among others         |
+| ------------------ | ----------------------------- | ---------------------------------------- |
+| `sec-default`      | every entrypoint              | seated outermost (`prependPlugins`)      |
+| `agents-md`        | every entrypoint              | `tengu_agents_md_mod` (flag default on)  |
+| `telemetry`        | every entrypoint              | an analytics check, no flag              |
+| `privacy`          | every entrypoint              | `tengu_wise_newt` (flag default on)      |
+| `plugin-authoring` | not `local-agent`             | the rollout switch                       |
+| `mods-guide`       | not `local-agent`             | `tengu_linen_acorn` (flag default off)   |
+| `tips`             | not `local-agent`, `remote*`  | `tengu_tips_mod` (flag default off)      |
+| `mermaid`          | not `local-agent`, `remote*`  | rollout switch, `tengu_mermaid_mod`      |
+| `responsive-mode`  | as `tips`, or `remote`        | `tengu_quiet_ember` (flag default off)   |
+| `diff`             | not `local-agent`, `remote*`  | `tengu_quiet_dolphin` (flag default on)  |
+| `you-should-know`  | not `local-agent`             | `tengu_jolly_dewdrop` (flag default off) |
+| `easel`            | as `tips`, or `remote_cowork` | `tengu_joyful_otter` (flag default off)  |
+| `claude-platform`  | not `local-agent`, `remote*`  | `tengu_peppy_crescent`; no mod           |
+| `claude-test`      | not `local-agent`, `remote*`  | several session checks                   |
+
+"Registered on" reads `CLAUDE_CODE_ENTRYPOINT`; `remote*` is any entrypoint starting with `remote`.
+The `diff` mod and the native sidebar it displaces are in `NATIVE_DIFF_SIDEBAR.md` and
+`PLUGIN_PANES_AND_COMPOSER.md`; the skills the built-ins carry are in `SKILLS.md`.
+
+A built-in's hooks module loads regardless of the rollout switch, `disableAllHooks`,
+`allowManagedHooksOnly`, `--bare` and safe mode (row 1 of the ladder below). Only the two hosted
+processes keep it out. Two built-ins still follow the switch through their availability:
+`plugin-authoring` and `mermaid` are not listed while it reads off.
 
 ### The registration pass
 
@@ -71,15 +117,18 @@ with `rg -n ' as loadPluginHooks,'`. The same list has `clearPluginHookCache`,
 
 ### Process-level refusals
 
-These apply before any per-plugin decision.
+These apply before any per-plugin decision. Each line is a log anchor.
 
-| Condition                                                  | Effect                                                  | Log anchor                                                                             |
-| ---------------------------------------------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| A claude-code-server tenant (a diskless host)              | No hooks module loads, built-ins included               | `no hooks module loads in a claude-code-server tenant`                                 |
-| `claude mcp serve --transport http` (a tool server daemon) | No hooks module loads, built-ins included               | `no hooks module loads in a tool server's daemon`                                      |
-| Either of the above, at load                               | The pass logs what it kept out                          | `no switch lifts it and no built-in plugin loads`                                      |
-| `--safe-mode` or `CLAUDE_CODE_SAFE_MODE`                   | Installed plugins are dropped whole; built-ins load     | `Safe mode: installed plugins are disabled, none of their hooks or hooks modules load` |
-| Workspace trust not yet accepted                           | Modules wait; `loadHooksModulesHeldForTrust` loads them | `hooks modules not loaded until workspace trust is accepted: `                         |
+- A claude-code-server tenant (a diskless host): no hooks module loads, built-ins included.
+  `no hooks module loads in a claude-code-server tenant`.
+- `claude mcp serve --transport http` (a tool server's daemon): no hooks module loads, built-ins
+  included. `no hooks module loads in a tool server's daemon`.
+- Either of the above, at load: the pass logs what it kept out,
+  `no switch lifts it and no built-in plugin loads`.
+- `--safe-mode` or `CLAUDE_CODE_SAFE_MODE`: installed plugins are dropped whole; built-ins load.
+  `Safe mode: installed plugins are disabled, none of their hooks or hooks modules load`.
+- Workspace trust not yet accepted: modules wait, and `loadHooksModulesHeldForTrust` loads them once
+  it is. `hooks modules not loaded until workspace trust is accepted: `.
 
 ### Per-plugin refusals, in order
 
@@ -88,17 +137,27 @@ as `hooks module <id> not loaded: <reason>`. Relocate the ladder with
 `rg -nF 'disableAllHooks in managed settings, which governs installed plugins'`; the function
 holding it returns each reason below in this order.
 
-| #   | Condition                                                                           | Result | Reason text starts with                                                                   |
-| --- | ----------------------------------------------------------------------------------- | ------ | ----------------------------------------------------------------------------------------- |
-| 1   | Built-in plugin                                                                     | load   |                                                                                           |
-| 2   | Plugin carries claude.ai uploads and `CLAUDE_CODE_RESTRICT_PERSONAL_CONFIG` applies | refuse | `it carries your claude.ai uploads`                                                       |
-| 3   | Rollout switch off, or a cloud wake has no answer yet                               | refuse | `hooks modules are turned off for installed plugins in this process: `                    |
-| 4   | `disableAllHooks` in managed settings                                               | refuse | `disableAllHooks in managed settings, which governs installed plugins`                    |
-| 5   | The organization's plugin                                                           | load   |                                                                                           |
-| 6   | A person's plugin in a cloud wake waiting for the switch                            | refuse | `hooks modules a person installed wait for the rollout switch in this process`            |
-| 7   | `--bare` or `CLAUDE_CODE_SIMPLE`                                                    | refuse | `installed plugins that are not managed load no hooks module in this mode (--bare)`       |
-| 8   | `allowManagedHooksOnly`, or `disableAllHooks` outside managed settings              | refuse | `only managed plugins and built-in plugins run (allowManagedHooksOnly / disableAllHooks)` |
-| 9   | The organization's managed settings are not read yet                                | refuse | `this session has not read your organization's managed settings`                          |
+| #   | Condition                                                         | Result | Reason |
+| --- | ----------------------------------------------------------------- | ------ | ------ |
+| 1   | Built-in plugin                                                   | load   |        |
+| 2   | Carries claude.ai uploads; `CLAUDE_CODE_RESTRICT_PERSONAL_CONFIG` | refuse | a      |
+| 3   | Rollout switch off, or a cloud wake has no answer yet             | refuse | b      |
+| 4   | `disableAllHooks` in managed settings                             | refuse | c      |
+| 5   | The organization's plugin                                         | load   |        |
+| 6   | A person's plugin in a cloud wake waiting for the switch          | refuse | d      |
+| 7   | `--bare` or `CLAUDE_CODE_SIMPLE`                                  | refuse | e      |
+| 8   | `allowManagedHooksOnly`, or `disableAllHooks` outside managed     | refuse | f      |
+| 9   | The organization's managed settings are not read yet              | refuse | g      |
+
+Each reason text starts with:
+
+- a: `it carries your claude.ai uploads`
+- b: `hooks modules are turned off for installed plugins in this process: `
+- c: `disableAllHooks in managed settings, which governs installed plugins`
+- d: `hooks modules a person installed wait for the rollout switch in this process`
+- e: `installed plugins that are not managed load no hooks module in this mode (--bare)`
+- f: `only managed plugins and built-in plugins run (allowManagedHooksOnly / disableAllHooks)`
+- g: `this session has not read your organization's managed settings`
 
 A plugin that passes all rows can still lose to an earlier plugin of the same name:
 `another plugin of that name loads first`. The built-in guard's `allowManagedModsOnly` refusal is
@@ -141,15 +200,19 @@ with `DISABLE_GROWTHBOOK=1` so they read the default too.
 
 ### What the switch covers
 
-| Consumer                                  | Effect when off                                               | Relocate                                                               |
-| ----------------------------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| Registration pass                         | Every non-built-in module refused (row 3)                     | `rg -nF "installed plugins' hooks modules not loaded: rollout flag ("` |
-| `claude plugin test`                      | Refuses with the text below; hidden from `claude plugin` help | `rg -nF 'pluginTestRefusal'`                                           |
-| Dev-mod hot reloading                     | Refused with reason `hooks_modules_off`                       | `rg -nF 'mod hot-reloading is off here'`                               |
-| Built-in `cc-plugin-plugin-authoring`     | Not available                                                 | `rg -nF 'cc-plugin-plugin-authoring'`                                  |
-| Built-in `cc-plugin-mermaid`              | Not available (also needs `tengu_mermaid_mod`)                | `rg -nF 'tengu_mermaid_mod'`                                           |
-| `content-link-mods` tip                   | Not shown                                                     | `rg -nF 'content-link-mods'`                                           |
-| `claude plugin` early-access command list | `plugin test` (`earlyAccess: "hooksModules"`) not listed      | `rg -nF 'earlyAccess: "hooksModules"'`                                 |
+| Consumer                     | Effect when off               | `rg -nF`                      |
+| ---------------------------- | ----------------------------- | ----------------------------- |
+| Registration pass            | Non-built-ins refused (row 3) | `rollout flag (` (below)      |
+| `claude plugin test`         | Refuses; hidden from help     | `pluginTestRefusal`           |
+| Dev-mod hot reloading        | Refused, `hooks_modules_off`  | `mod hot-reloading is off`    |
+| `cc-plugin-plugin-authoring` | Not available                 | `cc-plugin-plugin-authoring`  |
+| `cc-plugin-mermaid`          | Not available                 | `tengu_mermaid_mod`           |
+| `content-link-mods` tip      | Not shown                     | `content-link-mods`           |
+| `claude plugin` early access | `plugin test` not listed      | `earlyAccess: "hooksModules"` |
+
+The registration pass's line is
+`rg -nF "installed plugins' hooks modules not loaded: rollout flag ("`: 3 hits, the off line below
+and the two cloud-wake lines.
 
 Dev-mod hot reloading checks its refusals in this order, first match wins, each logged as
 `dev mods: mod hot-reloading is off here (<reason>)` with a `plugin_dev_mods` telemetry outcome:
@@ -173,8 +236,11 @@ initialization again if the switch still reads saved off and an initialization i
 line reports the outcome:
 
 ```
-installed plugins' hooks modules held <ms>ms for the rollout flag (tengu_plugin_hooks_modules): <outcome>
+installed plugins' hooks modules held <ms>ms for the rollout flag (tengu_plugin_hooks_modules):
+  <outcome>
 ```
+
+(one line in the log; wrapped here).
 
 `<outcome>` is `the flag payload landed`, `the fetch settled with no payload`, or
 `no answer within <budget>ms`.
@@ -182,35 +248,38 @@ installed plugins' hooks modules held <ms>ms for the rollout flag (tengu_plugin_
 The pass then decides. With the switch off, it logs:
 
 ```
-installed plugins' hooks modules not loaded: rollout flag (tengu_plugin_hooks_modules) is off, <source>; built-in plugins load regardless
+installed plugins' hooks modules not loaded: rollout flag (tengu_plugin_hooks_modules) is off,
+  <source>; built-in plugins load regardless
 ```
 
-| Source     | `<source>` text                                                                                         |
-| ---------- | ------------------------------------------------------------------------------------------------------- |
-| `override` | `from a local override` (unreachable in the public build)                                               |
-| `payload`  | `from GrowthBook (this session's payload)`                                                              |
-| `disk`     | `from GrowthBook (the disk cache of an earlier session)`                                                |
-| `disabled` | `from the default (GrowthBook is off for this session: a third-party provider, or telemetry opted out)` |
-| `fallback` | `from the default (a cold GrowthBook cache, no payload yet)`                                            |
+(one line in the log; wrapped here). `<source>` is one of:
+
+- `override`: `from a local override` (unreachable in the public build).
+- `payload`: `from GrowthBook (this session's payload)`.
+- `disk`: `from GrowthBook (the disk cache of an earlier session)`.
+- `disabled`: `from the default (GrowthBook is off for this session: a third-party provider, or`
+  `telemetry opted out)` (one string).
+- `fallback`: `from the default (a cold GrowthBook cache, no payload yet)`.
 
 Only `payload` and `disk` can carry an off in practice; the other sources yield the default, on.
 
-Each refused module's own line then gives a state from a fixed table:
+Each refused module's own line then gives a state from a fixed table, after
+`hooks modules are turned off for installed plugins in this process: `.
 
-| State        | Text after `hooks modules are turned off for installed plugins in this process: `            |
-| ------------ | -------------------------------------------------------------------------------------------- |
-| served       | `the rollout switch served off`                                                              |
-| saved        | `the rollout switch was saved off by an earlier session and is not refreshed yet`            |
-| unanswered   | `this wake's flag fetch has not answered the rollout switch; ...`                            |
-| unfetched    | `this wake fetches no rollout switch; an organization's load at once, ...`                   |
-| unfetchedOut | `this wake fetches no rollout switch and the organization's settings could not be read; ...` |
+| State        | Text                                                                              |
+| ------------ | --------------------------------------------------------------------------------- |
+| served       | `the rollout switch served off`                                                   |
+| saved        | `the rollout switch was saved off by an earlier session and is not refreshed yet` |
+| unanswered   | `this wake's flag fetch has not answered the rollout switch; ...`                 |
+| unfetched    | `this wake fetches no rollout switch; an organization's load at once, ...`        |
+| unfetchedOut | `this wake fetches no rollout switch and the organization's settings ...`         |
 
 ### Late load after a saved off
 
 When the hold ends with the switch still saved off, the pass subscribes to the next GrowthBook
 refresh. When that refresh brings this session's payload and the switch now reads on, it logs
-`installed plugins' hooks modules load late: the rollout flag (tengu_plugin_hooks_modules) answered on after the load went on over a saved off`
-and re-runs the registration pass.
+`installed plugins' hooks modules load late: the rollout flag (tengu_plugin_hooks_modules)` followed
+by `answered on after the load went on over a saved off`, and re-runs the registration pass.
 
 ### Mid-session changes
 
@@ -222,15 +291,16 @@ value differs and does not come from the disk cache, the session follows it:
 - Headless (`-p`, SDK): the turn loop's `hooksModulesSwitchJoin` follows at each turn start, waiting
   at most 10 s before the turn proceeds.
 
-Following logs
-`installed plugins' hooks modules load|unload: the rollout flag (tengu_plugin_hooks_modules) reads on|off in a running session`.
-On is a fresh registration pass. Off calls `standDownInstalledHooksModules` first, then re-runs the
-pass. Each follow is capped at 60 s and reports `tengu_feature_ok` or `tengu_feature_bad` with
-feature name `plugin_function_hooks_switch_followed` and `is_turned_on`. A failure logs
+Following logs `installed plugins' hooks modules load|unload: the rollout flag`
+`(tengu_plugin_hooks_modules) reads on|off in a running session` (one line). On is a fresh
+registration pass. Off calls `standDownInstalledHooksModules` first, then re-runs the pass. Each
+follow is capped at 60 s and reports `tengu_feature_ok` or `tengu_feature_bad` with feature name
+`plugin_function_hooks_switch_followed` and `is_turned_on`. A failure logs
 `installed plugins' hooks modules: the load that follows the rollout flag failed:` and leaves the
 load owed for the next follow. When an off unloads something, the user sees
-`installed mods are off for now: the rollout switch for them reads off; they load again when it reads on, and built-in mods keep running`
-(a notice in the terminal UI, a system warning message in a headless stream).
+`installed mods are off for now: the rollout switch for them reads off; they load again when it`
+`reads on, and built-in mods keep running` (one sentence; a notice in the terminal UI, a system
+warning message in a headless stream).
 
 Interactive sessions refresh GrowthBook on its periodic timer (see `FEATURE_FLAGS.md`), so a served
 change reaches a running interactive session at the next refresh, not at once.
@@ -243,7 +313,8 @@ There the organization's modules load at once at what the switch reads, while a 
 
 - Logs: `the rollout flag (tengu_plugin_hooks_modules) is not answered within this wake's wait`,
   `rollout flag (tengu_plugin_hooks_modules) is not answered yet in this wake`, and
-  `a person's installed plugins' hooks modules not loaded: rollout flag (...) is not answered within this wake's wait; an organization's and built-in plugins load regardless`.
+  `a person's installed plugins' hooks modules not loaded: rollout flag (...) is not answered`
+  `within this wake's wait; an organization's and built-in plugins load regardless` (one line).
 - The flag is re-fetched at a turn start at most once per 60 s.
 - While the organization's modules are owed, a turn waits up to 300 s with
   `Waiting for your organization's mods to load.`, then fails with
@@ -254,8 +325,8 @@ There the organization's modules load at once at what the switch reads, while a 
 ## `claude plugin test`
 
 The command is dispatched in the entry module, before the full CLI loads, when the first two
-arguments are `plugin test`. Relocate with `rg -nF 'pluginTestRefusal'`; the module exporting it also
-exports `pluginTestFormOf`, `pluginTestGatesOf` and `switchFetched`.
+arguments are `plugin test`. Relocate with `rg -nF 'pluginTestRefusal'`; the module exporting it
+also exports `pluginTestFormOf`, `pluginTestGatesOf` and `switchFetched`.
 
 - The form is `run` (a directory or none), `file` (`--file`, the per-test-file child) or `other`.
 - A `run` whose switch has no decided value holds for the flag (the hold line above), stops the
@@ -294,20 +365,26 @@ it in its JSON result instead):
 - Without a session, run `claude plugin test` in a directory that holds no mod:
   `saved off by an earlier session` means the fetch did not answer; `served off` is the served
   value.
-- `jq '.cachedGrowthBookFeatures.tengu_plugin_hooks_modules, .cachedGrowthBookFeaturesAt' ~/.claude.json`
-  shows the last saved value and when it was written. Editing it matters only for a process whose
-  fetch fails; the next successful fetch rewrites it.
+- This shows the last saved value and when it was written:
+
+  ```
+  jq '.cachedGrowthBookFeatures.tengu_plugin_hooks_modules, .cachedGrowthBookFeaturesAt' \
+    ~/.claude.json
+  ```
+
+  Editing it matters only for a process whose fetch fails; the next successful fetch rewrites it.
 
 ## Mod surfaces in other docs
 
-| Topic                                                               | Doc                            |
-| ------------------------------------------------------------------- | ------------------------------ |
-| Pane render site, the `$` API, composer, focus, `$.ui.status`       | `PLUGIN_PANES_AND_COMPOSER.md` |
-| The built-in `diff` mod versus the native `/diff` sidebar           | `NATIVE_DIFF_SIDEBAR.md`       |
-| Settings hooks (`hooks/hooks.json` `hooks`, shell hooks) and events | `HOOKS.md`                     |
-| Built-in plugins (`cc-plugin-*`) and the skills they carry          | `SKILLS.md`                    |
-| `plugin_notification`, a mod's desktop notification                 | `NOTIFICATIONS.md`             |
-| GrowthBook fetch, disk cache, resolver order, GrowthBook off        | `FEATURE_FLAGS.md`             |
+| Topic                                                         | Doc                            |
+| ------------------------------------------------------------- | ------------------------------ |
+| Pane render site, the `$` API, composer, focus, `$.ui.status` | `PLUGIN_PANES_AND_COMPOSER.md` |
+| `$.ui.selection`, `$.prompt.fill` and `$.prompt.paint`        | `PLUGIN_PANES_AND_COMPOSER.md` |
+| The `diff` mod, the native `/diff` sidebar, API mapping       | `NATIVE_DIFF_SIDEBAR.md`       |
+| Settings hooks (`hooks/hooks.json` `hooks`) and events        | `HOOKS.md`                     |
+| The skills the built-in plugins carry                         | `SKILLS.md`                    |
+| `plugin_notification`, a mod's desktop notification           | `NOTIFICATIONS.md`             |
+| GrowthBook fetch, disk cache, resolver order, GrowthBook off  | `FEATURE_FLAGS.md`             |
 
 ## Tripwires
 
@@ -321,4 +398,6 @@ it in its JSON result instead):
 - `□` `installed plugins' hooks modules held `, `load late`, and `in a running session` each have
   one emitter.
 - `□` The dev-mod refusal list still starts `diskless`, `hooks_modules_off`.
+- `□` `rg -n 'builtinPluginsInitialized'`: the initializer registers 14 `"cc-plugin-…"` ids; only
+  `cc-plugin-you-should-know` and `cc-plugin-responsive-mode` set `defaultEnabled` off.
 - `□` Both override readers return nothing in the public build (`FEATURE_FLAGS.md`).
