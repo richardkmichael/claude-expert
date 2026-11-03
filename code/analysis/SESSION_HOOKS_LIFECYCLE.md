@@ -149,9 +149,3 @@ pane. It outlives detach. The supervisor stops an idle unattached worker after a
 runs SessionEnd in the worker. A later attach or reply starts a new worker with a new PID and a new
 SessionStart. Backgrounding a foreground session ends the foreground process with SessionEnd
 `prompt_input_exit`, and the worker then runs its own SessionStart.
-
-## Version history
-
-- 2.1.316: first written. Recorded event order, signal handling and SessionEnd budget, interactive
-  SessionStart non-blocking render, hook spawn mode (`detached`, `/bin/sh -c`), `CLAUDE_PID`,
-  attended/entrypoint discriminators, and the background worker's terminal-env stripping.
