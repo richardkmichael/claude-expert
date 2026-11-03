@@ -200,3 +200,67 @@ Two safety checks guard `permissions.defaultMode`:
 `remoteControlAtStartup` is guarded the same way: ignored from `Project` / `ProjectLocal` ("only
 user or managed settings can auto-enable Remote Control") and from a Managed file under
 `C:\ProgramData\`.
+
+
+## Managed settings passed to Claude Code
+
+For each Code session, Desktop derives a Claude Code managed-settings object from its own enterprise
+config and sets it as the SDK `managedSettings` option. The SDK serializes it with `JSON.stringify`
+and adds `--managed-settings <json>`, so the value is always inline JSON, never a path. When the
+object is empty the option is unset and the flag is absent, which is the usual case for a personal
+1p account with no enterprise config. Claude Code treats the value as the SDK parent tier, under its
+own admin sources; see [MANAGED_SETTINGS_PARENT](../../code/analysis/MANAGED_SETTINGS_PARENT.md).
+
+The builder reads two inputs:
+
+- The resolved Desktop enterprise config described in
+  [Enterprise config sources](#enterprise-config-sources): the managed plist, else the local config
+  library, plus the remote tier. The resolver deletes every key whose `support.enabled` scopes do
+  not include the current mode, so a 3p-only key never reaches the builder in 1p mode.
+- The organization's allowed folders, delivered by a GrowthBook feature override and cached as the
+  `orgFolders` app preference. They replace `allowedWorkspaceFolders` while they are fresh, in 1p
+  mode only, and only when the device does not set `allowedWorkspaceFolders` itself.
+
+It does not read Claude Code's `managed-settings.json`, the `/api/claude_code/settings` overlay, or
+user settings. The key set is a fixed mapping, so no enterprise key passes an arbitrary Claude Code
+setting through.
+
+| Claude Code key                                                                        | Mode | Desktop source                                                                    |
+| -------------------------------------------------------------------------------------- | ---- | --------------------------------------------------------------------------------- |
+| `permissions.deny`                                                                     | both | `disabledBuiltinTools`; deny rules for read-only `allowedWorkspaceFolders` roots  |
+| `permissions.ask`                                                                      | both | `builtinToolPolicy` entries other than `allow`                                    |
+| `permissions.ask` / `deny` (`mcp__…` rules)                                            | both | `managedMcpServers` tool policy for directly connected servers; 3p plugin servers |
+| `permissions.allow` (`WebFetch(domain:…)`)                                             | 3p   | `coworkEgressAllowedHosts` without `*`                                            |
+| `permissions.disableBypassPermissionsMode`                                             | 3p   | `disableBypassPermissionsMode`                                                    |
+| `permissions.blockReadsOutsideWorkingDirectories`, `permissions.additionalDirectories` | both | `blockReadsOutsideWorkingDirectories`, on Claude Code 2.1.257 or later            |
+| `sandbox.filesystem.allowRead`, `allowManagedReadPathsOnly`                            | both | `allowedWorkspaceFolders`, or the organization's allowed folders                  |
+| `sandbox.network.allowedDomains`, `allowManagedDomainsOnly`                            | 3p   | `coworkEgressAllowedHosts` without `*`                                            |
+| `sandbox.enabled`, `allowUnsandboxedCommands: false`, `failIfUnavailable`              | both | set with either sandbox block above                                               |
+| `forceLoginOrgUUID`                                                                    | 1p   | `forceLoginOrgUUID`                                                               |
+| `availableModels`, `enforceAvailableModels: false`, `modelPricing`, `modelPicker`      | 3p   | the models list, when Desktop manages provider routing                            |
+| `env.ENABLE_TOOL_SEARCH: "force"`                                                      | 3p   | `toolSearchEnabled` on a gateway provider that supports host tool search          |
+| `disableAutoMode: "disable"`                                                           | 3p   | `autoModeEnabled` off for the Code surface                                        |
+| `strictPluginOnlyCustomization`, `allowedMcpServers`, `allowManagedMcpServersOnly`     | 3p   | `allowedPluginMcpServers`, `managedMcpServers`, `isLocalDevMcpEnabled: false`     |
+| `deniedMcpServers`                                                                     | 3p   | `deniedPluginMcpServers`                                                          |
+| `disableClaudeAiConnectors: true`                                                      | 3p   | always                                                                            |
+| `strictKnownMarketplaces`                                                              | 3p   | `userPluginMarketplacesEnabled: false`                                            |
+
+After the builder, the spawn path adds `Edit`/`Write`/`MultiEdit`/`NotebookEdit` deny rules,
+`additionalDirectories` and `sandbox.filesystem.denyWrite` for plugin directories outside the
+session's folders when `blockReadsOutsideWorkingDirectories` is set. It drops
+`blockReadsOutsideWorkingDirectories` and `strictKnownMarketplaces` for a Claude Code it cannot show
+to be new enough (logged as `[sandbox] blockReadsOutsideWorkingDirectories left off for this spawn`
+and `[plugins] marketplace allowlist left off for this spawn`).
+
+A non-root user can change this value only through the enterprise config. With no managed plist, the
+local config library under `~/Library/Application Support/Claude-3p/configLibrary/` is a
+user-writable source, and its 1p-scoped keys (`disabledBuiltinTools`, `builtinToolPolicy`,
+`allowedWorkspaceFolders`, `blockReadsOutsideWorkingDirectories`, `forceLoginOrgUUID`,
+`managedMcpServers`) reach the object in 1p mode. Every key the mapping produces in 1p mode narrows
+what the session may do. Files under `~/Library/Application Support/Claude/` contribute only the
+cached `orgFolders` preference.
+
+Relocate the builder with `rg -n 'organizationsMarksInSight' "$EX/.vite/build/"` (the call site in
+the Code session start, next to `managedSettings:`), the key mapping with
+`rg -n 'egressAllowedDomains' "$EX/.vite/build/"`, and the SDK argv with
+`rg -n '"--managed-settings"' "$EX/.vite/build/"`.

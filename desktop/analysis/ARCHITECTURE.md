@@ -271,8 +271,9 @@ adds, as applicable: `--thinking=adaptive`, `--effort`, `--model`, `--permission
 (Desktop answers permission prompts through `canUseTool`), `--resume`, `--allowedTools`,
 `--disallowedTools`, `--setting-sources user,project,local`, `--permission-mode`,
 `--allow-dangerously-skip-permissions`, `--include-partial-messages`, `--add-dir`, `--plugin-dir`,
-`--session-id`, and `--managed-settings <json>` (Desktop's resolved managed settings). Desktop's own
-`extraArgs` add `--replay-user-messages` and usually `--thinking-display summarized`.
+`--session-id`, and `--managed-settings <json>` (inline JSON Desktop derives from its enterprise
+config, see [DEPLOYMENT_MODES](./DEPLOYMENT_MODES.md#managed-settings-passed-to-claude-code)).
+Desktop's own `extraArgs` add `--replay-user-messages` and usually `--thinking-display summarized`.
 
 Desktop never sets the SDK `channels` option, so `--channels` is never passed, and neither is
 `--dangerously-load-development-channels`. Desktop does not call the SDK's `enableChannel()` (the
