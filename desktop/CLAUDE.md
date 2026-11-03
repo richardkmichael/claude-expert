@@ -2,7 +2,7 @@ This directory is for exploring the operation of Claude Desktop, a macOS app. Pa
 relative to `desktop/`. Repository-wide conventions, including commit subjects and how to search a
 bundle, are in the root `CLAUDE.md`.
 
-## The source
+# The source
 
 - The app's own code ships in `/Applications/Claude.app/Contents/Resources/app.asar`. Only the
   installed build is available: Claude Desktop updates itself, and older builds are not
@@ -17,7 +17,7 @@ bundle, are in the root `CLAUDE.md`.
 - `bin/asar-search.py <needle>` lists the files inside `app.asar` that contain a string, without
   extracting it.
 
-## Answering a question about Claude Desktop
+# Answering a question about Claude Desktop
 
 1. Prepare the source. Run the `prepare-claude-desktop-source` skill and read the manifest it
    prints.
@@ -39,27 +39,17 @@ bundle, are in the root `CLAUDE.md`.
 5. Record what you found:
 
    - Desktop findings go in `analysis/`. Restamp the doc's Verified build in the document map in the
-     same commit. The doc describes that build only, so delete what no longer holds rather than
-     noting the change.
+     same commit.
    - Claude Code findings go in `../code/analysis/`, following `../code/CLAUDE.md`. Its stamps only
      move forward: if the pinned version is older than a doc's stamp and differs from it, say so in
      your answer and leave the doc describing its own version.
    - Commit Desktop findings with the subject `(desktop <version>) analysis: <description>`, where
      `<version>` is the app build analyzed.
 
-## Model Context Protocol functionality
+# Model Context Protocol functionality
 
-Areas of interest are MCP Server integration: Claude Desktop support of MCP and MCP Apps
-
-- MCP Specification is available via the `mcp-specification` tool
-- "MCP Apps" is an extension specification to the MCP Specification, it descriptions GUI components inside Claude Desktop
-  - ~/src/modelcontextprotocol/ext-apps/main/specification/
-  - ~/src/modelcontextprotocol/ext-apps/main/docs/patterns.md
-
-We build MCP servers with FastMCP and Prefab which are MCP frameworks in Python:
-
-- Documentation available for both via tools: `fastmcp_documentation` and `prefab_documentation`
-  - ~/src/fastmcp/fastmcp/main
-  - ~/src/fastmcp/prefab/main
-- Important: prefab bundles the MCP Apps SDK in its renderer
-  - ~/src/fastmcp/prefab/main/renderer
+For questions about MCP and MCP Apps, check behavior against the `mcp-specification`,
+`fastmcp_documentation` and `prefab_documentation` MCP servers. MCP Apps is an extension to the MCP
+specification for UI components hosted in Claude Desktop; its specification is in the
+`modelcontextprotocol/ext-apps` repository (`specification/`, and `docs/patterns.md`). Prefab
+bundles the MCP Apps SDK in its renderer.

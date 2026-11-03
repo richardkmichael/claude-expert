@@ -3,8 +3,8 @@ commit subjects and how to search a bundle, are in the root `CLAUDE.md`.
 
 # The source
 
-- `cli.prettier.js` is Claude Code. For versions \<= 2.1.116 it is a minified Node.js application
-  shipped via npm; for >= 2.1.117 it is the JavaScript extracted from a bun-compiled native binary.
+- `cli.prettier.js` is Claude Code. For versions up to 2.1.116 it is a minified Node.js application
+  shipped via npm; from 2.1.117 it is the JavaScript extracted from a bun-compiled native binary.
   Either way the prettified form lives at `work/<version>/package/cli.prettier.js`.
 - A bun-compiled binary embeds several JavaScript modules, so `cli.prettier.js` is their
   concatenation in the binary's own order, each preceded by a `// ==== bun module: <name> ====`
@@ -25,13 +25,14 @@ commit subjects and how to search a bundle, are in the root `CLAUDE.md`.
 # Answering a question about Claude Code
 
 0. If a `claude-code-guide` subagent is available, consult it first with the question. It may reveal
-   additional strings to search for, or clarify behaviours and findings from the source code.
+   additional strings to search for, or clarify behaviors and findings from the source code.
 
 1. Find prior research. Open `analysis/README.md` (the index) and look up the topic. It maps each
    doc to its scope, the version it was verified against, and stable strings to grep.
 
-2. Pick the source. Use the latest local `work/<version>`. If the matching doc's Verified version is
-   behind that, treat its version-specific specifics as suspect and re-check them.
+2. Pick the source. Use the version the question names; otherwise the latest local `work/<version>`.
+   If the matching doc's Verified version is behind that, treat its version-specific details as
+   suspect and re-check them.
 
 3. Research the bundle. Search the doc's landmark strings with `rg` (not `grep` — see the root
    `CLAUDE.md`) to relocate the behavior; use `bin/render-prompts.py` for prompt text. App and
@@ -48,12 +49,9 @@ commit subjects and how to search a bundle, are in the root `CLAUDE.md`.
 
 # Documenting findings
 
-When you confirm, correct, or discover behavior, update the docs in the same session:
+Update the matching `analysis/` doc, or add a new one, following the root `CLAUDE.md`'s "Documenting
+findings" rules. In addition:
 
-- Update the matching `analysis/` doc, or add a new one, in the landmark style: anchor on
-  version-stable strings (literal prompt/UI strings, `tengu_*` names, env vars, config keys, tool
-  names, behavioral logic) — never on minified symbol names, line numbers, or pasted code, which
-  churn every release. Replace line numbers with a grep relocation recipe plus the expected shape.
 - Restamp the doc's verified version and bump its row in `analysis/README.md` in the same commit.
 - If the doc was `legacy` style, retrofit the section you touched instead of leaving line-number
   anchors behind.

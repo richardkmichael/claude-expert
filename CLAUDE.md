@@ -13,8 +13,8 @@ date when a question needs it, so keeping the docs current is part of answering.
 Before researching a product, read its `CLAUDE.md`. A session started at the repository root loads a
 subdirectory's `CLAUDE.md` only after it reads a file in that subdirectory.
 
-Claude Desktop bundles Claude Code and runs it as a separate process. Questions about that bundled
-Claude Code are answered from `code/`.
+Claude Desktop downloads a pinned Claude Code version and runs it as a separate process. Questions
+about that Claude Code are answered from `code/`.
 
 This repo also runs as an MCP server other projects can consult instead of `/add-dir`-ing it in:
 `mcp/claude-expert.mjs` exposes `ask_claude_code_expert` and `ask_claude_desktop_expert`, each
@@ -36,6 +36,9 @@ gives its procedure. Common to both:
   claim no longer holds, rewrite or delete it. Do not keep history: no "in earlier versions", no
   "was renamed from", no Version history sections or dated appendices. Git history records how a doc
   changed.
+- A version stamp only moves forward. A doc keeps describing the version it is stamped with. When
+  you check an older version and it differs, report that in your answer; do not write it into the
+  doc.
 
 # Commit subjects
 

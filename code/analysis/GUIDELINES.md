@@ -107,10 +107,8 @@ This makes the staleness check mechanical: compare the stamp to the latest local
 (`ls work/ | sort -V | tail -1`). The stamp is a per-release fact — bump it whenever you re-verify,
 even if no wording changed. Mirror the version into the doc's row in `README.md`.
 
-A stamp only moves forward, and a check against an older version is not recorded in the doc. That
-check happens when a Claude Desktop question leads to the older Claude Code version a Desktop build
-pins. If the older version differs from the doc, say so in the answer; the doc keeps describing the
-version it is stamped with.
+A stamp only moves forward (root `CLAUDE.md`, "Documenting findings"). An older version gets checked
+when a Claude Desktop question leads to the Claude Code version a Desktop build pins.
 
 ## Updating an existing doc
 
