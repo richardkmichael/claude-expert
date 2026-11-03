@@ -669,8 +669,10 @@ local settings have no effect. An `allowedChannelPlugins` entry is
 `{ "plugin": "<name>", "marketplace": "<marketplace>" }`. A `"<name>@<marketplace>"` string is
 accepted with a warning that prefers the object form. An empty array admits no channel plugin, but
 `server:` and development entries do not consult that list. Setting `allowedChannelPlugins` also
-requires `channelsEnabled: true` in the same managed source: once any managed policy settings exist,
-the policy check blocks channels unless `channelsEnabled` is `true`, whatever the account type.
+requires `channelsEnabled: true` in the same managed source, except on a claude.ai sign-in other
+than Team or Enterprise (Pro, Max), where the policy check never blocks. For any other account, once
+managed policy settings exist the check blocks channels unless `channelsEnabled` is `true`. Values a
+host passes with `--managed-settings` never supply either key (see `MANAGED_SETTINGS_PARENT.md`).
 
 The plugin manifest `channels` array holds strict objects `{ server, displayName?, userConfig? }`.
 `server` names a key of the plugin's MCP servers, and `userConfig` uses the same field schema as the
