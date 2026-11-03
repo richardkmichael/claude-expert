@@ -680,13 +680,27 @@ cannot do is declare a chord of its own in a context it owns.
 | `$.ui.copy`              | writes plugin-supplied text to a surface's clipboard                  |
 | `$.telemetry.log`/`mark` | first-party telemetry, served only to built-in plugins                |
 
-`$.ui.selection()` in the terminal (`rg -nF 'selection: { read: () =>'`) answers only while the
-alternate screen is active, that is, in fullscreen. It returns the current selection's text, as a
-copy would produce it, with a `requestId` when the selection lies within one plugin-drawn transcript
-entry. With no live selection it returns one the person's click or keypress took down, kept until
-their next prompt or command has run; otherwise nothing. In a headless session it asks every
-attached client that answers `ui_read_selection` and takes the first non-empty answer
-(`rg -nF 'ui.selection` reached its core in a headless session'\`).
+`$.ui.selection()` resolves to `{ text, requestId? }`, or `undefined` when nothing is selected. In
+an interactive session the REPL answers it (`rg -nF 'selection: { read: () =>'`, 1 hit), and only
+while the alternate screen is active, that is, in fullscreen; outside fullscreen it resolves
+`undefined` whatever is highlighted. It returns the live selection's text, as a copy would produce
+it, from anywhere on screen. With no live selection it returns the one last taken down by a click, a
+keypress or a copy, kept until a newer non-empty selection replaces it or until a prompt or command
+the person submits after the take-down has finished running (`rg -nF 'takenAfter'`, 3 hits: the
+empty state, the take-down, the reset at the end of a run). Otherwise `undefined`.
+
+`requestId` names the transcript message the whole selection lies in: the message's `uuid`, or the
+`tool_use` id for a tool call and for its result. It is set only when the selection is confined to
+the transcript's scroll box and both ends fall in one message's row band
+(`rg -nF 'rowHoldingSelection'`, 2 hits); a selection spanning messages, or in a pane, the sidebar
+or the composer, has none.
+
+In a headless session no terminal is read. The engine sends `ui_read_selection` at once to every
+attached non-terminal client whose `ui_attach` listed it under `answers`, only over the pipes of the
+host that spawned the process (never the remote transport), and takes the first non-empty answer;
+the answer's `instance_id` becomes `requestId`. No such client, every client answering nothing, or
+no answer within 5 s resolves `undefined` (`rg -nF 'subtype: "ui_read_selection"'`, 1 hit). Only
+this path logs `plugin_function_hooks_selection_read`.
 
 `$.prompt.paint({ text, decorations })`
 (`rg -nF 'decorations must be an array of { start, end } runs'`) takes runs keyed `start`, `end`
@@ -736,9 +750,10 @@ No `$` op creates a `leadingPill`, and none creates an attachment. A plugin can 
 A plugin can read the terminal selection, but only by asking: no hook event observes it.
 
 - `$.ui.selection()` reads the same terminal selection store the attach hook reads, through the
-  REPL's selection keeper. It answers in fullscreen only, covers a selection anywhere on screen
-  (transcript, the native sidebar, another plugin's pane), and names a `requestId` only for a
-  selection inside one plugin-drawn transcript entry.
+  REPL's selection keeper. In an interactive session it answers in fullscreen only, covers a
+  selection anywhere on screen (transcript, the native sidebar, another plugin's pane), and names a
+  `requestId` only for a selection inside one transcript message. In a headless session it asks the
+  attached clients that answer `ui_read_selection` instead.
 - The full hook-event list contains no selection event, so a plugin learns of a new selection only
   by calling `$.ui.selection()` again (on a timer, or from one of its own events). The
   pointer-shaped events that exist are `ui.press`, `ui.input`, `ui.select` and `ui.message`, all

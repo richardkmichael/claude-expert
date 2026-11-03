@@ -125,12 +125,26 @@ Not "any Ink text", not `Code` elements, and not plugin panes.
 
 ### Plugins: `$.ui.selection`
 
-`$.ui.selection()` answers the terminal's current mouse selection as `{ text, requestId? }`, or
-nothing. It reads only while the alternate screen is active (fullscreen). `requestId` is set when
-the selection lies wholly within one transcript row the engine can attribute. A selection that was
-taken down (for example by the click that pressed a Button) is kept and answered until a newer
-selection or the next hook run. Telemetry: `plugin_function_hooks_selection_read`. It does not touch
-`ideSelection`, so it produces neither the pill nor the attachment.
+`$.ui.selection()` resolves to `{ text, requestId? }`, or `undefined` when nothing is selected.
+
+- Interactive, fullscreen: the live terminal selection's text, as a copy would produce it, from
+  anywhere on screen. With no live selection, the one last taken down by a click, a keypress or a
+  copy (for example the click that pressed a Button), kept until a newer non-empty selection
+  replaces it or until a prompt or command the person submits after the take-down has finished
+  running.
+- Interactive, not fullscreen: always `undefined`; the terminal is read only while the alternate
+  screen is active.
+- Headless: the engine asks every attached non-terminal client that answers `ui_read_selection` and
+  takes the first non-empty answer; no such client, or no answer within 5 s, is `undefined`. Only
+  this path logs `plugin_function_hooks_selection_read`.
+
+`requestId` names the transcript message the whole selection lies in: its `uuid`, or the `tool_use`
+id for a tool call and for its result. A headless client supplies it as `instance_id`. A selection
+spanning messages or outside the transcript has none. Relocate the interactive reader with
+`rg -nF 'selection: { read: () =>'` (1 hit), the kept selection with `rg -nF 'takenAfter'` (3 hits)
+and the headless ask with `rg -nF 'subtype: "ui_read_selection"'` (1 hit); `NATIVE_DIFF_SIDEBAR.md`
+section 6 has the detail. It does not touch `ideSelection`, so it produces neither the pill nor the
+attachment.
 
 ### Where the filename comes from
 
