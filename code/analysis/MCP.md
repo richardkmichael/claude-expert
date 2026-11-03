@@ -672,10 +672,40 @@ accepted with a warning that prefers the object form. An empty array admits no c
 requires `channelsEnabled: true` in the same managed source: once any managed policy settings exist,
 the policy check blocks channels unless `channelsEnabled` is `true`, whatever the account type.
 
-The plugin manifest `channels` array (`server`, `displayName`, `userConfig`) marks which of the
-plugin's MCP servers is a channel and what configuration to prompt for at enable time. It does not
-register the channel: the session still needs `--channels plugin:<name>@<marketplace>` or an SDK
-`channel_enable`.
+The plugin manifest `channels` array holds strict objects `{ server, displayName?, userConfig? }`.
+`server` names a key of the plugin's MCP servers, and `userConfig` uses the same field schema as the
+top-level manifest `userConfig`. The array drives only the configuration prompt in the `/plugin` UI
+and the per-channel `${user_config.KEY}` values. The registration gate never reads it, so it does
+not register the channel either: the session still needs `--channels plugin:<name>@<marketplace>` or
+an SDK `channel_enable`.
+
+#### Packaging a channel as a plugin
+
+Verified against 2.1.309 and 2.1.316, which match on every point below.
+
+- Server sources: a plugin-root `.mcp.json` (either `{ "mcpServers": { … } }` or a bare name map)
+  loads first, then manifest `mcpServers` (an inline name map, a path, an MCPB path or URL, or an
+  array of these) merges over it, so an inline entry wins on a name clash. A plugin loaded from a
+  directory skips MCPB and out-of-directory sources. Relocate with
+  `rg -n 'MCP server configurations keyed by server name'`.
+- Expansion, for a stdio server's `command`, each `args` element and each `env` value:
+  `${CLAUDE_PLUGIN_ROOT}`, `${CLAUDE_PLUGIN_DATA}` and `${CLAUDE_PROJECT_DIR}`, then
+  `${user_config.KEY}`, then ordinary `${VAR}` / `${VAR:-default}` environment expansion. The
+  server's environment also receives `CLAUDE_PLUGIN_ROOT` and `CLAUDE_PLUGIN_DATA`.
+- `${user_config.KEY}` values merge the manifest `userConfig` and the channel entry's `userConfig`.
+  Each field's `default` fills in first, so a field with a default never blocks a headless load.
+  Stored values come from `pluginConfigs["<name>@<marketplace>"].options` in user settings,
+  `--settings`, or managed settings (project settings are not read), with sensitive values in secure
+  storage. A plugin from `--plugin-dir` is also looked up under the bare `<name>` key. A referenced
+  key with no value and no default fails that server with `Plugin option "<key>" isn't set`.
+- Server names are scoped as `plugin:<plugin>:<server>`. That full name is what `/mcp` lists, what
+  SDK `enableChannel()` takes, and what appears as `<channel source="…">`. The gate's session match
+  compares only the `<plugin>` segment with the `plugin:` entry name, so every server in the plugin
+  that declares the capability registers. The capability check reads the server's `initialize`
+  capabilities, not its name.
+- A plugin loaded with `--plugin-dir` gets the source `<name>@inline`, where `<name>` is the
+  manifest `name`, and logs `Loaded inline plugin from path: <name>`. `inline` is not a reserved
+  marketplace name, so the gate parses the marketplace as `inline`.
 
 #### Enabling mid-session and lifecycle
 
@@ -720,8 +750,8 @@ entry comes from `--channels plugin:<name>@<marketplace>` (the Agent SDK `channe
 `--channels` argument per entry) or from an SDK `enableChannel()` call, and the plugin must be on
 the effective allowlist. A plugin that is not on the `tengu_harbor_ledger` list registers headless
 only if managed settings set `channelsEnabled: true` and an `allowedChannelPlugins` entry naming the
-plugin and its marketplace. A plugin loaded with `--plugin-dir` has the plugin source
-`<name>@inline` (see the `Sentinels: "name\@inline" for --plugin-dir` schema description), so its
+plugin and its marketplace. A plugin loaded with `--plugin-dir` (the Agent SDK `plugins` option with
+a local path emits one) has the source `<name>@inline` (see Packaging a channel as a plugin), so its
 marketplace for both `--channels` and `allowedChannelPlugins` is `inline`. This route is read from
 the gate code, not exercised.
 
