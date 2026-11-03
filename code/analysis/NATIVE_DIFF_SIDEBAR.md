@@ -1,568 +1,377 @@
 # The Native `/diff` Sidebar, End to End
 
-Source: `cli.prettier.js` (`work/<version>/package/cli.prettier.js`)
-Verified: 2.1.281
+Verified against: cli.prettier.js 2.1.317 (2026-11-03)
 
-A reference extraction of the engine's own diff sidebar: the `/diff` command, the component tree,
-the drag-to-attach path, and focus handling. It exists to be compared against what a function-hooks
-plugin can reach through the `$` API, so the last section maps each native capability onto the
-plugin surface and says whether a plugin can do it.
+A reference extraction of the engine's own diff sidebar: who owns `/diff`, the command, the
+component tree, the drag-to-attach path, focus handling and the close mark. It exists to be compared
+against what a function-hooks plugin can reach through the `$` API, so the last section maps each
+native capability onto the plugin surface and says whether a plugin can do it.
 
-Line numbers in this document are for 2.1.281 only. Every section leads with a grep recipe; relocate
-with that, not with the numbers. Minified identifiers are given in parentheses as a reading aid, not
-as anchors — they churn every release.
-
-Code quotes were taken verbatim from 2.1.277 and re-checked against 2.1.281. Where the logic is
-unchanged they keep their 2.1.277 identifiers, so a quote can show a name (`kV`, `NRe`, `e4e`)
-that differs from the one at the cited 2.1.281 line. The quotes for the parts that changed — the
-gates, the pill label builder, the submit-time selection handling, `$.telemetry` — are 2.1.281
-verbatim.
-
-Companion doc: `PLUGIN_PANES_AND_COMPOSER.md` covers the pane/dock chrome geometry, the `$` noun
-table, and the `diff` built-in plugin that can displace this sidebar.
+Every section leads with an `rg` recipe over `work/2.1.317/package/cli.prettier.js`; relocate with
+those. Companion doc: `PLUGIN_PANES_AND_COMPOSER.md` covers the pane/dock chrome geometry, the `$`
+noun table, and the `diff` built-in plugin that displaces this sidebar.
 
 
-## Terminology correction: two different flags
+## Which surface owns `/diff`
 
 The sidebar described here is the engine's native Ink component. It is not the `diff` built-in
-plugin, and the two are gated by different flags.
+plugin (a mod, registered as `cc-plugin-diff`, short name `diff`), and the two are gated by
+different flags.
 
-| Surface                      | Gate                                                 | Default |
-| ---------------------------- | ---------------------------------------------------- | ------- |
-| Native diff sidebar          | `!flag("tengu_jazzy_ripple", false)` — a kill switch | on      |
-| `diff` built-in plugin (mod) | `pinnedFlag("tengu_quiet_dolphin", false)`           | off     |
+| Surface                      | Gate                                | Code default |
+| ---------------------------- | ----------------------------------- | ------------ |
+| Native diff sidebar          | `tengu_jazzy_ripple`, a kill switch | on           |
+| `diff` built-in plugin (mod) | `tengu_quiet_dolphin`, pinned       | on           |
 
-Relocate with `rg -nF 'tengu_jazzy_ripple'` (1 hit, inside the sidebar's enable predicate) and
-`rg -nF 'tengu_quiet_dolphin'` (1 hit, inside the mod's `isAvailable`). The mod's module also
-declares `isOnByDefault = false` and the description
-`The diff panel as a plugin pane: /diff, the changed files and their hunks beside the transcript,
-refreshed as Claude edits`.
+Relocate with `rg -nF 'tengu_jazzy_ripple'` (1 hit, the sidebar's enable predicate) and
+`rg -nF 'tengu_quiet_dolphin'` (1 hit, the mod's availability flag). The mod's module exports
+`isOnByDefault` true, `isAvailable` = "the pane is drawable and the pinned flag is on", and the
+description
+`The diff panel as a plugin pane: /diff, the changed files and their hunks …`
+(`rg -nF 'The diff panel as a plugin pane'`). "Drawable" means an interactive session, or one Claude
+Desktop hosts. Built-in plugins are enabled unless `enabledPlugins` turns them off, so with the code
+defaults an interactive session gets the mod.
 
-A `--plugin-dir` copy of a plugin named `diff` is not refused by name at admission. The hooks
-loader applies one same-name rule: plugins are ranked by tier (`prepend`, `user`, `append`,
-`builtin`, `core`), and the first plugin of a name to rank wins; any later one gets
-`hooks module <id> not loaded: another plugin of that name loads first (a managed one, or an
-earlier source)`. A `--plugin-dir` plugin sits in the `user` tier, ahead of `builtin`, so it wins
-over an enabled built-in `diff`. It is refused only behind a managed plugin of the same name, or
-when hooks modules are off for installed plugins altogether — which 2.1.281 words as
-`hooks modules are not turned on for installed plugins in this process (early access: set
-CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 in its environment to load them); built-in plugins load
-regardless` (2.1.277 named the `tengu_plugin_hooks_modules` rollout flag instead). New in 2.1.281:
-both refusals are also written to stderr for a `--plugin-dir` plugin, not only to the debug log.
-The one hard name refusal is `claude plugin test` in the `builtin` tier:
-`<name> cannot load in the builtin tier: this Claude Code bundles a plugin of that name, and would
-load its copy`, unchanged since 2.1.277.
+The mod owns the surface (`rg -nF 'isOwnedByPlugin'`, 3 hits: the snapshot, its comparison, the
+predicate) when all of these hold: the session is not a thin client or remote, the `cc-plugin-diff`
+built-in reports available, it is enabled, and its hooks module (or a `--plugin-dir` copy of the
+same name) is live. While it owns the surface:
+
+- the native `/diff` command reports itself disabled, and the mod registers its own `/diff`;
+- the native sidebar is not drawn (the predicate is "kill switch off and not owned by the mod").
+
+The native sidebar is therefore the fallback: it draws when the mod is turned off in
+`enabledPlugins`, when the flag is off for the session, when the hooks module failed to load, or in
+a context the mod does not draw in.
+
+Name collisions go through the hooks loader's one same-name rule. Plugins are ranked by tier
+(`prepend`, `user`, `append`, `builtin`, `core`); the first plugin of a name to rank wins, and a
+built-in's name set includes its short name. A later one gets
+`hooks module <id> not loaded: another plugin of that name loads first (…)`
+(`rg -nF 'another plugin of that name loads first'`). A `--plugin-dir` plugin named `diff` sits in
+the `user` tier, ahead of `builtin`, so it wins over the built-in. It loses only to a managed plugin
+of that name, or when hooks modules are held for installed plugins (rollout switch, `--bare`,
+managed-only or `disableAllHooks`); every such reason ends `built-in plugins load regardless`. The
+one hard name refusal is `claude plugin test` in the `builtin` tier:
+`<name> cannot load in the builtin tier: this Claude Code bundles a plugin of that name, …`
+(`rg -nF 'cannot load in the builtin tier'`).
 
 Everything below — the `paddingY: 1` header, `setIdeSelection({ source: "diff" })`, the
-`selected_lines_in_diff` attachment — belongs to the native sidebar. The mod has none of it; its
-own attach is a whole-file append through the `prompt.submit` hook.
-
-```js
-// cli.prettier.js:203121
-function wbe() {
-  return !x("tengu_jazzy_ripple", !1);
-}
-// cli.prettier.js:1439694
-var Me = () => "tengu_quiet_dolphin";
-var ot = !1;                        // isOnByDefault
-var Nr = () => na(Me(), ot);        // isAvailable: the flag, pinned for the session
-```
-
-In 2.1.277 `isAvailable` carried one more term, `hooksNotSuppressed()` (not `--bare`, hooks not
-turned off, not safe mode), and so did the sidebar-ownership predicate. 2.1.281 drops it from both,
-matching the rule the hooks loader now states for every built-in: "built-in plugins load
-regardless".
+`selected_lines_in_diff` attachment — belongs to the native sidebar. The mod has none of it. Its
+attach is per file: arming a file shows `<file> rides your next prompt (press asked ✓ to drop it)`
+(`rg -nF 'rides your next prompt'`), and its `prompt.submit` handler then appends that file's diff
+to the prompt's `context` list.
 
 
 ## 1. The `/diff` command and its gating
 
 ### Registration
 
-`rg -nF '"Toggle the diff panel showing uncommitted changes"'` — 2 hits: the command descriptor and
-the mod's copy of the same string.
+`rg -nF '"Toggle the diff panel showing uncommitted changes"'` — 2 hits: the built-in command
+descriptor and the mod's copy of the string. The descriptor is `type: "local-jsx"`, `name: "diff"`,
+`thinClientDispatch: "control-request"`, enabled only while the mod does not own the surface. Its
+description depends on the surface it would pick:
+`Toggle the diff panel showing uncommitted changes` for fullscreen,
+`View uncommitted changes and per-turn diffs` otherwise. It runs as an immediate command exactly
+when it picks fullscreen.
 
-```js
-// cli.prettier.js:489525  — the built-in command descriptor
-var g3e = {
-  type: "local-jsx",
-  name: "diff",
-  isEnabled: () => !wyn(),
-  get description() {
-    return kWt($a() ? "fullscreen" : "inline") === "fullscreen"
-      ? "Toggle the diff panel showing uncommitted changes"
-      : "View uncommitted changes and per-turn diffs";
-  },
-  immediate: (e, n) => kWt(n) === "fullscreen",
-  thinClientDispatch: "control-request",
-};
-```
+The surface picker returns `inline` for a thin client or remote session, or when the presentation is
+not fullscreen; otherwise `fullscreen` if the sidebar's kill switch is off or the command was
+dispatched as immediate, else `inline`. Fullscreen resolves to the docked sidebar; inline falls back
+to the modal `DiffDialog` (`rg -nF '{ DiffDialog: '`, the command body's lazy import).
 
-`wyn()` (`rg -nF 'isOwnedByPlugin'`) is true when the `diff` mod owns the surface; the built-in
-command then disables itself. `kWt(presentation, dispatchedAsImmediate)` picks the surface:
-
-```js
-// cli.prettier.js:310226
-function kWt(e, n = !1) {
-  if (Nt() || e !== "fullscreen") return "inline";
-  return XCe() || n ? "fullscreen" : "inline";
-}
-```
-
-Fullscreen resolves to the docked sidebar; inline falls back to a modal `DiffDialog`. The command
-body picks between them (`cli.prettier.js:1656718`):
-
-```js
-var s = async (a, l) => (
-  a(l.toggleDiffPanel ? await l.toggleDiffPanel() : PLn, { display: "system" }),
-  null
-);
-var r = async (a, l) => {
-  let { DiffDialog: o } = await import("…");
-  return e(o, { messages: l.messages, onDone: a });
-};
-var C = (a, l, o, m) =>
-  kWt(l.presentation, l.dispatchedAsImmediate) === "fullscreen" ? s(…) : r(…);
-```
-
-`toggleDiffPanel` is supplied by the REPL host (`rg -nF 'toggleDiffPanel'` — 2 hits, the provider
-and the command). It calls the toggle helper, waits up to 2000 ms for the first diff to settle, and
-returns the status text (`cli.prettier.js:1319392`).
+In fullscreen the command calls the REPL host's `toggleDiffPanel` (`rg -nF 'toggleDiffPanel'` — 2
+hits, the provider and the command). The provider runs the toggle helper, waits up to 2000 ms for
+the first diff to settle when the panel is shown, and returns the status text, which the command
+prints as a system message.
 
 ### The toggle helper and its four outcomes
 
-`rg -nF '"Diff panel shown"'` — 2 hits: the constant and the mod's copy. The helper lives beside it
-(`cli.prettier.js:1177562`):
+`rg -nF '"Diff panel shown"'` — 2 hits: the constant beside the helper, and the mod's copy. The
+helper hides the panel if it is the current tab; otherwise it refuses, in order, when the kill
+switch is set, when there is no git repository, and when the terminal is under 110 columns; else it
+shows the panel and starts the first diff.
 
-```js
-function FPt({ host: t, getReplTab: r, setAppState: o, columns: s, trackSequence: i, storageV5: a }) {
-  if (r() === "diff") return (oe(t, o, "diff", a), { status: "hidden" });
-  if (!XCe()) return { status: "refused", reason: "unavailable", text: PLn };
-  if (!NPt()) return { status: "refused", reason: "no-git", text: De };
-  if (s < zZ)
-    return {
-      status: "refused",
-      reason: "too-narrow",
-      text: `Resize your terminal to at least ${zZ} columns to show the diff panel`,
-    };
-  return { status: "shown", settled: Se(t, r, o, i, a).catch(d) };
-}
-```
+- shown: `Diff panel shown`
+- hidden: `Diff panel hidden`
+- refused `unavailable`:
+  `The diff panel isn't available right now — run /diff again to see your changes`
+- refused `no-git`:
+  `The diff panel shows git changes — the current directory isn't in a git repository`
+- refused `too-narrow`: `Resize your terminal to at least 110 columns to show the diff panel`
 
-| Outcome                                                                                                   | Text                                                                                 |
-| --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| shown                                                                                                     | `Diff panel shown`                                                                   |
-| hidden                                                                                                    | `Diff panel hidden`                                                                  |
-| refused / `unavailable`| `The diff panel isn't available right now — run /diff again to see your changes` |                                                                                      |
-| refused / `no-git`                                                                                        | `The diff panel shows git changes — the current directory isn't in a git repository` |
-| refused / `too-narrow`                                                                                    | `Resize your terminal to at least 110 columns to show the diff panel`                |
+The bundle stores the dash and apostrophe as escapes, so search
+`rg -nF 'run /diff again to see your changes'` and `rg -nF 'columns to show the diff panel'`.
 
-A refusal is also surfaced as a 3000 ms immediate notification keyed `diff-sidebar-<reason>` when
-the toggle arrives by keybinding rather than by command (`app:toggleReplTab`, sidebar host).
+Showing or hiding writes `diffSidebarOpen` to the user's config and logs `repl_tab_switch`. When the
+toggle arrives by keybinding (`app:toggleReplTab`, registered by the sidebar host and active only in
+fullscreen outside a thin client), a refusal is also surfaced as a 3000 ms immediate notification
+keyed `diff-sidebar-<reason>` (`rg -nF 'diff-sidebar-'`, 1 hit).
 
 ### Width rule
 
-`rg -nF 'var zZ = 110'` — the two constants sit together:
+`rg -n -B2 '= "cc-plugin-diff";'` shows the two width constants declared just above the plugin name:
+`110` and `144`. `110` is the floor to show the panel at all. `144` is the auto-open floor; once the
+person has opened the panel (`diffSidebarOpen === true`) auto-open uses `110` instead, and after
+they have closed it (`diffSidebarOpen === false`) the panel never auto-opens.
 
-```js
-// cli.prettier.js:201120
-var zZ = 110,
-  P9e = 144;
-```
+Auto-open fires from the sidebar host when the conversation tab is showing, the session's tracked
+file count is non-zero and has changed since the baseline, the layout is fullscreen and not a thin
+client, and the width rule passes; it waits 150 ms, computes the diff, then opens the panel.
 
-`110` is the floor to show the panel at all; `144` is the auto-open floor unless the user has
-already opened it once (`diffSidebarOpen === true`), in which case `110` applies:
-
-```js
-// cli.prettier.js:1177528
-function HLn(t) {
-  let r = ae().diffSidebarOpen;
-  if (r === !1) return !1;
-  return t >= (r === !0 ? zZ : P9e) && NPt();
-}
-```
-
-The same two numbers gate plugin pane placement, and the telemetry buckets are
-`under_110` / `110_to_143` / `144_to_199` / `200_plus` (`rg -nF 'under_110'`).
-
-The full mount predicate (`cli.prettier.js:1177518`):
-
-```js
-function JQt({ enabled: t, fullscreen: r, columns: o, isThinClient: s, isMainFocused: i, hasGitRepo: a }) {
-  return t && r && !s && i && o >= zZ && a;
-}
-```
+The full mount predicate is: the sidebar enabled, fullscreen, not a thin client, the main agent view
+focused, at least 110 columns, and a git repository. The docked width is
+`min(floor(0.45 × columns), 90, columns − 70)` (`rg -nF 'Math.floor(h * 0.45), 90, h - 70'`).
 
 ### Telemetry
 
-`tengu_repl_diff_panel_shown` with `trigger: "auto_open" | "manual"` and
-`terminal_width_bucket`, logged once per session id (`cli.prettier.js:1333922`). Tab switches log
-`repl_tab_switch`; base cycling logs `repl_diff_base_switch`.
+`tengu_repl_diff_panel_shown` with `trigger: "auto_open" | "manual"` and `terminal_width_bucket`,
+logged once per session id (`rg -nF 'tengu_repl_diff_panel_shown'`, 2 hits: the native logger and
+the mod's copy). The buckets are `under_110` / `110_to_143` / `144_to_199` / `200_plus`
+(`rg -nF 'under_110'`). Tab switches log `repl_tab_switch`, base cycling logs
+`repl_diff_base_switch` with `mode`, and a failed git read logs `repl_diff_read` /
+`git_diff_failed`.
 
 
 ## 2. The sidebar component tree
 
-Relocate the panel body with `rg -n 'context: "DiffPanel"'` — 2 hits, the default keybinding table
-and the component that registers the base-cycling binding.
+Relocate the panel body with `rg -n 'context: "DiffPanel"'` — 2 hits: the default keybinding table
+and the component that registers the base-cycling binding. The panel lives in one module with the
+rest of the REPL screen; these strings land on each part.
 
-| Role                    | Symbol | Lines (2.1.281) |
-| ----------------------- | ------ | --------------- |
-| auto-open baseline hook | `cX`   | 1334018–1334054 |
-| sidebar host            | `uX`   | 1334055–1334219 |
-| panel body              | `Zye`  | 1334220–1334781 |
-| base-mode label         | `HZe`  | 1334782–1334797 |
-| pre-session block       | `NU`   | 1334798–1334917 |
-| close button            | `eSe`  | 1334918–1334948 |
-| noise-filter toggle     | `tSe`  | 1334949–1334997 |
-| file-list row           | `oSe`  | 1334998–1335049 |
-| per-file diff block     | `Tke`  | 1333589–1333901 |
-| drag-attach hook        | `mye`  | 1333538–1333568 |
-| row → path resolver     | `wye`  | 1333940–1333954 |
+| Role                    | Landmark                                         |
+| ----------------------- | ------------------------------------------------ |
+| sidebar host            | `rg -nF 'diff-sidebar-'` (refusal toast)         |
+| panel body              | `rg -nF 'context: "DiffPanel" }'`                |
+| base-mode label         | `rg -nF 'uncommitted (vs HEAD)'` (1 hit)         |
+| empty and hidden states | `rg -nF 'Only hidden files changed'` (1 hit)     |
+| per-file diff block     | `rg -nF 'Content restricted by read-permission'` |
+| pre-session block       | `rg -nF ' edited before this session ('`         |
+| noise-filter toggle     | `rg -nF '"/generated ("'` (1 hit)                |
+| drag-attach hook        | `rg -nF 'g("diff_selection_attach")'` (1 hit)    |
+| row → path resolver     | the function after the attach hook               |
 
 ### Host
 
-The host does the gating and nothing else — no wrapper Box, so the panel body is the sidebar
-(`cli.prettier.js:1334212`):
+The host does the gating and nothing else; it renders the panel body directly, with
+`minCol = terminalColumns − sidebarWidth` (the left edge used by the attach hook) and the attach
+callback `onAskAboutSelection`. The REPL layout passes `setIdeSelection` as that callback, or
+`undefined` while a modal slot is visible (`rg -nF '.setIdeSelection,'`, 1 hit).
 
-```js
-H4o = e(c8e, { width: Mge, minCol: O2t, onAskAboutSelection: A2t });
-```
-
-`minCol` is `terminalColumns − sidebarWidth`, the left edge used by the attach hook.
-`onAskAboutSelection` is `undefined` whenever a modal slot is active (`cli.prettier.js:1337237`):
-
-```js
-onAskAboutSelection: cz ? void 0 : Tu.setIdeSelection,
-```
-
-The layout places the result in its `sidebar` slot, which adds width and a background and no
-padding (`rg -n 'backgroundColor: "composerSidebarBackground"'`).
+The layout places the host in its `sidebar` slot, which adds width and a background and no padding
+(`rg -n 'backgroundColor: "composerSidebarBackground"'`).
 
 ### Root and header
 
-```js
-// cli.prettier.js:1334764 — panel root
-r(sQt, { ref: K2t, flexDirection: K4i, width: C4e, height: z4i,
-         onWheel: L4e, selectionScope: Q4i, children: [$4e, W4e] })
-// sQt = Box, K4i = "column", z4i = "100%", Q4i = true
+The panel root is a column `Box` at the sidebar's width and `100%` height with an `onWheel` handler
+and `selectionScope: true`, which confines a mouse drag to the panel's own columns. Its two children
+are the header block and the scroll body.
 
-// cli.prettier.js:1334636 — header block
-$4e = r(s, {
-  flexDirection: "column",
-  paddingX: 1,
-  paddingY: 1,
-  flexShrink: 0,
-  children: [U4e, H4e, j4e, mQt],
-})
-```
+The header block is `flexDirection: "column", paddingX: 1, paddingY: 1, flexShrink: 0`.
+`paddingY: 1` is the sidebar's leading blank row. Its children, in order:
 
-`paddingY: 1` is the sidebar's leading blank row. `selectionScope: true` confines a mouse drag to
-the panel's own columns.
+| Child         | Content                                                                         |
+| ------------- | ------------------------------------------------------------------------------- |
+| count row     | `<N> files changed` (count bold) + net `+a −b`, a `flexGrow: 1` spacer, `✕`     |
+| base line     | dim base-mode label; drawn only off the `session` base or while a switch is due |
+| todo progress | ratio bar (`min(20, width − 12)` wide) and `done/total`, only when todos exist  |
+| file list     | the windowed list, `marginTop: 1`                                               |
 
-Header children, in order:
-
-| Child | Content                                                                          |
-| ----- | -------------------------------------------------------------------------------- |
-| `U4e` | row: `<N> files changed` + net `+a −b`, spacer, close button `✕`                 |
-| `H4e` | dim base-mode line                                                               |
-| `j4e` | todo progress bar, `marginTop: 1, gap: 1`, drawn only when the session has todos |
-| `mQt` | the file list, `marginTop: 1`                                                    |
-
-The count row (`cli.prettier.js:1334501`):
-
-```js
-F4e = !mH && fR === null &&
-  r(n, {
-    children: [
-      r(n, { bold: !0, children: [BN, " ", I(BN, "file")] }),
-      " ", "changed",
-      (E4e > 0 || I4e > 0) && " ",
-      e(my, { added: E4e, removed: I4e }),
-    ],
-  })
-```
-
-The base-mode line (`cli.prettier.js:1334782`):
-
-```js
-function HQt(h, E, O) {
-  let Q;
-  switch (h) {
-    case "session":     Q = "this session"; break;
-    case "uncommitted": Q = "uncommitted (vs HEAD)"; break;
-    case "branch":
-      if (E.kind === "branch") Q = `branch vs ${E.baseBranch}`;
-      else Q = O ? "branch diff" : "vs HEAD (no base branch)";
-      break;
-  }
-  return O ? `${Q}…` : Q;
-}
-```
-
-A trailing `…` marks a pending recompute after a base switch. When the repo has no commits the line
-is replaced by `no commits yet — showing staged and new files`.
+The count row is hidden while loading or while an empty-state headline applies. The base-mode label
+reads `this session`, `uncommitted (vs HEAD)`, `branch vs <base>`, or, without a base branch,
+`vs HEAD (no base branch)` (`branch diff` while pending). A trailing `…` marks a pending recompute
+after a base switch. When the repo has no commits the line is replaced by
+`no commits yet — showing staged and new files`. The base persists per user as
+`diffSidebarBaseMode`.
 
 ### File list
 
-A windowed list, 8 rows (`Hge = 8`), with `↑ N more above` / `↓ N more below (alt+down to scroll)`
-affordances and suffixes for `N read-denied` and `N not shown`. Each row is `p8e`: a middle-elided
-path (`width − 12`, floor 8), a spacer, and the `+a −b` counter; hovering underlines it and clicking
-scrolls the matching diff block into view via `scrollToElement`.
+A windowed list of 8 rows with a `↑ N more above` line and a footer joining, with `·`,
+`N more below (<key> to scroll)`, `N read-denied` and `N not shown`. `<key>` is the shortcut bound
+to `app:diffFileListDown`, falling back to `alt+down`. Each row is a middle-elided path
+(`width − 12`, floor 8), a spacer, and the `+a −b` counter; hovering underlines it and clicking
+scrolls the matching diff block into view via `scrollToElement`. The list has its own window offset,
+clamped to `files.length − 8`, and its own `onWheel` while it overflows.
 
-Below the rows sit two toggles:
+Two toggles, each clickable and underlined on hover:
 
-- `m8e` — `<N> tests/generated (show|hide)`, bound to `app:toggleDiffNoiseFilter`.
-- `$9` — `+<N> files edited before this session (show|hide)`, bound to `app:toggleDiffPreSession`.
-  Expanded it draws its own file rows plus their diffs, capped at 20 files
-  (`qge = 20`, then `diffs hidden above 20 files`).
+- `<N> test/generated (show|hide)` (pluralised `tests/generated`), at the end of the file list,
+  bound to `app:toggleDiffNoiseFilter`.
+- `+<N> files edited before this session (show|hide)`, bound to `app:toggleDiffPreSession`.
+  Expanded, it draws its own file rows plus their diffs, capped at 20 files, then
+  `diffs hidden above 20 files`.
 
 ### Empty and loading states
 
-`mH` (loading) shows `Loading diff…` after a 300 ms delay (`UQt = 300`). Otherwise one of:
+While loading, `Loading diff…` appears after a 300 ms delay. Otherwise one of:
 
-| Headline                                 | Hint                                                                     |
-| ---------------------------------------- | ------------------------------------------------------------------------ |
-| `Diff unavailable`                       | `Couldn't read the git diff — it will retry on the next change`          |
-| `No commits yet`                         | `Nothing to diff against until the repo's first commit`                  |
-| `No uncommitted changes`                 | —                                                                        |
-| `No changes vs <base>`                   | —                                                                        |
-| `No changes vs HEAD`                     | `No base branch to compare against — showing changes vs HEAD`            |
-| `No changes this session`                | —                                                                        |
-| `Too many changed files to show diff`    | `Per-file diff is skipped above 500 files`                               |
-| `Only hidden files changed`              | `Read-denied, test, and generated files are hidden in this panel`        |
-| `Only read-denied files changed`         | `Read-denied files are hidden in this panel`                             |
-| `Only tests and generated files changed` | `Tests and generated files are hidden · click "show" above to view them` |
+- `Diff unavailable`, hint `Couldn't read the git diff — it will retry on the next change`
+- `No commits yet`, hint `Nothing to diff against until the repo's first commit`
+- `No uncommitted changes`
+- `No changes vs <base>`
+- `No changes vs HEAD`, hint `No base branch to compare against — showing changes vs HEAD`
+- `No changes this session`
+- `Too many changed files to show diff`, hint `Per-file diff is skipped above 500 files`
+- `Only hidden files changed`, hint
+  `Read-denied, test, and generated files are hidden in this panel`
+- `Only read-denied files changed`, hint `Read-denied files are hidden in this panel`
+- `Only tests and generated files changed`, hint
+  `Tests and generated files are hidden · click "show" above to view them`
 
 ### Per-file diff rendering
 
-`Bbe` draws one file. Its short-circuit branches, in order: read-denied
-(`Content restricted by read-permission rules`), untracked (`New file not yet staged.` plus
-``Run `git add :/<path>` to see line counts.``), binary, large. The normal path is a bold path, a
-rule, then one hunk block per hunk (`cli.prettier.js:1333845`):
+One component draws each file: a bold path, a rule, then the body. Its short-circuit branches, in
+order:
 
-```js
-AN = t4e.length === 0
-  ? e(hr, { children: "No diff content" })
-  : t4e.map((w3i, v3i) =>
-      e(MB, { patch: w3i, filePath: Zd, firstLine: _2t, fileContent: x2t, dim: !1, width: hh }, v3i),
-    )
-```
+- restricted: `Content restricted by read-permission rules`
+- untracked: path suffixed `(untracked)`; `New file not yet staged.` and
+  `` Run `git add :/<path>` to see line counts. ``
+- binary: `Binary file - cannot display diff`
+- large: `Large file - diff exceeds 1 MB limit` (`Diff too large to display.` remote)
 
-with `… diff truncated (exceeded 400 line limit)` when the hunks were cut.
+The normal path suffixes `(truncated)` to the path when the hunks were cut, then draws one hunk
+block per hunk (`No diff content` when there are none) and
+`… diff truncated (exceeded 400 line limit)` at the end. The file's content (up to 1 MB) is read
+only to seed highlighting.
 
-`MB` is the shared hunk renderer, the same one the Edit tool result uses
-(`rg -nF 'skipHighlighting'`). It builds a structured diff and falls back to a plain patch renderer
-when highlighting is off (`syntaxHighlightingDisabled`, or `skipHighlighting`). Colour keys come
-from the theme table (`rg -nF 'diffAddedWord'`):
+The hunk block is the shared renderer the Edit tool result also uses (`rg -nF 'skipHighlighting'`, 1
+hit, its destructured props: `patch`, `dim`, `filePath`, `firstLine`, `fileContent`, `width`,
+`skipHighlighting`). It builds a structured diff, unified or split, and falls back to a plain patch
+renderer when highlighting is off (`syntaxHighlightingDisabled`, or `skipHighlighting`). `filePath`
+reaches the highlighter only as a language hint; it takes no part in the row → path lookup below.
+Colour keys come from the theme tables (`rg -nF 'diffAddedWord'`):
 
-| Key                 | Dark                             | ANSI themes      |
-| ------------------- | -------------------------------- | ---------------- |
-| `diffAdded`         | green                            | `ansi:green`     |
-| `diffRemoved`       | red/pink                         | `ansi:red`       |
-| `diffAddedDimmed`   | muted green                      | `ansi:green`     |
-| `diffRemovedDimmed` | muted red                        | `ansi:red`       |
-| `diffAddedWord`     | strong green| `ansi:greenBright` |                  |
-| `diffRemovedWord`   | strong red                       | `ansi:redBright` |
-
-`filePath` reaches the highlighter only as a language hint; it registers no node and takes no part
-in the row → path lookup below.
+| Key                 | Graphical themes | ANSI themes        |
+| ------------------- | ---------------- | ------------------ |
+| `diffAdded`         | green            | `ansi:green`       |
+| `diffRemoved`       | red/pink         | `ansi:red`         |
+| `diffAddedDimmed`   | muted green      | `ansi:green`       |
+| `diffRemovedDimmed` | muted red        | `ansi:red`         |
+| `diffAddedWord`     | strong green     | `ansi:greenBright` |
+| `diffRemovedWord`   | strong red       | `ansi:redBright`   |
 
 ### Keyboard
 
-`rg -nF 'app:cycleDiffBase'` finds both the binding table and the handler.
+`rg -nF 'app:cycleDiffBase'` finds the binding table, the plugin-action allowlist, the action
+descriptions and the handler.
 
-| Action                      | Default chord            | Context     | Effect                                      |
-| --------------------------- | ------------------------ | ----------- | ------------------------------------------- |
-| `app:toggleReplTab`         | none in the table        | `Global`    | open/close the panel (same path as `/diff`) |
-| `app:cycleDiffBase`         | `ctrl+x b`               | `DiffPanel` | session → uncommitted → branch → session    |
-| `app:diffFileListUp`        | `ctrl+up`, `meta+up`     | `Global`    | scroll the file-list window up              |
-| `app:diffFileListDown`      | `ctrl+down`, `meta+down` | `Global`    | scroll the file-list window down            |
-| `app:toggleDiffNoiseFilter` | none in the table        | `Global`    | show/hide tests and generated files         |
-| `app:toggleDiffPreSession`  | none in the table        | `Global`    | show/hide pre-session changes               |
+| Action                      | Default chord            | Context     | Active while       |
+| --------------------------- | ------------------------ | ----------- | ------------------ |
+| `app:toggleReplTab`         | none in the table        | `Global`    | fullscreen         |
+| `app:cycleDiffBase`         | `ctrl+x b`               | `DiffPanel` | the panel is drawn |
+| `app:diffFileListUp`        | `ctrl+up`, `meta+up`     | `Global`    | the list overflows |
+| `app:diffFileListDown`      | `ctrl+down`, `meta+down` | `Global`    | the list overflows |
+| `app:toggleDiffNoiseFilter` | none in the table        | `Global`    | noise files exist  |
+| `app:toggleDiffPreSession`  | none in the table        | `Global`    | pre-session files  |
+
+`app:toggleReplTab` opens and closes the panel through the same helper as `/diff`.
+`app:cycleDiffBase` steps session → uncommitted → branch → session.
 
 The `DiffPanel` context is described as `When the diff sidebar panel is open`
 (`rg -nF '"When the diff sidebar panel is open"'`). Note what is absent: the sidebar registers no
-`escape` binding and never enters the focus ring. It is not a focusable surface. Escape in the
-sidebar reaches whatever else claims it; closing is the `✕` button, `/diff` again, or
-`app:toggleReplTab`.
+`escape` binding and never enters a focus ring. It is not a focusable surface. Escape in the sidebar
+reaches whatever else claims it; closing is the `✕` button, `/diff` again, or `app:toggleReplTab`.
 
 All six actions are on the engine's plugin-addressable keybinding-action allowlist — see the
 correspondence section.
 
 ### Scrolling
 
-The body is the engine's scroll box with `stickyScroll: false` and `paddingX: 1`
-(`cli.prettier.js:1334690`). Three inputs drive it:
+The body is the engine's scroll box with `stickyScroll: false` and `paddingX: 1`. Three inputs drive
+it:
 
-- `onWheel` on the panel root: `scrollBy(deltaY * 3)`, then `preventDefault` + `stopPropagation`.
+- `onWheel` on the panel root: `scrollBy(deltaY * 3)`, then `preventDefault` and `stopPropagation`.
 - Clicking a file-list row: `scrollToElement(node)` against a `Map<path, inkNode>` that each file
   block populates through a `ref` callback.
-- Drag autoscroll: the selection-store hook subscribed with `{ requireScope: true }`, which nudges
-  the scroll handle while a drag is held past an edge.
-
-The file list has its own independent window offset, clamped to `files.length − 8`, with its own
-`onWheel`.
+- Drag autoscroll: the selection-store hook subscribed with `{ requireScope: true }`
+  (`rg -nF 'requireScope: !0'`, 1 hit), which nudges the scroll handle while a drag is held past an
+  edge.
 
 
 ## 3. Drag-to-attach, end to end
 
 ### The terminal selection store
 
-One accessor wraps the terminal's own mouse-selection state (`rg -nF 'subscribeToSelectionChange'`,
-`cli.prettier.js:762112`):
+One accessor wraps the terminal's own mouse-selection state (`rg -nF 'subscribeToSelectionChange'`).
+It exposes `copySelection`, `copySelectionNoClear`, `getSelectedText`, `clearSelection`,
+`hasSelection`, `getState`, `subscribe`, `moveFocus` and `setSelectionBgColor`, with a null-object
+stub when there is no terminal.
 
-```js
-{
-  copySelection, copySelectionNoClear, getSelectedText, clearSelection,
-  hasSelection, getState, subscribe, moveFocus, setSelectionBgColor
-}
-```
-
-`getSelectedText` has 5 hits in the bundle: the store method and the store's own internal call,
-the accessor's null-object stub and its live wrapper, and one consumer — the diff attach hook.
-Nothing else in the application reads selected text.
+`rg -nF 'getSelectedText'` has 7 hits: the store method and its own internal call, the accessor's
+stub and live wrapper, the diff attach hook, and two in the transcript selection keeper that serves
+`$.ui.selection` (section 6).
 
 ### The attach hook
 
-```js
-// cli.prettier.js:1333538
-function e4e(h, E, O, Q) {
-  let ee = ZC(), be = T("");
-  let ke = Nr(() => {
-    if (!O) return;
-    let we = ee.getState();
-    if (we?.isDragging || !ee.hasSelection()) { be.current = ""; return; }
-    if (!we?.anchor || !we.focus || we.anchorSpan?.kind === "line") return;
-    let Pe = we.virtualAnchorCol ?? we.anchor.col,
-        Me = we.virtualFocusCol ?? we.focus.col;
-    if (Pe < h || Me < h) return;
-    let Ne = E();
-    if (Ne === null || we.anchor.row > Ne || we.focus.row > Ne) return;
-    let We = ee.getSelectedText();
-    if (!We.trim() || We === be.current) return;
-    be.current = We;
-    let He = sn(We.trimEnd(), "\n") + 1,
-        Qe = Q?.(Math.min(we.anchor.row, we.focus.row));
-    (O({ source: "diff", text: We, lineCount: He, filePath: Qe }),
-      _("diff_selection_attach"));
-  });
-  C(() => ee.subscribe(() => ke()), [ee]);
-}
-```
+The hook takes the panel's left column (`minCol`), a `getMaxRow` callback, the attach callback, and
+the row → path resolver. It subscribes to the selection store; on each change it attaches unless one
+of these holds, checked in order:
 
-Arguments: `h` = `minCol`, `E` = `getMaxRow`, `O` = the attach callback, `Q` = row → path.
+1. there is no attach callback (a modal slot is visible);
+2. a drag is in progress, or nothing is selected (both reset the "last attached" memo);
+3. anchor or focus is missing, or `anchorSpan.kind === "line"` (triple-click line selections never
+   attach; character and word drags do);
+4. either end's column (virtual column when present) is left of `minCol`;
+5. either end's row is below the panel's last row;
+6. the selected text is blank, or equal to the text last attached.
 
-Exclusions, in order: no callback (a modal is open), mid-drag, no selection, missing anchor/focus,
-`anchorSpan.kind === "line"` (triple-click line selections never attach; character and word drags
-do), either column left of `minCol`, either row below the panel's last row, blank or unchanged text.
+Otherwise it calls the callback with `{ source: "diff", text, lineCount, filePath }`, where
+`lineCount` counts newlines in the right-trimmed text plus one and `filePath` is the resolver's
+answer for the selection's topmost row, and logs `diff_selection_attach`.
 
 `getMaxRow` walks `getComputedTop()` up the parent chain and adds the panel's computed height minus
-one — the panel's own last row (`cli.prettier.js:1334315`).
+one — the panel's own last row.
 
 ### Row → path
 
-```js
-// cli.prettier.js:1333940
-function b4e(h, E, O) {
-  let Q = 0;
-  for (let ee = E ?? void 0; ee; ee = ee.parentNode) Q += ee.yogaNode?.getComputedTop() ?? 0;
-  if (h < Q) return;
-  for (let [ee, be] of O) {
-    let ke = 0;
-    for (let Pe = be; Pe; Pe = Pe.parentNode)
-      if (((ke += Pe.yogaNode?.getComputedTop() ?? 0), Pe.scrollTop)) ke -= HJ(Pe);
-    let we = be.yogaNode?.getComputedHeight() ?? 0;
-    if (h >= ke && h < ke + we) return ee;
-  }
-  return;
-}
-```
-
-`O` is the `Map<repoRelativePath, inkNode>` the file blocks fill through their `ref`. The answer is
-the key whose vertical band contains the selection's topmost row. A selection above the scroll
-region returns `undefined`, and the attachment then carries no path.
+The resolver sums `getComputedTop()` up from the scroll region to find its top; a row above that
+returns `undefined`. Otherwise it walks the `Map<repoRelativePath, inkNode>` the file blocks fill,
+computing each block's top (subtracting any ancestor's scroll offset) and height, and returns the
+key whose vertical band contains the row. A selection with no matching band carries no path.
 
 ### Copy-on-select runs alongside, not instead
 
 Copy-on-select is a separate global subscriber to the same store, mounted once at the app root
-(`rg -nF 'copyOnSelect'`). It fires at drag end, reads `copySelectionNoClear()`, and writes through
-the native clipboard, a tmux buffer, or OSC 52. The attach path never calls `copySelection`, so
-attaching does not suppress copying and copying does not suppress attaching. Default on; the
-`/config` row is labelled `Copy on select`.
+(`rg -nF 'copyOnSelect'`). It fires when a drag ends with a non-blank selection, reads
+`copySelectionNoClear()`, logs `clipboard_write`, and writes through the native clipboard, a tmux
+buffer, or OSC 52. The attach path never calls `copySelection`, so attaching does not suppress
+copying and copying does not suppress attaching. Default on; the `/config` row is labelled
+`Copy on select`.
 
 ### State: `setIdeSelection({ source: "diff" })`
 
-```js
-// cli.prettier.js:1323857
-setIdeSelection = (h) => {
-  if (((this.#c = null), Object.is(h, this.#r.ideSelection))) return;
-  this.#s({ ...this.#r, ideSelection: h });
-};
-offerIdeSelection = (h) => {
-  if (this.#r.ideSelection?.source === "diff" && !h.text) return;
-  if (pVt(h) === this.#c) return;
-  this.setIdeSelection(h);
-};
-dismissIdeSelection = () => {
-  let h = this.#r.ideSelection;
-  if (!h) return;
-  (this.setIdeSelection(void 0), (this.#c = pVt(h)));
-};
-```
+The selection lives in the REPL session store as `ideSelection` (`rg -nF 'consumeIdeSelection = '`,
+1 hit, among its methods):
 
-Two writers only. `setIdeSelection` is the sidebar's `onAskAboutSelection`; `offerIdeSelection` is
-the IDE MCP path, which yields `source`-less selections and defers to a live diff selection.
-`dismissIdeSelection` remembers the dismissed selection so the IDE cannot immediately re-offer it.
+- `setIdeSelection`: replaces it; forgets the dismissed and the consumed records
+- `offerIdeSelection`: IDE path; ignored if a diff selection is live and the offer has no text, or
+  if it is the one just dismissed
+- `dismissIdeSelection`: clears it and remembers it as dismissed, so the IDE cannot re-offer it
+- `consumeIdeSelection`: clears it and records `{ selection, promptUuid }`
+- `recordIdeSelectionConsumedBy`: records a selection against a prompt uuid directly
+- `restoreIdeSelectionConsumedBy`: returns a selection recorded against that uuid
+- `returnIdeSelection`: sets it back only if no selection with text and no diff selection is live
+
+Two writers set a fresh selection: `setIdeSelection`, which is the sidebar's attach callback, and
+`offerIdeSelection`, the IDE MCP path, whose selections carry no `source`.
 
 ### The composer pill
 
-The pill is a prefix rendered ahead of the draft, not text in the draft. It is built in two steps
-(`rg -nF 'from diff'`, `cli.prettier.js:1288860`):
+The pill is a prefix rendered ahead of the draft, not text in the draft. The label is built from a
+hoisted glyph constant (`rg -n '= "\\u29C9 ";'`, 1 hit), which is why grepping for the whole
+rendered string finds nothing; the builder sits right after it. For a diff selection with text the
+label is `⧉ <N> line(s) from <basename>`, or `from diff` without a path; an IDE selection reads
+`selected` or `In <basename>`, and only while the IDE is connected.
 
-```js
-var Ix = "\u29C9 ";
-function tM(h, v) {
-  if (!v) return null;
-  let D = v.source === "diff";
-  if (!D && h !== "connected") return null;
-  if (v.text && v.lineCount > 0) {
-    let Y = v.lineCount,
-      ee = D && v.filePath ? `from ${NNe(v.filePath)}` : D ? "from diff" : "selected";
-    return `${Ix}${Y} ${Y === 1 ? "line" : "lines"} ${ee}`;
-  }
-  if (!D && v.filePath) return `${Ix}In ${NNe(v.filePath)}`;
-  return null;
-}
-var YEt = 32;
-function qre(h) {
-  let v = h.replace(/]/g, ")").replace(/[\r\n]/g, " ");
-  return `[${Tm(v, YEt, "truncate-middle")}] `.normalize("NFC");
-}
-```
+The label is then wrapped as `[<label>] `, middle-truncated at 32 characters, with `]` inside the
+label rewritten to `)` and newlines to spaces
+(`rg -nF 'truncate-middle")}] `'`, 1 hit). So a diff selection renders `[⧉ 3 lines from README.md]
+`. The composer receives it as `leadingPill: { text, onDelete: dismissIdeSelection }\`.
 
-`NNe` is basename. So a diff selection renders `[⧉ 3 lines from README.md] `, middle-truncated at 32
-characters, with `]` inside the label rewritten to `)` so the brackets stay balanced. The glyph and
-its trailing space are a hoisted constant (`rg -n '= "\\u29C9 ";'`, 1 hit), which is why grepping
-for the whole rendered string finds nothing. In 2.1.277 the glyph was written inline in each
-template (`` `\u29C9 ${Q} …` ``); the rendered label is the same.
-
-The pill object is `{ text, onDelete }` with `onDelete = dismissIdeSelection`
-(`cli.prettier.js:1291106`).
-
-Its colour is a highlight range, not a prop on a Text node (`cli.prettier.js:773293`):
-
-```js
-q = f.leadingPill?.text ?? "",
-pe = q
-  ? [
-      { start: 0, end: q.length - 1, color: "ide", priority: 30 },
-      ...(_t ?? []).map((ze) => ({ ...ze, start: ze.start + q.length, end: ze.end + q.length })),
-    ]
-  : _t,
-```
-
-and in the masked/ghost branch, `q ? e(n, { color: "ide", children: q }) : null`.
-
-The theme key is `ide`:
+Its colour is a highlight range, not a prop on a Text node: the composer prepends
+`{ start: 0, end: pillText.length - 1, color: "ide", priority: 30 }` to its highlights and shifts
+every other range by the pill's length (`rg -nF 'color: "ide", priority: 30'`, 1 hit). The plain
+branch draws the pill as a Text with `color: "ide"`. The theme key is `ide`:
 
 | Theme family     | `ide`             |
 | ---------------- | ----------------- |
@@ -570,82 +379,47 @@ The theme key is `ide`:
 | ANSI dark        | `ansi:blueBright` |
 | ANSI light       | `ansi:blue`       |
 
-Every offset the composer receives from a caller is shifted by `pillText.length`, and the cursor is
+Every offset the composer receives from a caller is shifted by the pill length, and the cursor is
 clamped so it cannot enter the pill. Backspacing past offset 0 clears the prefix and fires
 `onDelete`. `$.prompt.read` returns the draft without the pill.
 
 ### The attachment
 
-Creation (`cli.prettier.js:538463` is the renderer; creation is at `cli.prettier.js:507506`):
+Creation: `rg -nF 'type: "selected_lines_in_diff"'` (1 hit). A selection with `source: "diff"` and
+text becomes `{ type: "selected_lines_in_diff", lineCount, content, filePath }`; anything else falls
+through to the IDE variant, `selected_lines_in_ide`.
 
-```js
-async function BUo(e, n) {
-  if (e?.source === "diff" && e.text)
-    return [{ type: "selected_lines_in_diff", lineCount: e.lineCount, content: e.text, filePath: e.filePath }];
-  …  // otherwise the IDE variant, selected_lines_in_ide
-}
+Rendering to the model (`rg -nF 'from the diff view'`, 1 hit), as a meta message:
+
+```
+The user selected the following <N> line(s) from the diff view (in <path>):
+<content>
+
+This may or may not be related to the current task.
 ```
 
-Rendering to the model:
+The ` (in <path>)` part appears only with a path. The transcript row reads
+`⧉ Selected <N> line(s) from diff view` (`rg -nF '" from diff view"'`).
 
-```js
-selected_lines_in_diff: (e) =>
-  fi([
-    Te({
-      content: `The user selected the following ${e.lineCount} ${e.lineCount === 1 ? "line" : "lines"} from the diff view${e.filePath ? ` (in ${yu(e.filePath)})` : ""}:
-${aDn(e.content)}
+### Clearing and returning
 
-This may or may not be related to the current task.`,
-      isMeta: !0,
-    }),
-  ]),
-```
+A submit consumes the selection: `consumeIdeSelection(promptUuid)` clears it and records it against
+the prompt's uuid. Two exceptions leave it in place:
 
-marked as a meta message. The transcript row reads `⧉ Selected <N> lines from diff view`.
+- a diff selection survives a slash command or a bash-mode line;
+- engine-initiated submits pass `leavesIdeSelection` (`rg -nF 'leavesIdeSelection: !0'`, 4 hits: the
+  idle `/clear` keybinding, `/btw`, `/web-setup`, and a keybinding submit).
 
-Clearing: the attachment fires once per prompt, and since 2.1.278–2.1.281 a submit consumes the
-selection rather than discarding it. On submit (`cli.prettier.js:1324122`):
-
-```js
-let To = h.trim().startsWith("/"),
-  Oo = yto(),                                        // the prompt's uuid
-  Ao = D?.inputModeOverride === void 0 &&
-       (Fo?.source !== "diff" || (!To && eo !== "bash"));
-if (Ho && D?.inputModeOverride === void 0) {
-  if ((Je.setMode("prompt"), Ao)) bt.consumeIdeSelection(Oo);
-}
-```
-
-The same exception as before holds: a diff selection survives a slash command or a bash-mode line.
-Otherwise `consumeIdeSelection` clears it and records `{ selection, promptUuid }`
-(`rg -nF 'consumeIdeSelection = '`, `cli.prettier.js:1323874`):
-
-```js
-consumeIdeSelection = (h) => {
-  let v = this.#n.ideSelection;
-  if ((this.setIdeSelection(void 0), v && h))
-    this.#a = { selection: v, promptUuid: h };
-};
-restoreIdeSelectionConsumedBy = (h, v) => {
-  if (v !== void 0) this.returnIdeSelection(v);
-  else if (this.#a?.promptUuid === h) this.returnIdeSelection(this.#a.selection);
-};
-returnIdeSelection = (h) => {
-  let v = this.#n.ideSelection;
-  if (h !== void 0 && !v?.text && v?.source !== "diff") this.setIdeSelection(h);
-};
-```
+A queued prompt takes the selection with it when it is queued (`takeIdeSelectionForQueue`).
 
 The selection comes back, pill and all, when its prompt returns to the composer: the prompt is
-handed back instead of run (`onPromptHandedBack`), a draft is restored from it
-(`restoreDraftFrom`), or a queued prompt is pulled back for editing (`popQueuedIntoDraft`, and the
-up-arrow pull). Queued prompts now carry their own `ideSelection`, recorded against their uuid when
-they are dispatched. A return never overwrites a live selection: if the person has already made a
-new diff selection, or any selection with text, the old one is dropped.
+handed back instead of run, a draft is restored from it (`restoreDraftFrom`), or a queued prompt is
+pulled back for editing (`popQueuedIntoDraft`, and the typed-hand-back path). A return never
+overwrites a live selection: if the person has made a new diff selection, or any selection with
+text, the old one is dropped.
 
-It is still cleared outright by backspacing the pill away (`dismissIdeSelection`) and by
-`setIdeSelection(undefined)` from the modal-slot path. Any `setIdeSelection` call also forgets the
-consumed record.
+It is cleared outright only by backspacing the pill away (`dismissIdeSelection`) or by the next
+attach replacing it. Any `setIdeSelection` call also forgets the consumed record.
 
 
 ## 4. Focus
@@ -654,323 +428,190 @@ consumed record.
 
 The panel registers exactly one context, `DiffPanel`, for one binding. It has no focusables, no
 focus ring, no entry in the pane store, and no `escape` handler of its own. Attaching a selection
-changes `ideSelection` state and nothing else — there is no focus call anywhere on the attach path.
+changes `ideSelection` and nothing else — there is no focus call anywhere on the attach path.
 
 So the answer to "does the native sidebar move focus to the composer when it attaches?" is that it
-never had the focus to move. The composer's text input is focused whenever no modal overlay and no
-history search are up (`focus = !hidden && !isSearchingHistory && !isModalOverlayActive`); plugin
-panes take the keyboard by intercepting keys through their contexts, not by unfocusing the composer.
+never had the focus to move. The composer's text input holds focus whenever nothing takes its place:
+no dialog or overlay content, no history search, no modal overlay. Plugin panes take the keyboard by
+intercepting keys through their contexts, not by unfocusing the composer.
 
 ### Three separate focus stores
 
-| Store                          | Setter                              | Holder                        |
-| ------------------------------ | ----------------------------------- | ----------------------------- |
-| pane store                     | `focusPane(id)`                     | a plugin pane, by `focusedId` |
-| above-prompt band              | local state                         | the band's focus index        |
-| Client region store| `FHt(id)` | a `Client` region that accepts keys |                               |
+| Store               | Setter                        | Holder                              |
+| ------------------- | ----------------------------- | ----------------------------------- |
+| pane store          | `focusPane(id)`               | a plugin pane, by `focusedId`       |
+| above-prompt band   | local state                   | the band's focus index              |
+| Client region store | the region store's own setter | a `Client` region that accepts keys |
 
-The pane setter (`rg -nF 'focusPane'`, `cli.prettier.js:335936`):
+`focusPane(id)` (`rg -nF 'focusPane: () =>'`) sets
+`focusedId` (and `shownId`) only if `id` is `null` or an open pane, and always
+clears `focusRequest`.
 
-```js
-var W4 = (e) =>
-  Lc().setState((n) => {
-    let r = e === null || n.open.some((y) => y.id === e),
-      s = r ? e : n.focusedId,
-      g = r && e !== null ? e : n.shownId;
-    return n.focusedId === s && n.shownId === g && n.focusRequest === null
-      ? n
-      : { ...n, focusedId: s, shownId: g, focusRequest: null };
-  });
-```
-
-Region store and setter (`cli.prettier.js:820151`):
-
-```js
-var dEe = vn(Bs({ focusedId: null }), …);
-var FHt = (r) => dEe.setState((a) => (a.focusedId === r ? a : { focusedId: r }));
-```
-
-### `ctrl+x tab` cycling
+### `ctrl+x tab`
 
 Binding `"ctrl+x tab"` → `abovePrompt:focus`, context `Chat`, described as
 `focus plugin buttons, inputs and selects`. Sibling `"ctrl+x ctrl+a"` → `abovePrompt:toggle`
-(`hide/show plugin panel`). The handler walks composer → pane 1 → pane 2 → … → composer, because the
-"next pane" helper returns `open[indexOf(focusedId) + 1] ?? null`. Once a pane holds the keyboard
-the active contexts are `Pane`, or `PaneField` when the focused element is an `Input` or `Select`.
+(`hide/show plugin panel`). When a pane holds the keyboard it moves to the next open pane (the
+helper returns `open[indexOf(focusedId) + 1] ?? null`, so past the last pane it returns to the
+composer); otherwise it takes the band when the band has focusables, else the first pane. Once a
+pane holds the keyboard the active contexts are `Pane`, or `PaneField` when the focused element is
+an `Input` or `Select`.
 
 ### The engine releases plugin focus when the draft changes
 
 This is the mechanism behind the measured difference between the Button path and the region path.
-The hook is named for what it does (`rg -nF 'useReleaseOnEdit'`):
+The hook is exported as `useReleaseOnEdit` (`rg -nF 'useReleaseOnEdit'`). It takes the draft store,
+a holder value and a release callback; while the holder is non-null it records the draft `value`
+and, on the first change to it, calls the release.
 
-```js
-// cli.prettier.js:1269934
-var NRe = (h, E, O) =>
-  C(() => {
-    if (E === null) return;
-    let Q = h.getState().value;
-    return h.subscribe(() => {
-      if (h.getState().value !== Q) O();
-    });
-  }, [E, h, O]);
-```
+Its one call site is in the always-mounted above-prompt band, with holder
+`bandFocus ?? panesStore.focusedId` and release "clear the band index, then `focusPane(null)`".
 
-One call site, in the always-mounted above-prompt band (`cli.prettier.js:1270245`):
+`$.prompt.fill` changes `value`. Its implementation (`rg -nF 'fillDraft = '`) does no focus work of
+its own: it refuses with `{ isFilled: false, refusal: "dialog" }` while a dialog is open, otherwise
+writes the text by mode (`replace`, `append`, `insert`), sets the cursor (the given `cursor`, else
+the end for non-insert modes), and paints any `decorations` onto the filled text.
 
-```js
-let Ei = oe(() => { (Pe(null), W4(null)); }, []);
-(NRe(yr, we ?? Or, Ei), …)
-// yr = the draft store, we = band focus, Or = panesStore.focusedId, Ei = release both
-```
+So the sequence for the Button path is: the pane holds the keyboard (`focusedId === paneId`),
+because a Button is only pressable once the pane is focused → the handler calls `$.prompt.fill` →
+the draft store emits → release-on-edit fires → `focusPane(null)` → the keyboard is back at the
+composer.
 
-`E` is `bandFocus ?? paneFocusedId`. While either is non-null the hook subscribes to the draft store
-and, on the first change to `value`, clears the band index and calls `focusPane(null)`.
-
-`$.prompt.fill` changes `value`. Its implementation does no focus work of its own
-(`cli.prettier.js:1324432`):
-
-```js
-fillDraft = (h, E) => {
-  let { draft: O, dialogStore: Q } = this.#e;
-  if (Q.getState().open.length > 0) return { isFilled: !1 };
-  switch (E) {
-    case "replace": (O.setMode("prompt"), O.replaceValue(h)); break;
-    case "append":  O.replaceValue(O.value + h); break;
-    case "insert":  O.insertText(h, "outside"); break;
-  }
-  if (E !== "insert" && O.cursorOffset !== O.value.length) O.setCursorOffset(O.value.length);
-  return { isFilled: !0 };
-};
-```
-
-So the sequence for the Button path is: the pane holds the keyboard (`focusedId === paneId`) because
-a Button is only pressable once the pane is focused → the handler calls `$.prompt.fill` → the draft
-store emits → release-on-edit fires → `focusPane(null)` → the keyboard is back at the composer.
-
-Since 2.1.278–2.1.281 the `$.ui.focus` op first waits, for up to 3000 ms, for the site to settle:
-while its own pane has a pending `focusRequest`, or while the site holds the keyboard but the named
-element is not drawn yet. `rg -nF 'focusSiteDraws'` finds the store it re-checks on; the predicate
-reads `focusRequest`, `placements` and `shownId`. The wait exists for `$.ui.open({ focus: true })`
-followed at once by `$.ui.focus`. It returns immediately when the site does not hold the keyboard,
-so it does not change the outcome after a fill.
+The `$.ui.focus` op first waits, for up to 3000 ms, for the site to settle: while its own pane has a
+pending `focusRequest`, or while the site holds the keyboard but the named element is not drawn yet.
+`rg -nF 'focusSiteDraws'` (2 hits) finds the store it re-checks on. The wait exists for
+`$.ui.open({ focus: true })` followed at once by `$.ui.focus`. It returns at once when the site does
+not hold the keyboard, so it does not change the outcome after a fill.
 
 A later `$.ui.focus` is then denied, because the site check reads the same store
-(`rg -nF 'that site does not hold the keyboard'`, `cli.prettier.js:381870`):
-
-```js
-function kV(e) {
-  let n = eSt(e);
-  if (!n) return { deny: "no such site" };
-  if (H_t(n, e)) return { deny: "not this plugin's site" };
-  if (!n.isHeldNow()) return { deny: "that site does not hold the keyboard" };
-  if (toe(n, e.origin)) return { deny: "another plugin's element holds the keyboard" };
-  let r = n.commit(e);
-  return r === void 0 ? {} : { deny: r };
-}
-```
-
-The Pane site's `isHeldNow` is `() => panesStore.getState().focusedId === paneId`, which
-release-on-edit has just set to `null`.
+(`rg -nF 'that site does not hold the keyboard'`, 2 hits: the op's check and the `ui.focus` core).
+The checks, in order: the site exists, it is this plugin's, it holds the keyboard, no other plugin's
+element holds it, and the plugin drew an element under that key. A Pane site holds the keyboard
+while `panesStore.focusedId === paneId`, which release-on-edit has just set to `null`.
 
 ### Why a `Client` region keeps focus
 
 Two reasons, both structural.
 
-First, a `Client` is not a focusable. The focusable collector takes only three element types
-(`cli.prettier.js:1269673`):
-
-```js
-if (h.type === "Button" || h.type === "Input" || h.type === "Select") { … }
-```
+First, a `Client` is not a focusable. The focusable collector takes only `Button`, `Input` and
+`Select` (`rg -nF 'type === "Button" || e.type === "Input" || e.type === "Select") {'`).
 
 Second, a region that accepts keys holds the keyboard in its own store and explicitly drops the pane
-focus when it takes it (`cli.prettier.js:1060195`):
-
-```js
-function D(R) {
-  if (R.type === "down" && c.acceptsKeys()) (W4(null), FHt(c.id));
-  ((E.current = { x: R.localCol, y: R.localRow }), c.pointer({ … }));
-}
-```
-
-Pointer-down on a key-accepting region sets `focusPane(null)` and `FHt(regionId)`. From then on
-`panesStore.focusedId` is already `null`, so release-on-edit's `E` argument is `null`, the
-subscription never mounts, and a `$.prompt.fill` from the region's `ui.message` handler changes the
-draft without touching region focus. The region's key routing is a separate interceptor keyed on
-`dEe.getState().focusedId === regionId` (`cli.prettier.js:1060156`), and the only things that
-release it are `escape` / `ctrl+c` / `ctrl+d`, a click elsewhere, or the pane taking focus back.
+focus when it takes it: pointer-down on a key-accepting region calls `focusPane(null)` and then the
+region store's setter with the region id (`rg -nF 'p.acceptsKeys()) ('`, 1 hit). From then on
+`panesStore.focusedId` is already `null`, so release-on-edit's holder is `null`, the subscription
+never mounts, and a `$.prompt.fill` from the region's `ui.message` handler changes the draft without
+touching region focus. The region's key routing is a separate interceptor keyed on the region store,
+and the only things that release it are `escape` / `ctrl+c` / `ctrl+d`, a click elsewhere
+(`useReleaseOnClickElsewhere`), or a pane taking focus back.
 
 ### Moving focus back
 
 There is no way. `$.ui.focus({ requestId, key })` moves focus within a site the plugin already
-holds; it cannot acquire focus. Its five denials are `no such site`, `not this plugin's site`,
-`that site does not hold the keyboard`, `another plugin's element holds the keyboard`, and
-`no element of its own is drawn under that key`.
+holds; it cannot acquire focus. Its argument check requires both strings non-empty
+(`rg -nF 'takes { requestId, key } (which of its sites'`), and its denials are `no such site`,
+`not this plugin's site`, `that site does not hold the keyboard`,
+`another plugin's element holds the keyboard`, and `no element of its own is drawn under that key`.
 
-The one adjacent affordance is `$.ui.open({ focus: true })`, which records a `focusRequest` the chat
-component honours only when the composer draft is empty, no dialog is open, no footer or agent-view
-selection is active, and at least one pane is placed. Filling the composer therefore blocks it. A
-request that fails that check is dropped, not deferred.
+The one adjacent affordance is `$.ui.open({ focus: true })`, which records a `focusRequest` that the
+band honours only when the composer draft is empty, no engine dialog or feedback survey is up, no
+band element or pane already holds the keyboard, and at least one pane is placed. Filling the
+composer therefore blocks it.
 
-In 2.1.281 `$.ui.open` resolves to `{ isPlaced, reason? }` (`rg -nF 'waits unplaced ('`). The
-placement rule is the one 2.1.277 already applied: an asked open (one a person started) is placed
-at any width, while an unasked open is placed only at 110 columns if the person has opened that id
-before, else 144. What is new is that the caller learns the result, plus one new unplaced reason:
-surfaces are attached but none of them places panes. Focus handling did not change. A
-`focus: true` request is recorded only if the pane is placed at open; an unplaced pane's request is
-dropped, in both versions, and placing it later carries only the store's then-current request.
+`$.ui.open` resolves to `{ isPlaced, reason? }` (`rg -nF 'waits unplaced ('`). An asked open (one a
+person started) is placed at any width; an unasked open is placed only at 110 columns if the person
+has opened that id before, else 144. With no terminal measured, a session whose attached surfaces
+place no panes leaves it unplaced with that reason. A `focus: true` request is recorded only if the
+pane is placed at open; an unplaced pane's request is dropped, and placing it later carries only the
+store's then-current request.
 
 Three engine-side releases exist and none of them is plugin-callable:
 
-| Hook                                                                    | Trigger                                             |
-| ----------------------------------------------------------------------- | --------------------------------------------------- |
-| `useReleaseOnEdit`                                                      | draft `value` changes while a pane or band holds it |
-| `useReleaseOnClickElsewhere`| a click lands outside the focused element |                                                     |
-| `useReleaseGoneHold`                                                    | the focused index outruns the focusable list        |
+| Hook                         | Trigger                                             |
+| ---------------------------- | --------------------------------------------------- |
+| `useReleaseOnEdit`           | draft `value` changes while a pane or band holds it |
+| `useReleaseOnClickElsewhere` | a click lands outside the focused element           |
+| `useReleaseGoneHold`         | the focused index outruns the focusable list        |
 
 
 ## 5. The close mark
 
-Both surfaces draw a `✕` at their top-right, from the same hoisted glyph constant. The bundle
-stores it escaped, so relocate it with `rg -n 'u2715"'` (1 hit, the declaration) rather than by
-searching for the rendered character. They are different components with different hover styling,
-and only the pane's is reachable from the keyboard.
+Both surfaces draw a `✕` at their top-right, from the same hoisted glyph constant. The bundle stores
+it escaped, so relocate it with `rg -n 'u2715"'` (1 hit, the declaration) rather than by searching
+for the rendered character. They are different components with different hover styling, and only the
+pane's is reachable from the keyboard.
 
 ### The plugin pane's close mark
 
-Drawn by the pane host, not by the plugin. `PaneSite` renders it as its last child, after the tab
-strip and the viewport (`cli.prettier.js:1271121`):
+Drawn by the pane host, not by the plugin. The pane site renders it as the last child of its outer
+box, after the bordered column that holds the tab strip and the viewport. It is the engine's
+`CloseMark` (`rg -nF 'CloseMark: () =>'`, 2 hits): an absolutely positioned box at `top: 0`,
+`right: <inset>`, whose `onClick` stops immediate propagation, wrapping a `DimButton` labelled with
+the glyph. The inset is `BORDER_MARK_INSET` (2) for an inline pane and `MARK_EDGE_COLUMNS` (1) for a
+docked one, and `CLOSE_MARK_COLUMNS` (2) are taken out of a docked pane's tab-strip width.
 
-```js
-e(URe, { inset: uo ? 1 : 0, isHeld: qn, onClose: Zi }),
-```
+Row 0 of the site is chrome, not body: the round border's top edge for an inline pane, and the tab
+strip (or a reserved blank row when only one pane is open) for a docked pane. So the mark sits on
+chrome and does not cover the plugin's first body row.
 
-`inset` is `1` for an inline pane (clearing the round border) and `0` for a docked one. The wrapper
-is absolutely positioned, so it costs no row (`cli.prettier.js:1270419`):
-
-```js
-var URe = (IE) => {
-  … FRe = e(gC.DimButton, { label: yCt, isHeld: IE.isHeld, onAction: IE.onClose })
-  … rmo = e(s, { position: "absolute", top: 0, right: IE.inset, onClick: imo, children: FRe })
-  return rmo;
-};
-function imo(fer) { return fer.stopImmediatePropagation(); }
-```
-
-The control itself is `DimButton` (`rg -nF 'DimButton: () =>'` finds the export;
-`cli.prettier.js:1269584`):
-
-```js
-function C1(M4n) {
-  let { label: gpt, onAction: ypt, isHeld: bpt } = M4n, ido = T(null);
-  let sdo = () => pl.releaseInkFocus(ido.current);
-  let xRe = (E4n) => {
-    let ado = E4n.hovered || bpt === !0;
-    return e(n, { dimColor: !ado, inverse: ado, children: gpt });
-  };
-  return e(s, {
-    ref: ido,
-    onClick: sdo,
-    children: e(GI, { tabIndex: -1, onAction: ypt, children: xRe }),
-  });
-}
-```
-
-So the styling is one expression: dim when neither hovered nor held, inverse when either. That
-inverse under the pointer is the highlight you see. `GI` is the engine's `Button` primitive
-(`rg -nF 'GI as Button'`); `tabIndex: -1` keeps it out of Ink's own tab order, and its `onClick`
-runs the same blur helper the plugin `Button` element uses (`releaseInkFocus`, aliasing the
-`hen` function in the Focus section).
+`DimButton` (`rg -nF 'DimButton: () =>'`) is a `Box` whose `onClick` releases Ink focus
+(`releaseInkFocus`, the same blur helper the plugin `Button` element uses), wrapping the engine's
+`Button` primitive with `tabIndex: -1` (out of Ink's own tab order). Its render function is one
+expression: `dimColor` when neither hovered nor held, `inverse` when either. That inverse under the
+pointer is the highlight you see.
 
 ### It is a stop in the pane's focus ring
 
-`isHeld` is true when the ring's engine-stop index equals the tab count (`cli.prettier.js:1270924`):
+`isHeld` is true when the ring's engine-stop index equals the tab count (the number of other open
+panes), and the engine names that stop `"mark"` (`rg -nF '? "mark" :'`, the pane site's hit). The
+ring counts it: its length is `focusables + tabCount + 1`, the `+ 1` being the close mark, and
+pressing at that index closes the pane rather than picking a tab.
 
-```js
-Cn = Q ? Yn(Tt) : null,
-qn = Cn === Fo,           // Fo = number of other open panes, i.e. the tab count
-…
-function Ln(fr) {
-  let Oi = ko[fr ?? Fo]?.id;
-  return fr === Fo ? "mark" : Oi === void 0 ? null : { tab: Oi };
-}
-```
-
-The engine names the stop `"mark"`. The ring counts it (`cli.prettier.js:1270649`):
-
-```js
-let we = E.focusables.length,
-    Pe = we + O.tabCount + 1;                                  // + 1 is the close mark
-function Qe(ft) { return ft === O.tabCount ? O.close() : O.pick(ft); }
-"abovePrompt:next": () => We(((Ne() ?? -1) + 1) % Pe),
-```
-
-In the `Pane` context `tab` / `shift+tab` are `abovePrompt:next` / `:previous` and `enter` is
-`abovePrompt:press`, so tabbing past the plugin's own `Button`/`Input`/`Select` elements lands on
-each other pane's tab and then on the close mark, which renders inverse while held. Pressing it
-closes the pane — the same path as `ctrl+x x` (`pane:close`).
+In the `Pane` context `tab` / `shift+tab` are `abovePrompt:next` / `abovePrompt:previous` and
+`enter` is `abovePrompt:press`, so tabbing past the plugin's own `Button`/`Input`/`Select` elements
+lands on each other pane's tab and then on the close mark, which renders inverse while held.
+Pressing it closes the pane — the same path as `ctrl+x x` (`pane:close`).
 
 The hook-event schema calls this an engine stop rather than a plugin element. A `ui.focus` event
 carries `element: undefined` when the move names one, and a rewriting handler may not convert
-between the two (`cli.prettier.js:152627`):
+between the two: `an element where the move named none (one of the engine's stops)` and
+`no element where the move named one (a rewrite names another)`
+(`rg -nF 'one of the engine'"'"'s stops'`).
 
-```js
-function Co(e, t) {
-  if (e !== void 0 && t === void 0)
-    return "an element where the move named none (one of the engine's stops)";
-  if (e === void 0 && t !== void 0)
-    return "no element where the move named one (a rewrite names another)";
-  …
-}
-```
-
-`$.ui.focus` cannot address it either: the argument validator requires a non-empty `key`
-(`cli.prettier.js:436061`), and the site check then requires `hasElement(plugin, key)` — the close
-mark is the engine's, not the plugin's, so there is no key that reaches it.
+`$.ui.focus` cannot address it either: the argument check requires a non-empty `key`, and the site
+check then requires the plugin to have drawn an element under that key — the close mark is the
+engine's, so no key reaches it.
 
 ### No plugin control over it
 
 Neither the open arguments nor the render props mention it.
 
-| Surface                | Fields                                                                   |
-| ---------------------- | ------------------------------------------------------------------------ |
-| `$.ui.open` arguments  | `id`, `title`, `focus`, `closeOnEscape`, `holdToasts`, `rows`, `columns` |
-| `ui.render` Pane props | `title`, `isFocused`, `bodyColumns`, `placement`, `scroll`, `view`       |
+- `$.ui.open` arguments: `id`, `title`, `focus`, `closeOnEscape`, `holdToasts`, `backgroundColor`,
+  `rows`, `columns`
+- `ui.render` Pane props: `title`, `isFocused`, `bodyColumns`, `placement`, `scroll`, `view`
 
-`closeOnEscape` changes what `escape` does — close the pane rather than release focus — but does
-not hide or restyle the mark. There is no way to suppress it, relabel it, move it, or change its
-hover treatment, and because it is absolutely positioned at `top: 0` it will overdraw whatever the
-plugin puts in the top-right cell of its first body row.
+`closeOnEscape` changes what `escape` does — close the pane rather than release focus — but does not
+hide or restyle the mark. There is no way to suppress it, relabel it, move it, or change its hover
+treatment.
 
 ### The native sidebar's close mark
 
-A local component in the sidebar's own module, drawn as the last child of the header's first row
-(`cli.prettier.js:1334918`):
+A local component in the sidebar's own module, drawn as the last child of the header's count row,
+after a `flexGrow: 1` spacer. It is a `Box` with `onClick` (close the panel), `onMouseEnter` and
+`onMouseLeave` driving local hover state, around a Text that is `bold` when hovered and `dimColor`
+otherwise.
 
-```js
-function u8e(f8i) {
-  let { onClose: wQt } = f8i, [J4e, P8o] = g(!1);
-  let A8o = () => P8o(!0), M8o = () => P8o(!1);
-  const CQt = !J4e;
-  let X4e = e(n, { bold: J4e, dimColor: CQt, children: yCt });
-  return e(s, { onClick: wQt, onMouseEnter: A8o, onMouseLeave: M8o, children: X4e });
-}
-```
+It does track hover, contrary to a plain reading of the rendered output: the glyph goes from
+`dimColor` to `bold`. What it does not do is invert. Dim-to-bold on a single `✕` is a far weaker cue
+than the pane's reversed cell, which is why the two read as "one highlights, one does not".
 
-It does track hover, contrary to a plain reading of the rendered output: `onMouseEnter` /
-`onMouseLeave` drive local state, and the glyph goes from `dimColor` to `bold`. What it does not do
-is invert. Dim-to-bold on a single `✕` is a far weaker cue than the pane's reversed cell, which is
-why the two read as "one highlights, one does not".
-
-The other differences follow from it being a plain `Box`, not a `DimButton`:
-
-| Aspect            | Plugin pane (`DimButton`)          | Native sidebar (local component)      |
+| Aspect            | Plugin pane (`DimButton`)          | Native sidebar                        |
 | ----------------- | ---------------------------------- | ------------------------------------- |
-| Hover styling     | `inverse: true`, undimmed          | `bold: true`, undimmed                |
+| Hover styling     | `inverse`, undimmed                | `bold`, undimmed                      |
 | Held styling      | same inverse, driven by `isHeld`   | none — it is never held               |
 | Focusable         | `Button` primitive, `tabIndex: -1` | none                                  |
 | In the focus ring | yes, as the engine stop `"mark"`   | no                                    |
-| Reachable by key  | `tab` to it, `enter` to press      | no; `ctrl+x b` is the only chord      |
+| Reachable by key  | `tab` to it, `enter` to press      | no                                    |
 | Positioning       | `position: "absolute", top: 0`     | in flow, after a `flexGrow: 1` spacer |
 
 The sidebar has no focus ring at all — it registers only the `DiffPanel` context for one binding
@@ -980,188 +621,168 @@ for it to render.
 
 ## 6. Correspondence: native sidebar vs the plugin API
 
-The complete plugin op and hook-event inventory is two adjacent arrays; relocate with
-`rg -nF '"prompt.attachment"'` and read the enclosing arrays. Nothing in either names a selection, a
-pill, or an attachment constructor.
+The complete plugin op and hook-event inventory is one array of names, ending with the op list;
+relocate with `rg -nF '"prompt.attachment",'` and read the enclosing arrays (the op list starts at
+`"model.complete"`). The plugin-side builders for `$.ui` and `$.prompt` are found with
+`rg -nF 'selection: () => o("ui.selection", {})'` and `rg -nF 'paint: (r) =>'`.
 
 ### Capability map
 
-| Native capability                            | Plugin equivalent                                                            | Verdict              |
-| -------------------------------------------- | ---------------------------------------------------------------------------- | -------------------- |
-| Dock a panel beside the transcript           | `$.ui.open({ id, title, rows, columns })` + `ui.render`                      | yes                  |
-| Draw a diff with syntax colouring            | `Code` element (`source`, `language`, `path`, `startLine`, `format`, `wrap`) | yes, engine-rendered |
-| Own header, file list, toggles               | any `Box`/`Text`/`Button` tree                                               | yes                  |
-| Scroll the panel body                        | engine chrome scrolls it; `$.ui.scroll` moves it                             | yes                  |
-| Click a row to scroll to a block             | `Button` + `$.ui.scroll({ to: { key } })`                                    | yes                  |
-| Bind `ctrl+x b`-style chords                 | no; `Button action` reuses engine actions only (below)                       | partial              |
-| Confine a mouse drag to the panel            | automatic — the pane chrome sets `selectionScope: true`                      | yes                  |
-| Read the dragged text                        | nothing reaches the selection store                                          | no                   |
-| Write `ideSelection`                         | no writer is exposed                                                         | no                   |
-| Show a coloured composer pill                | no; `$.prompt.fill` inserts plain draft text                                 | no                   |
-| Create a `selected_lines_in_diff` attachment | no constructor; `prompt.attachment` only rewrites                            | no                   |
-| Clear the selection on submit                | n/a without a selection                                                      | no                   |
-| Keep the keyboard after filling the draft    | only from a `Client` region, not from a `Button`                             | partial              |
-| Move focus from the composer into a pane     | no op does this                                                              | no                   |
-| Close mark hover styling                     | the host draws it and inverts it under the pointer; no prop restyles it      | n/a, engine-owned    |
-| Hide or relabel the close mark               | no; not in `$.ui.open` args nor in the Pane render props                     | no                   |
-| Copy text to the clipboard                   | `$.ui.copy({ text, surface? })`, write-only                                  | yes                  |
-| Log first-party telemetry                    | `$.telemetry.log` / `.mark` refuse non-built-in callers                      | no                   |
+- Dock a panel beside the transcript: `$.ui.open({ id, title, rows, columns })` + `ui.render`.
+  Verdict: yes.
+- Draw a diff with syntax colouring: `Code` element (`source`, `language`, `path`, `startLine`,
+  `format`, `wrap`). Verdict: yes, engine-rendered.
+- Own header, file list, toggles: any `Box`/`Text`/`Button` tree. Verdict: yes.
+- Scroll the panel body: engine chrome scrolls it; `$.ui.scroll` moves it. Verdict: yes.
+- Click a row to scroll to a block: `Button` + `$.ui.scroll({ to: { key } })`. Verdict: yes.
+- Bind `ctrl+x b`-style chords: no; `Button action` reuses engine actions, `hotkey` is one
+  digit/letter. Verdict: partial.
+- Confine a mouse drag to the panel: automatic — the pane chrome sets `selectionScope: true`.
+  Verdict: yes.
+- Read the dragged text: `$.ui.selection()`, pull-only; no change event. Verdict: yes, by asking.
+- Write `ideSelection`: no writer is exposed. Verdict: no.
+- Show a coloured composer pill: `$.prompt.paint` runs with `color` and `virtualText`. Verdict:
+  partial.
+- Create a `selected_lines_in_diff` attachment: no constructor; `prompt.submit` can add `context`
+  text. Verdict: no (context: yes).
+- Clear the selection on submit: n/a without `ideSelection`; a plugin clears its own paint. Verdict:
+  n/a.
+- Keep the keyboard after filling the draft: only from a `Client` region, not from a `Button`.
+  Verdict: partial.
+- Move focus from the composer into a pane: no op does this. Verdict: no.
+- Close mark hover styling: the host draws it and inverts it under the pointer; no prop restyles it.
+  Verdict: n/a, engine-owned.
+- Hide or relabel the close mark: no; not in `$.ui.open` args nor in the Pane render props. Verdict:
+  no.
+- Copy text to the clipboard: `$.ui.copy({ text, surface? })`, write-only. Verdict: yes.
+- Log first-party telemetry: `$.telemetry.log` / `.mark` refuse non-built-in callers. Verdict: no.
 
 ### Keybinding actions a plugin can reuse
 
 A plugin `Button` may carry an `action` naming one of the engine's keybinding actions — including
-all six diff-panel actions. The validator (`rg -nF 'is not one of the engine'`,
-`cli.prettier.js:468507`):
-
-```js
-if (w !== void 0 && (typeof w !== "string" || !kzr(w))) {
-  let Ie = typeof w === "string" ? JSON.stringify(w) : LU(w);
-  return `Button "${g}" action ${Ie} is not one of the engine's keybinding actions (app:cycleDiffBase, app:diffFileListDown)`;
-}
-if (typeof w === "string" && Rzr(w))
-  return `Button "${g}" action "${w}" is the engine's alone: its key cannot be rebound (ctrl+c, ctrl+d)`;
-```
+all six diff-panel actions. The validator (`rg -nF 'is not one of the engine'`) refuses anything off
+the allowlist with
+`… is not one of the engine's keybinding actions (app:cycleDiffBase, app:diffFileListDown)`,
+and refuses the engine-only actions with
+`… is the engine's alone: its key cannot be rebound (ctrl+c, ctrl+d)`.
 
 So a plugin can surface a button that dispatches `app:cycleDiffBase`, and the user can rebind that
-action's chord. What a plugin cannot do is declare a chord of its own in a context it owns.
+action's chord. A `Button` may also carry a `hotkey` of one digit or lowercase letter. What a plugin
+cannot do is declare a chord of its own in a context it owns.
 
-### Plugin surface added between 2.1.277 and 2.1.281
+### Plugin ops that touch this surface
 
-Diffing the op and hook-event arrays (`rg -nF '"prompt.attachment"'` and read the enclosing array)
-gives five new ops and one new hook event, `session.send`, which is also callable. None creates a
-pill or an attachment, and none reads the terminal selection.
+| Op                       | What it does                                                          |
+| ------------------------ | --------------------------------------------------------------------- |
+| `$.ui.selection()`       | reads what the person has selected: `{ text, requestId? }` or nothing |
+| `$.prompt.paint`         | paints styled runs, and virtual text, over the current draft          |
+| `$.prompt.fill`          | writes draft text; may carry `decorations` and `cursor`               |
+| `$.ui.copy`              | writes plugin-supplied text to a surface's clipboard                  |
+| `$.telemetry.log`/`mark` | first-party telemetry, served only to built-in plugins                |
 
-| Added                    | Kind       | What it does                                                      |
-| ------------------------ | ---------- | ----------------------------------------------------------------- |
-| `ui.copy`                | op         | writes plugin-supplied text to the clipboard                      |
-| `process.spawn`          | op         | starts a process from `argv`, with optional `cwd`, `env`, `input` |
-| `session.version`        | op         | `$.session.version()`, no arguments                               |
-| `state.get`, `state.set` | op         | plugin state reads and writes                                     |
-| `session.send`           | event + op | `$.session.send({ to, text })`: plain text to another session     |
+`$.ui.selection()` in the terminal (`rg -nF 'selection: { read: () =>'`) answers only while the
+alternate screen is active, that is, in fullscreen. It returns the current selection's text, as a
+copy would produce it, with a `requestId` when the selection lies within one plugin-drawn transcript
+entry. With no live selection it returns one the person's click or keypress took down, kept until
+their next prompt or command has run; otherwise nothing. In a headless session it asks every
+attached client that answers `ui_read_selection` and takes the first non-empty answer
+(`rg -nF 'ui.selection` reached its core in a headless session'\`).
+
+`$.prompt.paint({ text, decorations })`
+(`rg -nF 'decorations must be an array of { start, end } runs'`) takes runs keyed `start`, `end`
+(UTF-16 offsets), `color`, `backgroundColor`, `dimColor`, `bold`, `italic`, `underline`,
+`strikethrough` and `virtualText`. `text` names the draft the runs were computed for; if the draft
+has changed since, nothing is painted. It resolves to `{ isPainted, text, cursor }`. Each plugin
+paints its own layer, and the engine carries layers through later edits.
 
 `$.ui.copy({ text, surface? })` resolves to `{ isCopied: true }` or
-`{ isCopied: false, reason: "no-surface" | "no-clipboard" }` (`rg -nF 'no clipboard path to'`,
-`cli.prettier.js:436029`). Its input is the `text` argument alone. It writes through the same
-clipboard helper copy-on-select uses — native (`pbcopy` and the like), a tmux buffer, or OSC 52,
-bounded at 1 MiB for the OSC write — and only on the `terminal` surface. Nothing in it reads the
-selection store, so it adds a copy path, not an observation path.
+`{ isCopied: false, reason: "no-surface" | "no-clipboard" }` (`rg -nF '$.ui.copy ('`). On the
+`terminal` surface it writes through the same clipboard helper copy-on-select uses — native, a tmux
+buffer, or OSC 52, bounded at 1 MiB for the OSC write. On another surface it goes to an attached
+client that answers `ui_copy`. Its input is the `text` argument alone; it reads no selection.
 
-`$.telemetry.log` / `$.telemetry.mark` are not engine ops. They come from a new built-in plugin
-named `telemetry`, which hooks the `telemetry.*` namespace and refuses callers outside the
-`builtin` and `core` tiers (`rg -nF 'serves the plugins built into Claude Code alone'`,
-`cli.prettier.js:1445341`):
-
-```js
-var h = { deny: "$.telemetry serves the plugins built into Claude Code alone" };
-var Ne = ["builtin", "core"];
-function tt(e, t) {
-  if (t.origin?.tier === void 0) throw Error("$.telemetry: the call names no origin");
-  return Ne.includes(t.origin.tier) ? t(e) : h;
-}
-// registered as: e("telemetry.*", (n, i, a) => tt(i, a)).catch((n, i, a) => et(i, a))
-```
-
-The check is in the providing plugin, not the engine's op table, and it is the only op reserved
-this way. The other tier logic in the bundle predates 2.1.281 and is policy, not reservation: the
-`sec-default` built-in denies `tool.register` from `user`-tier plugins when a setting asks it to,
-and `command.run` notes whether every handler is built-in. The built-in list grew by two in
-2.1.281: `telemetry` and `responsive-mode`.
+`$.telemetry.log` / `$.telemetry.mark` are not engine ops but hook events served by the `telemetry`
+built-in plugin, which refuses callers outside the `builtin` and `core` tiers with
+`$.telemetry serves the plugins built into Claude Code alone`
+(`rg -nF 'serves the plugins built into Claude Code alone'`). The check is in the providing plugin,
+not the engine's op table.
 
 ### (a) Composer pill styling
 
-Confirmed: no `$` op creates a `leadingPill`, and none creates an attachment.
+No `$` op creates a `leadingPill`, and none creates an attachment. A plugin can paint a look-alike.
 
 - The pill prop is engine-internal. `rg -nF 'leadingPill'` returns 7 hits, all inside the composer:
   the prop forwarded through the text-input hook, the highlight computation, two memo comparisons,
-  and the construction site. It is never reachable from plugin code.
-- The highlight is `{ start: 0, end: pillText.length - 1, color: "ide", priority: 30 }`. The theme
-  key is `ide`, resolving to `rgb(71,130,200)` in the graphical themes and `ansi:blue` /
+  the forwarding into the input, and the construction site. It is never reachable from plugin code.
+- The engine's highlight is `{ start: 0, end: pillText.length - 1, color: "ide", priority: 30 }`.
+  The theme key is `ide`, resolving to `rgb(71,130,200)` in the graphical themes and `ansi:blue` /
   `ansi:blueBright` in the ANSI themes.
-- The composer's highlight list is assembled inside the chat component from engine-owned sources
-  only: bash-mode prefix, `@`-mentions, slash commands, the ultrathink/auto-accept shimmer, and
-  ghost text. There is no hook or prop through which a plugin contributes a range.
-- `$.prompt.fill` is the only way a plugin puts text in the composer, and it writes plain draft text
-  with no styling and no atomicity. The engine's own paste placeholders (`[Pasted text #N]`,
-  `[Image #N]`) are literal draft text drawn in the `suggestion` colour and expanded at submit;
-  the selection pill is neither in the draft nor the same colour.
+- A plugin contributes ranges through `$.prompt.paint` (or `decorations` on `$.prompt.fill`). A run
+  with `start: 0, end: 0, virtualText: "[⧉ 3 lines from x] ", color: "ide"` draws a pill-like label
+  ahead of the draft without putting it in the draft. What it does not get is the pill's behaviour:
+  backspacing past it fires nothing, the paint is keyed to the draft text it was computed for, and
+  nothing is attached at submit.
+- `$.prompt.fill` without decorations writes plain draft text. The engine's own paste placeholders
+  (`[Pasted text #N]`, `[Image #N]`) are literal draft text expanded at submit; the selection pill
+  is neither in the draft nor produced by paint.
 - `prompt.attachment` is a rewrite hook. The engine renders an attachment it already created and
   matches handlers by `{ type }` (e.g. `selected_lines_in_diff`); a handler may change the text or
-  drop it. It cannot construct one, and it never touches the composer.
+  drop it. It cannot construct one. A `prompt.submit` handler cannot change the prompt's attachments
+  either, but it can append strings to the prompt's `context`, which is how the `diff` mod sends a
+  file's diff along.
 
 ### (b) Selection in the main window
 
-Confirmed: no hook and no `$` op observes the terminal selection store.
+A plugin can read the terminal selection, but only by asking: no hook event observes it.
 
-- `getSelectedText` has 5 hits: the store method and its own internal call, the accessor's
-  null-object stub and live wrapper, and the diff attach hook. The attach hook is the only
-  consumer, and none of the five is reachable from plugin code.
-- The full hook-event list contains no selection event. The pointer-shaped events that do exist are
-  `ui.press`, `ui.input`, `ui.select` and `ui.message`, all keyed to a specific element the plugin
-  drew.
-- What a plugin's pane does get is confinement and autoscroll, not observation. The pane chrome sets
-  `selectionScope: true`, so a drag started inside the pane is clamped to the pane's columns, and
-  the shared autoscroll hook nudges the scroll handle at the edges. Neither yields text.
-- A plugin's own `Client` region does receive pointer events for drags inside itself, through
+- `$.ui.selection()` reads the same terminal selection store the attach hook reads, through the
+  REPL's selection keeper. It answers in fullscreen only, covers a selection anywhere on screen
+  (transcript, the native sidebar, another plugin's pane), and names a `requestId` only for a
+  selection inside one plugin-drawn transcript entry.
+- The full hook-event list contains no selection event, so a plugin learns of a new selection only
+  by calling `$.ui.selection()` again (on a timer, or from one of its own events). The
+  pointer-shaped events that exist are `ui.press`, `ui.input`, `ui.select` and `ui.message`, all
+  keyed to a specific element the plugin drew.
+- A pane gets confinement: the pane chrome sets `selectionScope: true`, so a drag started inside the
+  pane is clamped to the pane's columns.
+- A plugin's own `Client` region receives pointer events for drags inside itself, through
   `onPointer`. The region component forwards `type`, `x`/`y` in region-local cells, optional `fine`
   sub-cell coordinates, `button`, and the `shift` / `alt` / `ctrl` modifiers, plus `enter` and
-  `leave`. That is region-local input, not the terminal's text selection: the region sees
-  coordinates, never the selected characters, and sees nothing at all about drags in the transcript,
-  in the native sidebar, or in another plugin's pane.
+  `leave`. That is region-local input, not text: the region sees coordinates, never the selected
+  characters.
 
 ### (c) Focus after `$.prompt.fill`
 
-Confirmed, and the live measurement matches the code.
-
-| Path                           | What holds the keyboard before    | After `$.prompt.fill`                |
-| ------------------------------ | --------------------------------- | ------------------------------------ |
-| pane `Button` → `ui.press`     | the pane (`focusedId === paneId`) | released to the composer             |
-| `Client` region → `ui.message` | the region (`dEe.focusedId`)      | unchanged, focus stays in the region |
+| Path                           | Holds the keyboard before | After `$.prompt.fill`    |
+| ------------------------------ | ------------------------- | ------------------------ |
+| pane `Button` → `ui.press`     | the pane                  | released to the composer |
+| `Client` region → `ui.message` | the region's own store    | unchanged, stays there   |
 
 Code responsible:
 
-- Release: `useReleaseOnEdit` (`rg -nF 'useReleaseOnEdit'`), mounted once in the above-prompt band.
-  Its gate is `bandFocus ?? panesStore.focusedId` and its effect is
-  `() => { clearBandFocus(); focusPane(null); }`. Any change to the draft's `value` while a pane
-  holds the keyboard releases it.
-- Denial: `$.ui.focus`'s site check requires `isHeldNow()`, which for a Pane site reads
-  `panesStore.focusedId === paneId`. Once released, the call returns
+- Release: `useReleaseOnEdit`, mounted once in the above-prompt band. Its holder is
+  `bandFocus ?? panesStore.focusedId` and its release clears the band index and calls
+  `focusPane(null)`. Any change to the draft's `value` while a pane holds the keyboard releases it.
+- Denial: `$.ui.focus`'s site check requires the site to hold the keyboard, which for a Pane site
+  reads `panesStore.focusedId === paneId`. Once released, the call returns
   `{ deny: "that site does not hold the keyboard" }`.
 - Region immunity: `Client` is not in the focusable set, and a key-accepting region's pointer-down
-  handler runs `focusPane(null); FHt(regionId)`. Pane focus is therefore already `null` when the
-  fill happens, so release-on-edit's subscription is not mounted and the region's own focus store is
-  untouched.
+  handler runs `focusPane(null)` before taking region focus. Pane focus is therefore already `null`
+  when the fill happens, so release-on-edit's subscription is not mounted and the region's own focus
+  store is untouched.
 
 There is no `$` op that moves focus from the composer back into a pane. `$.ui.focus` can only move
 focus within a site that already holds it, and `$.ui.open({ focus: true })` is honoured only while
 the composer draft is empty — which a preceding `$.prompt.fill` guarantees it is not.
 
-□ Tripwire: `rg -nF 'useReleaseOnEdit'` has 1 hit, the export (`useReleaseOnEdit: () => <sym>`);
-  the definition and its single call site are found through `<sym>` inside that module. If a
-  second call site appears, or if the gate stops including the pane store, the Button-path
-  behaviour changes.
+### Tripwires
 
-
-## Version notes
-
-- 2.1.281: re-verified. Unchanged: release-on-edit and the `that site does not hold the keyboard`
-  denial; the empty-draft rule for `$.ui.open({ focus: true })`; the attach path through
-  `setIdeSelection` and the `ide`-coloured `leadingPill`; `tengu_jazzy_ripple`; the close marks and
-  the `paddingY: 1` header; the sidebar's strings and keybindings. Changed: submit now consumes the
-  diff selection and returns it if the prompt comes back to the composer; `$.ui.focus` waits up to
-  3000 ms for a pending focus request or undrawn element; `$.ui.open` resolves to
-  `{ isPlaced, reason? }`; the `diff` mod's `isAvailable` and the ownership predicate no longer
-  require hooks to be unsuppressed; the pill glyph is a hoisted `"\u29C9 "` constant. New:
-  `$.ui.copy` (write-only), `process.spawn`, `session.version`, `state.get`/`set`,
-  the `session.send` event, and a built-in-only `$.telemetry` from the new `telemetry` built-in.
-  Corrected counts carried over from 2.1.277: `getSelectedText` 5 hits, `leadingPill` 7,
-  `useReleaseOnEdit` 1.
-- 2.1.277: the pane host draws a `DimButton` close mark at `top: 0`, inverse under the pointer and
-  a stop named `"mark"` in the pane's focus ring; no plugin prop hides or restyles it. The native
-  sidebar's own close mark is a plain hover-tracking `Box` that goes dim-to-bold and is not
-  focusable.
-- 2.1.277: the native sidebar is gated by `tengu_jazzy_ripple` (a kill switch, on by default);
-  `tengu_quiet_dolphin` gates the separate `diff` built-in plugin, which is off by default and
-  requires function hooks. The sidebar holds no keyboard focus and registers only the `DiffPanel`
-  context for `ctrl+x b`. Drag-to-attach is engine-only: the selection store has one consumer, and
-  no hook event or `$` op reaches it. `$.prompt.fill` releases pane focus through
-  `useReleaseOnEdit`, but not `Client` region focus, which lives in its own store.
+- □ `rg -nF 'tengu_jazzy_ripple'` and `rg -nF 'tengu_quiet_dolphin'` have 1 hit each; the mod's
+  `isOnByDefault` is true.
+- □ `rg -nF 'isOwnedByPlugin'` has 3 hits; the sidebar is drawn only when not owned by the mod.
+- □ `rg -nF 'useReleaseOnEdit'` has 1 hit, the export; the hook has one call site, in the band, and
+  its holder includes the pane store. A second call site, or a holder without the pane store,
+  changes the Button-path behaviour.
+- □ `rg -nF 'getSelectedText'` has 7 hits; a new consumer means a new reader of the selection.
+- □ `rg -nF 'leadingPill'` has 7 hits, all in the composer.
+- □ `rg -nF '"ui.selection"'` is in the op list and not among the hook events.
