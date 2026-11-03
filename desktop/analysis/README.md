@@ -34,6 +34,7 @@ The last build the whole set was verified against:
 | [COWORK_VM](./COWORK_VM.md)                         | Where Cowork runs (device or cloud); the local VM's `vm_bundles/`, images, updates | 4.4212.0 |
 | [DEBUGGING](./DEBUGGING.md)                         | Main-process, renderer, and native debugging; CDP auth                             | 4.4212.0 |
 | [RESET_LIMITS](./RESET_LIMITS.md)                   | Usage-limit reset grants: the claude.ai endpoints that read and apply them         | 4.4212.0 |
+| [LAUNCH_PREVIEW](./LAUNCH_PREVIEW.md)               | Code-session Browser pane: `.claude/launch.json`, element picker, preview network  | 4.4212.0 |
 
 
 
