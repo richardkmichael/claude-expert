@@ -7,18 +7,20 @@ product's subtree of this repo, so the nested session loads the root `CLAUDE.md`
 analysis docs. Only the question and the final answer cross the boundary; the exploration stays
 inside the nested session.
 
-When the research turns up something durable — a confirmed, corrected, or newly discovered behavior
-— the nested session writes it back into the analysis docs following this repo's normal "Documenting
-findings" loop, the same as an interactive session would. It does not commit the change itself; it
-delegates that to a git-committing subagent — which subagent, and any trailer conventions it
-follows, are set in this repo's own memory (a `CLAUDE.md` / `CLAUDE.local.md` the nested session
-loads). The delegation runs in the foreground: the nested process exits as soon as it answers, and a
-subagent spawned in the background would be cut off with it. The subagent stages the specific
-file(s) by path and adds a `Consulted-by:` trailer naming the expert, so every commit made on an
-expert's behalf is identifiable and revertible (`git log --grep 'Consulted-by: claude-'`,
-`git revert <sha>` for a wrong one). This is why asking the same or a similar question again later
-is faster and cheaper — the answer may already be sitting in the docs rather than re-derived from
-source.
+When the research confirms, corrects or discovers behavior, the nested session writes it back into
+the analysis docs following this repo's "Documenting findings" rules, the same as an interactive
+session would.
+
+It does not commit the change itself. It delegates the commit to a subagent: the one its
+instructions name for git operations if they name one (a personal `CLAUDE.local.md` can), otherwise
+the general-purpose subagent. The delegation runs in the foreground: the nested process exits as
+soon as it answers, and a subagent spawned in the background would be cut off with it. The commit
+includes only the files the expert changed, and carries a `Consulted-by:` trailer naming the expert,
+so every commit made on an expert's behalf is identifiable and revertible
+(`git log --grep 'Consulted-by: claude-'`, `git revert <sha>` for a wrong one).
+
+This is why asking the same or a similar question again later is faster and cheaper: the answer may
+already be in the docs.
 
 ## The tools
 
@@ -36,10 +38,12 @@ researches the exact version the build pins, preparing it with `prepare-claude-c
 needed. It gets `code/` through `--add-dir` with `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1`,
 so `code/CLAUDE.md` is loaded from the start.
 
-Each reply ends with a `Research session_id:` line. Pass that value back as `session_id` on a later
-call to the same tool to continue the research conversation with its context retained. A session
-resumes only under the directory it started in, so a session_id from one tool does not work with the
-other.
+A successful reply ends with a `Research session_id:` line. Pass that value back as `session_id` on
+a later call to the same tool to continue the research conversation with its context retained. A
+session resumes only under the directory it started in, so a session_id from one tool does not work
+with the other. The server accepts only a UUID here and refuses anything else, because the value
+becomes a command-line argument for the nested session. The question itself reaches the nested
+session on stdin, so a question that starts with `-` is not mistaken for an option.
 
 `model` is one of `opus`, `sonnet` or `haiku`, and lets the caller drop a simple lookup onto a
 cheaper model. Anything else is ignored in favour of the server's own default, so a calling agent
@@ -119,7 +123,8 @@ repository regardless of which project invokes it.
 
 All optional, via environment variables on the server entry:
 
-    CLAUDE_EXPERT_DIR          Repo root the experts explore (default: parent of the script)
+    CLAUDE_EXPERT_DIR          Repo root the experts explore (default: parent of the script;
+                               a relative path resolves against the calling project's directory)
     CLAUDE_BIN                 Path to the claude binary (default: claude on PATH)
     EXPERT_ALLOWED_TOOLS       Comma-separated built-in tool allowlist
                                (default: Read,Grep,Glob,Bash,WebFetch,Write,Edit,Agent,Skill)
@@ -129,12 +134,29 @@ All optional, via environment variables on the server entry:
 
 The default allowlist lets an expert research (`Read`/`Grep`/`Glob`/`Bash`/`WebFetch`), prepare
 sources with the repo's skills (`Skill`), write or edit analysis docs directly (`Write`/`Edit`), and
-delegate the commit to a subagent (`Agent`). Each expert's MCP servers are added to it. Its system
-prompt forbids running `git add`/`git commit` itself even though `Bash` is allowed, and requires it
-to check `git status --short` on the paths it may write first, skipping the write-back entirely if
-they already hold unrelated pending changes — since this repo's checkout may be in active
-interactive use at the same time a question arrives from another project. Set `EXPERT_ALLOWED_TOOLS`
-to `Read,Grep,Glob,Bash,WebFetch` for strictly read-only experts.
+delegate the commit to a subagent (`Agent`). Each expert's MCP servers are added to it.
+
+The server also passes a fixed `--disallowedTools` list that blocks shell commands which discard
+work or rewrite history: `git push`, `reset`, `rebase`, `checkout`, `switch`, `restore`, `clean`,
+`stash`, `branch -d`/`-D`, and `rm`. `git add` and `git commit` stay available because the
+committing subagent runs under the same rules. The system prompt forbids the expert itself from
+running any git write command. Before writing, it must find nothing staged and no pending changes in
+the paths it may write (`code/` for the code expert; `desktop/` and `code/analysis/` for the Desktop
+expert); otherwise it skips the write-back and says so. This repo's checkout may be in interactive
+use when a question arrives from another project. Set `EXPERT_ALLOWED_TOOLS` to
+`Read,Grep,Glob,Bash,WebFetch` for strictly read-only experts.
+
+The server checks its configuration at startup and exits with a message on stderr if
+`EXPERT_TIMEOUT_MS` is not a positive whole number, or if the repo root, `code/`, `desktop/` or
+`.mcp.json` is missing.
+
+Each nested session runs in its own process group. When the session exits, anything it left running
+is stopped. When the server receives SIGINT or SIGTERM, which Claude Code sends when a session ends
+or `/mcp` reconnects the server, it sends SIGTERM to every running nested session's group and
+SIGKILL ten seconds later. A timed-out question is stopped the same way.
+
+Concurrent calls are not serialized. Two experts that write to the same doc at the same moment can
+still collide; the pending-changes check makes this unlikely but does not rule it out.
 
 A long call does not hold up an interactive caller. Claude Code moves an MCP tool call that has not
 returned within two minutes into the background, returns the turn, and delivers a notification when
