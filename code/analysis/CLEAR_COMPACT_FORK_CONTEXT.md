@@ -461,8 +461,12 @@ Restore conversation:
 Restore code rewinds the file-history checkpoints to the selected message. Files at a tracked path
 that became a symlink or other non-regular file are skipped and reported. "Both" does both.
 
-The truncation drops later messages from memory only; their records remain in the JSONL, and no
-record marks the rewind itself.
+The truncation drops later messages from memory only; their records remain in the JSONL as a dead
+branch. The rewind appends a `last-prompt` record whose `leafUuid` names the last kept message (null
+when rewinding to before the first message), with `explicit: true` and `rewound: true`, and a resume
+rebuilds the conversation from that leaf. The next prompt's `parentUuid` also names the last kept
+message. Relocate the write with `rg -n 'rewind persist-failure remote heal failed'`, which sits in
+its fallback; the record shape is in `SESSION_TRANSCRIPT.md`.
 
 ### Partial compaction: "Summarize from here" and "Summarize up to here"
 
