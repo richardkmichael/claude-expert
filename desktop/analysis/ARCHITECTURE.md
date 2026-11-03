@@ -198,6 +198,114 @@ manifest's `darwin-arm64` bundle checksum.
 The env vars that subprocess honors are in
 [ENVIRONMENT_VARIABLES](./ENVIRONMENT_VARIABLES.md#bundled-claude-code).
 
+### How a Code session launches it
+
+A Code session is driven through the Agent SDK inlined in the main-process bundle. Desktop builds
+the SDK options object and the SDK's process transport turns it into an argv. Desktop's log lines
+carry a `[CCD]` prefix, and the options builder logs as `[LocalSessionManager]`.
+
+#### Binary
+
+The binary is always a downloaded Claude Code, resolved in this order (relocate with
+`rg -n 'LOCAL OVERRIDE' .vite/build` and the `desktop_ccd_binary_resolved` telemetry event, whose
+`resolution` field names the outcome):
+
+1. `pinned_version`: a resumed session pinned to the version it started on, if still installed.
+2. `local_override`: a binary set through `initLocalBinary`, logged as
+   `[CCD] LOCAL OVERRIDE: Using local binary at …`. Nothing in the production build calls it.
+3. `preseed_in_place`: a copy shipped inside the package. Only MSIX (Windows Store) installs have
+   one. The MSIX check is a constant `false` on macOS.
+4. `required_version`: the build's pinned version under `claude-code/<version>/`.
+5. `fallback_version`: any other installed version, while the pinned one downloads.
+
+A `claude` on `PATH` is never used, and no preference or setting points Code sessions at another
+binary. Desktop logs the result as `Using Claude Code binary at: <path>`.
+
+A second launcher hook, the "host CLI launcher" (`Starting it through the host CLI launcher at:`),
+is wired into the spawn path, but the module that would set its path is an empty stub in production
+builds, so it never activates.
+
+#### Managed launcher
+
+An organization can put a launcher program in front of the binary. Two conditions must both hold:
+
+- The Desktop enterprise config key `claudeCodeProcessWrapperEnabled` is `true` (1p since 2.16120.0,
+  3p since 2.7032.0, visibility `public-undocumented`). See
+  [DEPLOYMENT_MODES](./DEPLOYMENT_MODES.md#enterprise-config-sources) for where enterprise config
+  comes from.
+- The Managed tier of Claude Code settings (`managed-settings.json`, see
+  [DEPLOYMENT_MODES](./DEPLOYMENT_MODES.md#settings-resolution-tiers)) sets `processWrapper`, or
+  `env.CLAUDE_CODE_PROCESS_WRAPPER`, which wins when both are set. User, project, and local settings
+  are not consulted.
+
+The value is an argv: either a JSON array of strings or a whitespace-split string with double-quote
+quoting. An unquoted shell metacharacter (semicolon, pipe, ampersand, dollar sign, parenthesis,
+backtick, or angle bracket) is rejected, because the value is an argv, not a shell command. The
+first element must be an absolute path to an executable regular file, must not be Claude Code's own
+path, and must not end in `.js`, `.mjs`, `.ts`, `.tsx` or `.jsx`. Desktop then spawns the launcher
+with its own arguments, then the Claude Code path, then the SDK arguments, and logs
+`[CCD] Claude Code launches go through the organization's launcher …`. A refused value fails the
+start with `the launcher program your organization configured cannot be used on this computer` and
+logs `[CCD] Managed launcher (processWrapper / …) refused: …`. On a launcher spawn, Desktop removes
+the in-process OAuth token callbacks from the SDK options.
+
+The launcher sees the full argv, so it can add CLI flags, which no other route allows. Relocate with
+`rg -n 'claudeCodeProcessWrapperEnabled' .vite/build` and `rg -n 'Managed launcher' .vite/build`.
+
+#### Arguments
+
+There is no setting or preference for extra CLI arguments. The SDK transport always passes
+`--output-format stream-json --verbose --input-format stream-json`. From the options Desktop sets it
+adds, as applicable: `--thinking=adaptive`, `--effort`, `--model`, `--permission-prompt-tool=stdio`
+(Desktop answers permission prompts through `canUseTool`), `--resume`, `--allowedTools`,
+`--disallowedTools`, `--setting-sources user,project,local`, `--permission-mode`,
+`--allow-dangerously-skip-permissions`, `--include-partial-messages`, `--add-dir`, `--plugin-dir`,
+`--session-id`, and `--managed-settings <json>` (Desktop's resolved managed settings). Desktop's own
+`extraArgs` add `--replay-user-messages` and usually `--thinking-display summarized`.
+
+Desktop never sets the SDK `channels` option, so `--channels` is never passed, and neither is
+`--dangerously-load-development-channels`. Desktop does not call the SDK's `enableChannel()` (the
+`channel_enable` control request) either. Relocate the argv builder with
+`rg -n 'Spawning Claude Code' .vite/build` and the options builder with
+`rg -n 'settingSources: \["user", "project", "local"\]' .vite/build`.
+
+#### Environment
+
+The Code-session environment starts from Desktop's own `process.env`, then layers in order:
+
+- the user's Code environment variables (below);
+- `PATH` from the login shell;
+- host-authored keys: `CLAUDE_CODE_ENTRYPOINT` (`claude-desktop`, or `claude-desktop-3p`),
+  `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `CLAUDE_CODE_DESKTOP_APP_VERSION`,
+  `CLAUDE_CODE_SUBSCRIPTION_TYPE`, `CLAUDE_CODE_RATE_LIMIT_TIER`, and blanked `ANTHROPIC_API_KEY`,
+  `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_CUSTOM_HEADERS`;
+- `DISABLE_MICROCOMPACT=1`, `NODE_USE_SYSTEM_CA=1`, `CLAUDE_CODE_TERMINAL_MCP_TOOLS`,
+  `MCP_SERVER_CONNECTION_BATCH_SIZE` (unless already set), `CLAUDE_CODE_EAGER_FLUSH=1`,
+  `CLAUDE_CODE_EMIT_STARTUP_TIMING=1`, and `CLAUDE_CODE_HOST_SESSION_ID`.
+
+The user's Code environment variables are edited in the app and reach the main process over the
+`LocalSessionEnvironment` IPC namespace (`get`, `save`, `getScoped`, `saveScoped`, `removeScoped`).
+They are stored `safeStorage`-encrypted in `ccd-environment-config.json` under the app data
+directory: `envVars` holds the global set and `scopedEnvVars` holds per-account, per-scope sets. The
+editor rejects `PATH`, `CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`,
+`ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_CUSTOM_HEADERS`, `ANTHROPIC_BASE_URL`, `DISABLE_AUTOUPDATER` and
+a few `CLAUDE_CODE_*` display switches, and the stored set always drops
+`CLAUDE_CODE_PROCESS_WRAPPER`, `CLAUDE_CODE_SIMPLE` and `CLAUDE_AGENT_SDK_MCP_NO_PREFIX`. Relocate
+with `rg -n 'ccd-environment-config' .vite/build`.
+
+Because the CLI runs with `--setting-sources user,project,local`, the `env` key of
+`~/.claude/settings.json` and of project settings also applies inside the session.
+
+#### Channel messages
+
+A channel can register only through `--channels plugin:<name>@<marketplace>` or `enableChannel()`
+when Claude Code runs headless (see `../code/analysis/MCP.md`, "Headless sessions"), and Desktop
+supplies neither. A managed launcher can append `--channels`. Desktop's message handler recognizes a
+CLI-started turn whose user message has `origin.kind` `channel`: it marks the session as steered
+from outside the app and reports the turn origin in `desktop_ccd_cli_started_turn_result`. Relocate
+with `rg -n '"slack-ping"' .vite/build`. How the remote claude.ai frontend displays such a message
+is not in this bundle.
+
 
 ## IPC
 

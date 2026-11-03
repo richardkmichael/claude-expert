@@ -109,9 +109,12 @@ are honored by that subprocess and by the Agent SDK that drives it — including
 `CLAUDE_USER_DATA_DIR`).
 
 A few are set by Desktop when it spawns the subprocess rather than read from the environment, e.g.
-`CLAUDE_CODE_ENTRYPOINT="local-agent"` and `CLAUDE_AGENT_SDK_VERSION` (the inlined SDK stamps its
-own version, `0.3.309` here, matching the pinned Claude Code `2.1.309`). Refer to Claude Code's own
-settings documentation for that surface rather than treating it as Desktop configuration.
+`CLAUDE_CODE_ENTRYPOINT` (`claude-desktop`, or `claude-desktop-3p` on third-party deployments, for
+Code sessions; `local-agent` for Cowork sessions run on the host) and `CLAUDE_AGENT_SDK_VERSION`
+(the inlined SDK stamps its own version, `0.3.309` here, matching the pinned Claude Code `2.1.309`).
+The full Code-session environment, and the user-editable variables layered into it, are in
+[ARCHITECTURE](./ARCHITECTURE.md#environment). Refer to Claude Code's own settings documentation for
+that surface rather than treating it as Desktop configuration.
 
 Others in the same write-only category: `CLAUDE_IMPORT_CONVERSATIONS="1"` (with a scratch
 `CLAUDE_CONFIG_DIR`) when spawning the conversation importer, and
