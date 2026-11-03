@@ -219,7 +219,11 @@ The binary is always a downloaded Claude Code, resolved in this order (relocate 
 5. `fallback_version`: any other installed version, while the pinned one downloads.
 
 A `claude` on `PATH` is never used, and no preference or setting points Code sessions at another
-binary. Desktop logs the result as `Using Claude Code binary at: <path>`.
+binary. Desktop logs the result as `Using Claude Code binary at: <path>`. The executable is
+`claude.app/Contents/MacOS/claude` inside the user-owned install directory. Before a spawn, Desktop
+checks only that it is executable and that the `.verified` marker holds the manifest checksum. It
+does not re-hash the file. If macOS kills the process at exec, Desktop removes that version's
+`.verified` marker and downloads it again. Relocate with `rg -n "verified marker" .vite/build`.
 
 A second launcher hook, the "host CLI launcher" (`Starting it through the host CLI launcher at:`),
 is wired into the spawn path, but the module that would set its path is an empty stub in production
@@ -248,6 +252,13 @@ with its own arguments, then the Claude Code path, then the SDK arguments, and l
 start with `the launcher program your organization configured cannot be used on this computer` and
 logs `[CCD] Managed launcher (processWrapper / …) refused: …`. On a launcher spawn, Desktop removes
 the in-process OAuth token callbacks from the SDK options.
+
+On macOS the enterprise config key can come from the user-writable local config library, so that
+half needs no administrator. `processWrapper` cannot. Desktop reads it from the `Managed` tier of
+the bundled SDK's settings resolver, whose sources are the server-managed settings (not fetched for
+Max and Pro accounts), the Claude Code managed plist, and
+`/Library/Application Support/ClaudeCode/managed-settings.json` at a fixed path. All of those are
+root-owned or organization-delivered.
 
 The launcher sees the full argv, so it can add CLI flags, which no other route allows. Relocate with
 `rg -n 'claudeCodeProcessWrapperEnabled' .vite/build` and `rg -n 'Managed launcher' .vite/build`.

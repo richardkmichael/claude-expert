@@ -105,15 +105,32 @@ sign-in. See [COWORK_VM](./COWORK_VM.md#entitlements) for the signing constraint
 
 ## Enterprise config sources
 
-Two device-side sources, used one at a time, with the remote overlay on top:
+Two device-side sources, used one at a time, with a served overlay on top:
 
-1. macOS managed plist, read key-by-key via `@ant/claude-native`:
+1. macOS managed plist. The native module's `readPlistValue(<path>, <key>)` reads each known key
+   from these files by path, not through CFPreferences:
+
    - `/Library/Managed Preferences/com.anthropic.claudefordesktop.plist` (machine scope)
    - `/Library/Managed Preferences/<username>/com.anthropic.claudefordesktop.plist` (user scope)
-2. Local config-library file, read only when no managed plist applies:
-   `configLibrary/<appliedId>.json` under the 3p data dir, where `configLibrary/_meta.json` holds
-   `appliedId` (or a `hybridPointer` bootstrap URL, which supplies the config instead).
-3. Remote org-policy backend (1p only) — overlays onto the above. See below.
+
+   Both are root-owned locations. The user preferences domain
+   (`defaults write com.anthropic.claudefordesktop …`, stored in `~/Library/Preferences`) is never
+   read as enterprise config. `CLAUDE_E2E_MANAGED_PLIST` replaces the plist path, but only when the
+   e2e test hooks are on, which takes an Anthropic-signed `CLAUDE_CDP_AUTH` token (see
+   [DEBUGGING](./DEBUGGING.md)). Relocate with `rg -n 'CLAUDE_E2E_MANAGED_PLIST' .vite/build`.
+2. Local config-library file, read only when no managed plist is present:
+   `configLibrary/<appliedId>.json` under the 3p data dir
+   (`~/Library/Application Support/Claude-3p/`, user-owned), where `configLibrary/_meta.json` holds
+   `appliedId` (a UUID) or a `hybridPointer` bootstrap URL, which supplies the config instead. It is
+   read in 1p mode too: only keys that configure a third-party backend switch the app to 3p, and the
+   resolver keeps every key whose `support.enabled` scopes include the current mode. A key valid in
+   1p, such as `claudeCodeProcessWrapperEnabled`, therefore takes effect from this user-writable
+   file. The "Configure Third-Party Inference…" window edits it. Its menu item is shown when
+   `developer_settings.json` sets `allowDevTools` (see [DEBUGGING](./DEBUGGING.md)). Relocate with
+   `rg -n 'Failed to read config library' .vite/build`.
+3. Served overlay: the config a bootstrap server returns, applied by the custom-3p bootstrap code
+   (logged with a `[custom-3p]` prefix). Keys with `remotePolicy.hotApplied` apply without a
+   relaunch. A claude.ai sign-in without a bootstrap server has no served overlay.
 
 The resolved source is reported as `managed`, `local` or `none`. It is rebuilt at each launch and
 not persisted. A renderer-facing subset (org-login restrictions, telemetry switches, banner and
@@ -160,8 +177,10 @@ The settings resolver for Claude Code for Desktop sessions stacks tiers in the o
 SDK's `resolveSettings`, fed with the remote managed settings above. Relocate with
 `rg -n '\[SettingsResolver\]' "$EX/.vite/build/"`.
 
-The Managed-tier settings file is `managed-settings.json` in the directory below (the env var
-`CLAUDE_CODE_MANAGED_SETTINGS_PATH` replaces the directory):
+The Managed-tier settings file is `managed-settings.json` in the directory below. The bundled SDK's
+resolver uses this path unconditionally. Desktop's own reader of `managed-settings.json`, used for
+example for `enabledPlugins`, honors `CLAUDE_CODE_MANAGED_SETTINGS_PATH` in place of the directory,
+but the `Managed` tier does not:
 
 | Platform | Directory                                                                         |
 | -------- | --------------------------------------------------------------------------------- |
