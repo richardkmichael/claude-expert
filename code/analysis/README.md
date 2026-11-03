@@ -105,7 +105,7 @@ not part of this family despite the name.
 | `CLI_OPTIONS.md`                 | Undocumented CLI flags and auto-mode behavior                    | 2.1.76   | legacy   | `--permission-mode`, `isAutoModeCircuitBroken`                               |
 | `MAIN_THREAD_AGENT_AND_MODEL.md` | Main-thread agent selection and model precedence                 | 2.1.277  | landmark | `Overrides the 'agent' setting`, `agent_frontmatter`, `sdk-cli`              |
 | `CLAUDE_MD_EXTERNAL_INCLUDES.md` | External CLAUDE.md `@import` approval dialog and flags           | 2.1.169  | landmark | `hasClaudeMdExternalIncludesApproved`, `showExternalIncludesDialog`          |
-| `PROJECT_CONFIG_DISCOVERY.md`    | What a session started in a subdirectory reads, and when         | 2.1.316  | landmark | `getProjectDirsUpToHome`, `dynamicSkillStates`, `in this folder or above it` |
+| `PROJECT_FILES_AND_STATE.md`     | What a session started in a subdirectory reads, and when         | 2.1.316  | landmark | `getProjectDirsUpToHome`, `dynamicSkillStates`, `in this folder or above it` |
 | `IS_DEMO.md`                     | Demo flag: startup gates, identity redaction, cmd swap           | 2.1.220  | landmark | `IS_DEMO`, `projectOnboardingSeenCount`, `policy_update_modal`               |
 | `FEATURE_FLAGS.md`               | `tengu_*` flags: remote-eval fetch, disk cache, read order       | 2.1.316  | landmark | `getFeatureValueWithSource`, `cachedGrowthBookFeatures`, `/api/eval/`        |
 
