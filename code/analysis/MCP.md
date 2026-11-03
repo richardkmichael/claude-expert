@@ -559,7 +559,7 @@ tool results, tool descriptions re-read after `tools/list_changed`, and the serv
 
 ### Channels (`claude/channel`)
 
-Verified against `cli.prettier.js` 2.1.300 (2026-10-29). Public docs: `/en/channels` and
+Verified against `cli.prettier.js` 2.1.316 (2026-11-02). Public docs: `/en/channels` and
 `/en/channels-reference` on code.claude.com. Both describe the feature as a research preview.
 
 A channel is an MCP server that pushes `notifications/claude/channel` with params
@@ -597,10 +597,15 @@ Every arriving notification is also checked again: the handler drops it silently
 `tengu_harbor` is on and the `allow_channels` restriction allows it at that moment.
 
 Both flags are hidden from `--help`. `--channels <servers...>` takes `plugin:<name>@<marketplace>`
-or `server:<name>` entries. `--dangerously-load-development-channels <servers...>` bypasses the
-allowlist per entry after a startup confirmation dialog, and the CLI reads it only in an
-interactive session. Relocate the gate with
-`rg -n 'server did not declare claude/channel capability'`, the flags with
+or `server:<name>` entries, and an untagged entry fails startup with `… entries must be tagged`.
+`--channels` is parsed in every mode, including `-p` and stream-json.
+`--dangerously-load-development-channels <servers...>` bypasses the allowlist per entry after a
+startup confirmation dialog. The CLI parses it only in an interactive session: under `-p`,
+stream-json, or the Agent SDK the entries are dropped without a warning, so nothing marks them `dev`
+and a `server:` entry can never pass the allowlist check headless. Relocate the parse with
+`rg -n 'entries must be tagged'`: the `--channels` list is written immediately, and the development
+list is parsed inside a non-interactive guard and handed to the startup dialog chain. Relocate the
+gate with `rg -n 'server did not declare claude/channel capability'`, the flags with
 `rg -n '"--channels <servers...>"'`, and telemetry with `tengu_mcp_channel_message` and
 `tengu_mcp_channel_flags`.
 
@@ -663,7 +668,9 @@ The channel settings are gates, not opt-ins. The gate reads `channelsEnabled` an
 local settings have no effect. An `allowedChannelPlugins` entry is
 `{ "plugin": "<name>", "marketplace": "<marketplace>" }`. A `"<name>@<marketplace>"` string is
 accepted with a warning that prefers the object form. An empty array admits no channel plugin, but
-`server:` and development entries do not consult that list.
+`server:` and development entries do not consult that list. Setting `allowedChannelPlugins` also
+requires `channelsEnabled: true` in the same managed source: once any managed policy settings exist,
+the policy check blocks channels unless `channelsEnabled` is `true`, whatever the account type.
 
 The plugin manifest `channels` array (`server`, `displayName`, `userConfig`) marks which of the
 plugin's MCP servers is a channel and what configuration to prompt for at enable time. It does not
@@ -698,6 +705,25 @@ on a server that was registered earlier in the process keeps the handler, logged
 path re-registers after a reconnect only when the gate passes, logged as
 `Channel notifications re-registered after reconnect`. The headless registration covers only the
 channel-message handler, so permission relay is an interactive-session feature.
+
+#### Headless sessions (`-p`, stream-json, Agent SDK)
+
+Channels work headless, through the same gate. The headless session has no startup-time
+registration: it runs the gate for every connected client each time it wires a turn, and again after
+a reconnect, through the one function that logs
+`Channel notifications re-registered after reconnect`. That log line therefore also marks the first
+registration, and a channel delivers nothing until the first turn of the session has started. After
+that, an idle headless session starts a turn for each channel message (see Delivery).
+
+Because the development flag is dropped headless, only a `plugin:` entry can register there. The
+entry comes from `--channels plugin:<name>@<marketplace>` (the Agent SDK `channels` option emits one
+`--channels` argument per entry) or from an SDK `enableChannel()` call, and the plugin must be on
+the effective allowlist. A plugin that is not on the `tengu_harbor_ledger` list registers headless
+only if managed settings set `channelsEnabled: true` and an `allowedChannelPlugins` entry naming the
+plugin and its marketplace. A plugin loaded with `--plugin-dir` has the plugin source
+`<name>@inline` (see the `Sentinels: "name\@inline" for --plugin-dir` schema description), so its
+marketplace for both `--channels` and `allowedChannelPlugins` is `inline`. This route is read from
+the gate code, not exercised.
 
 ## Version history
 
