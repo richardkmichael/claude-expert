@@ -1,438 +1,566 @@
 # Claude Code Git Usage in System Prompts
 
-Source: `cli.prettier.js` (`work/<version>/package/cli.prettier.js`)
-Verified against: cli.prettier.js 2.1.154 (2026-07-24); gate and variant selection spot-checked
-against 2.1.277 (2026-09-19), see Version history.
+Verified against: cli.prettier.js 2.1.317 (2026-11-03)
 
-Verbatim wording for the git blocks lives in `PROMPTS_RENDERED.md`; this doc covers the mechanism
-and the per-model assembly (see "Exact Git Text Per Model").
+Source: `cli.prettier.js` (`work/<version>/package/cli.prettier.js`). Recipes below are `rg` runs
+over that file.
+
+Verbatim wording for the main git blocks lives in `PROMPTS_RENDERED.md`; this doc covers the
+mechanism, the gating, and the per-model assembly (see "Exact Git Text Per Model").
 
 ## Key Finding
 
 The git behavioral instructions are carried by the Bash tool's `description` field, not the main
-system prompt. The exact content depends on which Bash-description variant the running model
-receives, and that variant determines what survives the disable switch.
+system prompt. Which git text a request carries depends on the Bash-description variant its model
+receives, and that variant determines what survives the disable switch:
 
-This means git instructions are invisible if you only examine the system prompt text; they are
+- Terse variant: its only git content is the gated `# Git` block. Disabling git instructions removes
+  every git line from the Bash description.
+- Legacy variant: an ungated three-rule `For git commands:` block, plus the gated commit/PR
+  workflow. Disabling git instructions removes the workflow; the three rules stay.
+
+Git instructions are therefore invisible if you only examine the system prompt text; they are
 embedded in the tool definition passed via the `tools` API parameter.
 
-### Change since 2.1.104
-
-Two things changed structurally:
-
-- The Bash tool description now has two variants, selected per model by the variant selector under the
-  "simple system prompt" decision. The terse variant is used for current models (Opus 4.8); the legacy
-  variant is used for older models (Sonnet, Haiku, Opus ≤ 4.7).
-- The git workflow text split in two: a commit/PR workflow builder carrying the bulk of the old
-  workflow, and a new `# Git` block. Both are gated by the disable switch.
-
-The behavioral consequence is the headline change: on the terse variant, the short three-rule git
-block no longer survives the disable switch. In 2.1.104 the "For git commands:" block lived in the
-ungated body of the Bash description and always survived. On Opus 4.8 that block is gone entirely;
-the only git content in its Bash description is the gated the `# Git` block builder "# Git" section,
-so disabling the switch removes all git instructions from the Bash description. The legacy variant
-still carries an ungated "For git commands:" block (see section 5).
+The attribution trailers are by default not in the Bash description at all. The description tells
+the model to end commits and PR bodies with "the attribution lines given in the conversation's
+system-reminder", and a separate attribution reminder carries the actual lines (see "Commit
+Attribution").
 
 ## The disable switch
 
-Relocate: `rg -n 'CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS'`. The enclosing function is the gate. It
-reads the env var, treats a truthy value as "disabled", treats an explicitly falsy value as
-"enabled", and otherwise falls back to the `includeGitInstructions` config key, which defaults to
-on. Expect three call sites: the git-status injection, the commit/PR workflow builder, and the
-`# Git` block builder.
+Relocate: `rg -n 'CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS;'` lands in the gate. The env var is declared
+in the central typed env registry as a tri-state boolean; dropping the `;` from the recipe also
+lists the registry entry. The gate reads it first: a defined value decides, negated, so truthy
+disables and explicit-falsy enables. When it is undefined, the gate falls back to the
+`includeGitInstructions` settings key (`rg -n 'includeGitInstructions \?\?'`), which defaults to on.
+The settings schema describes the key as "Include built-in commit and PR workflow instructions in
+Claude's system prompt (default: true)".
 
 The truthy set is `1`, `true`, `yes`, `on`; the falsy set is `0`, `false`, `no`, `off`. Both are
-case-insensitive and trimmed, and both accept a real boolean. The distinction between "falsy" and
-"absent" is what makes the config fallback reachable: only an undefined env var defers to config.
+case-insensitive and trimmed, and both accept a real boolean. Any other value parses as undefined,
+so it defers to the settings key just as an unset variable does.
+
+Grepping the enclosing function's name gives four call sites:
+
+1. The git-status injection gate, which also requires `CLAUDE_CODE_REMOTE` to be unset.
+2. The PR-prep suggestion line (section 3).
+3. A shared guard that both the `# Git` block builder and the commit/PR workflow builder test first;
+   when it fails each returns the (also gated, so empty) PR-prep line.
+4. The attribution reminder producer, for sessions with no session URL (section 5).
 
 Tripwire:
 
-    □ env var read before config      □ truthy set = {1,true,yes,on}
-    □ falsy set = {0,false,no,off}    □ config key includeGitInstructions, default on
-    □ exactly 3 call sites
+    □ env var read before settings      □ truthy set = {1,true,yes,on}
+    □ falsy set = {0,false,no,off}      □ settings key includeGitInstructions, default on
+    □ exactly 4 call sites
 
-When a section below says "When the git-instructions gate returns false", that means one of:
+When a section below says "When git instructions are disabled", that means the gate returns false:
 
-- `CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS` is set to a truthy value in the environment, OR
-- `includeGitInstructions: false` is set in the user config.
+- `CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS` is set to a truthy value, OR
+- it is unset (or unrecognized) and `includeGitInstructions: false` is in the merged settings.
 
-### Precedence: env var vs config
+### Precedence: env var vs settings key
 
-The env var and the config key are not interchangeable. the git-instructions gate reads the env var
-first, so it outranks the config; the config is consulted only when the env var is unset or holds an
-unrecognized value.
+The env var and the settings key are not interchangeable. The gate reads the env var first, so it
+outranks the settings key:
 
-- env truthy (`1`/`true`/`yes`/`on`) -> git instructions off, regardless of the config
+- env truthy (`1`/`true`/`yes`/`on`) -> git instructions off, regardless of settings
 - env explicit-falsy (`0`/`false`/`no`/`off`) -> git instructions on, even if
-  `includeGitInstructions: false` -- the env var force-enables and overrides the config
+  `includeGitInstructions: false`; the env var force-enables and overrides the settings key
 - env unset or set to anything else -> fall through to `includeGitInstructions` (default true)
 
-They also have opposite polarity: the env var is a disable flag (truthy turns instructions off),
-the config is an include flag (truthy turns them on). The only behavior they share is "turn
-instructions off" -- env `=1` and config `=false` both suppress -- and even there the env var wins
-on conflict.
+They also have opposite polarity: the env var is a disable flag (truthy turns instructions off), the
+settings key is an include flag (true turns them on). The only behavior they share is "turn
+instructions off" (env `=1` and settings `false` both suppress), and even there the env var wins on
+conflict.
 
-## Bash Description Variant Selection -- the variant selector
+## Bash Description Variant Selection
 
-The variant selector decides whether a model gets the terse
-"simple system prompt" Bash description the terse Bash description or the legacy:
+The Bash tool's prompt getter receives the request's model and builds the terse description when the
+lean-prompt selector says so, otherwise the legacy one. The same selector chooses the lean
+system-prompt path (`PROMPTS.md`). It is memoized per model, and a caller may pass an explicit
+`leanPrompt` value that bypasses it. In order:
 
-It is memoized, and returns false when given no model at all. `CLAUDE_CODE_SIMPLE_SYSTEM_PROMPT`
-overrides everything: truthy forces terse, explicitly falsy forces legacy. Absent the override, a
-model gets the terse variant when it is not a legacy-prompt model, or when a client or feature-flag
-override says so.
+1. No model -> legacy.
+2. `CLAUDE_CODE_SIMPLE_SYSTEM_PROMPT` truthy -> terse; explicitly falsy -> legacy.
+3. Model is not a legacy-prompt model -> terse.
+4. Feature flag `tengu_velvet_tide` on (default off) -> terse.
+5. Client data `simple_system_prompt`, a map of model-name substrings to `true`, matches -> terse.
+6. Otherwise -> legacy.
 
-A legacy-model predicate returns true for "legacy prompt" models: `claude-3-*`, any `haiku`, any
-`sonnet`, and `claude-opus-4-0/4-1/4-5/4-6/4-7`. It returns false for `claude-opus-4-8`. `H45(H)`
-is a client/feature-flag override, keyed on `simple_system_prompt`.
+The legacy-model predicate first asks for the model's `lean_prompt` capability: from the
+`CLAUDE_CODE_MODEL_CAPABILITIES` env override (`<model>=lean_prompt` or `-lean_prompt`), from the
+capability lookup served for server-described models, or from the bundled model table. When the
+capability is set, the model is legacy exactly when it lacks it. Otherwise it falls back to the name
+list: `claude-3-*`, any `haiku`, any `sonnet`, and `claude-opus-4-0`, `-4-1`, `-4-5`, `-4-6`,
+`-4-7`. Relocate with `rg -nF '"lean_prompt", e'`; the name list follows.
 
-The practical mapping for a default install:
+The selector sees the prompt model, not necessarily the request model: a prompt-model swap
+(`CLAUDE_CODE_BREEZY_HORIZON` env var or `breezy_horizon` client data) can map one model to another
+for prompt purposes first.
 
-| Model                           | Variant selector | Bash variant   | Ungated git block?               |
-| ------------------------------- | ---------------- | -------------- | -------------------------------- |
-| Opus 4.8                        | true             | terse          | No, only the gated `# Git` block |
-| Sonnet / Haiku / Opus ≤ 4.7     | false            | legacy         | Yes, "For git commands"          |
+In the bundled model table, `lean_prompt` is carried by Haiku 5.5, Sonnet 5.5, Opus 4.8, Opus 5,
+Opus 5.5, Fable 5, Fable 5.1 and Mythos 5.1. The practical mapping for a default install:
 
-`CLAUDE_CODE_SIMPLE_SYSTEM_PROMPT` forces the choice either way.
+| Model                                         | Why             | Variant | Ungated git block?  |
+| --------------------------------------------- | --------------- | ------- | ------------------- |
+| Opus 4.8, Opus 5, Opus 5.5, Fable, Mythos 5.1 | `lean_prompt`   | terse   | none                |
+| Haiku 5.5, Sonnet 5.5                         | `lean_prompt`   | terse   | none                |
+| Mythos 5, other ids outside the name list     | not on the list | terse   | none                |
+| Haiku ≤ 4.5, Sonnet ≤ 5, Opus 4.0–4.7, 3.x    | name list       | legacy  | `For git commands:` |
+
+`CLAUDE_CODE_SIMPLE_SYSTEM_PROMPT` forces the choice either way. "Terse models" and "legacy models"
+below mean the rows of this table.
 
 ## Exact Git Text Per Model
 
-Verbatim wording for every git block is in `PROMPTS_RENDERED.md` (generated by `render-prompts.py`;
-regenerate per version). This section maps each model variant and switch state to the blocks it
-assembles, so the exact text is one lookup away.
+Verbatim wording for the Bash-description git blocks is in `PROMPTS_RENDERED.md` (generated by
+`render-prompts.py`; regenerate per version). This section maps each variant and switch state to the
+blocks it assembles.
 
 The blocks and their verbatim sources:
 
-| Block (this doc)           | `PROMPTS_RENDERED.md` section         | Built by                   | Gated? |
-| -------------------------- | ------------------------------------- | -------------------------- | ------ |
-| `# Git` block              | Bash tool — # Git block               | `# Git` block builder      | yes    |
-| For-git-commands (3 rules) | Bash tool — For git commands (legacy) | legacy Bash description    | no     |
-| commit/PR workflow         | Git workflow — commit & PR            | commit/PR workflow builder | yes    |
-| `gitStatus:` injection     | Context injection — git status        | git-status collector       | yes    |
+| Block (this doc)           | `PROMPTS_RENDERED.md` section         | Section below | Gated? |
+| -------------------------- | ------------------------------------- | ------------- | ------ |
+| `# Git` block              | Bash tool — # Git block               | 1             | yes    |
+| For-git-commands (3 rules) | Bash tool — For git commands (legacy) | 2             | no     |
+| commit/PR workflow         | Git workflow — commit & PR            | 2             | yes    |
+| PR-prep line               | not captured                          | 3             | yes    |
+| `gitStatus` context        | Context injection — git status        | 4             | yes    |
+| attribution reminder       | not captured                          | 5             | partly |
 
-The `gitStatus:` rendered section holds only the lead sentence; its full template (branch, status,
-recent commits) is runtime-filled and shown under "Git Status Context Injection" below.
+Assembly by variant and switch, for the Bash description:
 
-Assembly by model and switch:
+| Bash variant | Git instr. | `# Git` | 3-rule | commit/PR | PR-prep line            |
+| ------------ | ---------- | ------- | ------ | --------- | ----------------------- |
+| terse        | enabled    | yes     | no     | no        | inside `# Git`, if any  |
+| terse        | disabled   | no      | no     | no        | no                      |
+| legacy       | enabled    | no      | yes    | yes       | inside workflow, if any |
+| legacy       | disabled   | no      | yes    | no        | no                      |
 
-| Model (Bash variant)           | Git instr. | `# Git` | 3-rule | commit/PR | `gitStatus:` |
-| ------------------------------ | ---------- | ------- | ------ | --------- | ------------ |
-| Opus 4.8 (terse)               | enabled    | yes     | no     | no        | yes          |
-| Opus 4.8 (terse)               | disabled   | no      | no     | no        | no           |
-| Sonnet / Haiku / ≤4.7 (legacy) | enabled    | no      | yes    | yes       | yes          |
-| Sonnet / Haiku / ≤4.7 (legacy) | disabled   | no      | yes    | no        | no           |
-
-"Git instr. enabled" means the gate returns true: env var unset or explicitly falsy, config not
-false. "Disabled" means it returns false. The `# Git` and 3-rule blocks are mutually exclusive by
-variant: the terse variant carries only `# Git`, the legacy variant only the 3-rule block plus the
-commit/PR workflow. The `gitStatus:` injection is model-independent and additionally suppressed by
-`CLAUDE_CODE_REMOTE`.
-
-Two git surfaces sit outside this matrix and are not yet captured verbatim in `PROMPTS_RENDERED.md`:
-the Windows PowerShell tool description, which hardcodes its own ungated git block, and the
-commit/PR slash commands, which embed a Git Safety Protocol injected only when invoked. Both are
-detailed in "Where Git Appears" below.
+"Enabled" means the gate returns true; "disabled" means it returns false. The `# Git` and 3-rule
+blocks are mutually exclusive by variant. The `gitStatus` context is model-independent (section 4).
+The attribution reminder is model-independent in whether it appears, but its trailer names the
+request's model (section 5).
 
 ## Where Git Appears in Prompt-Relevant Code
 
 ### 1. Terse Bash description and its `# Git` block
 
-The terse Bash description is the one used for current models. Its only git content is the output of
-the `# Git` block builder, appended at the end:
+The terse description is a list of lines joined by newlines, opening with
+`Executes a bash command and returns its output.` and covering the working directory and `cd`
+behavior, the IMPORTANT-avoid-tools note, output visibility, timeout and `run_in_background`. The
+`# Git` block is appended after a blank line only when non-empty, and an optional `# Machines`
+section follows it. Apart from a Windows-only note that the tool runs Git Bash, no other line
+mentions git.
 
-The description is assembled as a list of sections joined by newlines, opening with
-`Executes a bash command and returns its output.` and covering working directory, the
-IMPORTANT-avoid-tools note, timeout, `run_in_background` and sandbox. The `# Git` block is spread in
-at the end only when it is non-empty.
+The `# Git` block (relocate: `rg -n 'Commit or push only when the user asks'`) has these bullets:
 
-the `# Git` block builder renders the "# Git" block -- four bullets: interactive-flag restriction,
-use `gh` for GitHub operations, commit/push only when asked (branch off the default first), and the
-commit/PR attribution trailers filled by the attribution helper. Verbatim text in
-`PROMPTS_RENDERED.md`, section "Bash tool — # Git block".
+- interactive flags (`git rebase -i`, `git add -i`) are not supported;
+- use the `gh` CLI for GitHub operations;
+- the GitHub-mention rule: write a bare `@name` only for a real login you mean to notify
+  (`rg -n 'GitHub notifies the owner of any'`);
+- commit or push only when the user asks, and branch first when on the default branch;
+- the attribution lines (see "Commit Attribution");
+- the PR-prep line (section 3), when it renders.
 
-When the git-instructions gate returns false: the `# Git` block builder returns an empty string at
-its first line, so nothing is appended. On the terse variant this removes the entire git footprint
-from the Bash description -- there is no other git content in the terse Bash description. This is
-the behavioral change from 2.1.104.
+When git instructions are disabled: the builder returns an empty string, so nothing is appended. On
+the terse variant this removes the entire git footprint of the Bash description.
 
-### 2. Legacy Bash description and the commit/PR workflow
+### 2. Legacy Bash description: `For git commands:` and the commit/PR workflow
 
-The legacy Bash description is the one used for older models. It builds a longer instruction list
-and appends the commit/PR workflow builder:
+The legacy description opens with `Executes a given bash command and returns its output.` and has a
+`# Instructions` list. Two git items sit in that list, ungated:
 
-The workflow is built first and spread in at the end only when non-empty, exactly as the `# Git`
-block is on the terse variant. The short `For git commands:` block sits inline in the middle of the
-list and is not gated at all (see section 5).
+- An item about avoiding `cd`, ending "never prepend `cd <current-directory>` to a `git` command"
+  (`rg -n 'never prepend .cd <current-directory>.'`).
+- The header `"For git commands:"` followed by three sub-bullets: prefer new commits over amending,
+  prefer safe alternatives to destructive operations (`git reset --hard`, `git push --force`,
+  `git checkout --`), and never skip hooks or bypass signing without an explicit ask. Relocate:
+  `rg -n '"For git commands:"'`.
 
-the commit/PR workflow builder contains the "Committing changes with git" workflow (with the full
-Git Safety Protocol), the "Creating pull requests" workflow, and "Other common operations".
+The commit/PR workflow (relocate: `rg -n '# Committing changes with git'`) is built before the list
+and appended at the end only when non-empty. It contains:
 
-When the git-instructions gate returns false: the commit/PR workflow builder returns an empty string
-at its first line, so the workflow and Git Safety Protocol are removed. The short "For git
-commands:" block (section 5) still survives on this variant.
+- `# Committing changes with git`, with the Git Safety Protocol (see below), the four numbered
+  steps, and "Important notes", which include "NEVER use the TaskCreate or Agent tools" (TodoWrite
+  in place of TaskCreate when `CLAUDE_CODE_ENABLE_TASKS` is false);
+- the PR-prep line (section 3), when it renders;
+- `# Creating pull requests`, which opens with the `gh` rule and the GitHub-mention rule;
+- `# Other common operations` (viewing PR comments with `gh api`).
 
-### 3. Git Status Context Injection -- the git-status collector
+When git instructions are disabled: the workflow builder returns an empty string, so the workflow
+and its Git Safety Protocol are removed. The `For git commands:` block and the `cd` item stay; they
+are the git guidance a legacy-model session retains.
 
-At conversation start the current git status is captured and injected into the first user message
-as a `<system-reminder>` block. This is informational context only -- branch, changed files,
-recent commits -- with no behavioral instructions.
+### 3. PR-prep suggestion line
 
-The git-status collector produces the block below. Only its lead sentence is captured in
-`PROMPTS_RENDERED.md` section "Context injection — git status"; the rest is runtime-filled (the
-array uses a spread, so the renderer stops at the first interpolated line):
+A single line, "Always run `/verify` and `/simplify` right before the `commit` command (never for
+docs or tests).", listing whichever of these the session has:
+
+- `/verify`, when a skill of that name is loaded;
+- `/simplify`, only when loaded from a skills directory or a legacy commands directory;
+- `/code-review medium`, only when the `includeCodeReviewSuggestion` setting is `true`.
+
+It renders when git instructions are enabled, feature flag `tengu_polished_tulip` is on (default on,
+pinned for the session), and at least one of the three is present. Rendering logs
+`tengu_pr_prep_suggestion_rendered`. Relocate: `rg -n 'tengu_polished_tulip'`. It is a bullet in the
+`# Git` block on the terse variant and a paragraph between the commit and PR sections of the
+workflow on the legacy variant.
+
+### 4. Git status context
+
+At session start the current git status is collected and announced in the session-context reminder:
+a meta user message wrapped in `<system-reminder>`, which opens "As you answer the user's questions,
+you can use the following context:" and gives each value under a `# <key>` heading. The keys are
+`userEmail`, `attachedProject`, `gitStatus` and `perforceMode`
+(`rg -n '"userEmail", "attachedProject", "gitStatus"'`). The entry opens with the lead sentence
+"This is the git status at the start of the conversation. Note that this status is a snapshot in
+time, and will not update during the conversation." (`[LEAD]` below) and appears as:
 
 ```
-gitStatus: This is the git status at the start of the conversation. Note that this status is a snapshot in time, and will not update during the conversation.
+# gitStatus
+[LEAD]
+
 Current branch: [BRANCH]
 
 Main branch (you will usually use this for PRs): [MAIN_BRANCH]
 
-Git user: [USER]
+Git user: [git config user.name, line omitted when empty]
 
 Status:
-[git status --short output]
+[git status --short output, or (clean)]
 
 Recent commits:
 [git log --oneline -n 5]
 ```
 
-Relocate the injection gate by grepping `CLAUDE_CODE_REMOTE` near the git-status collector. The
-block is collected only when the remote flag is falsy and the git-instructions gate is on;
-otherwise the collector is never called.
+The status portion is truncated at 2,000 characters with a note to run `git status` itself
+(`rg -n 'truncated because it exceeds 2k characters'`). A later re-read of the session context
+reuses the gitStatus value already announced, so it stays the start-of-session snapshot. Only the
+lead sentence is captured in `PROMPTS_RENDERED.md`, section "Context injection — git status".
 
-When the git-instructions gate returns false: the git-status collector is not called and no
-`gitStatus:` block appears. Also skipped for remote sessions when `CLAUDE_CODE_REMOTE` is set. When
-included, the git status portion is now truncated at 2,000 characters rather than the previous 40k.
+Collection requires `CLAUDE_CODE_REMOTE` to be unset and git instructions to be enabled; the startup
+prefetch is also skipped in remote mode (`rg -n 'git_status_skipped_remote_mode'`). The announcement
+leaves it out when the `omitGitStatus` option is set (`rg -n 'omitGitStatus'`): for the built-in
+Explore and Plan subagents, and when a custom system prompt replaces the default.
 
-### 4. Plan / Explore Subagent Restrictions
+When git instructions are disabled: the collector is never called and no `# gitStatus` entry
+appears.
 
-The Explore agent and Plan agent system prompts enumerate safe vs forbidden
-Bash commands, with an equivalent block in the Plan agent:
+### 5. Attribution reminder
 
-```
-- Use Bash ONLY for read-only operations (ls, git status, git log, git diff, find, grep, cat, head, tail)
-- NEVER use Bash for: mkdir, touch, rm, cp, mv, git add, git commit, npm install, pip install, or any file creation/modification
-```
+A `remote_session_change` attachment, rendered as a system-reminder, carries the attribution lines.
+It reads "Attribution for git commits and pull requests you create from here on (this replaces
+Claude Code's own earlier attribution guidance, ...)" followed by `- End git commit messages with:`
+and `- End pull request descriptions with:` items. When both lines are empty it instead says "From
+here on, do not add attribution lines to git commit messages or pull request descriptions". A clause
+states precedence: the user's own CLAUDE.md or memory rules win, unless the organization's managed
+settings set the line. Relocate:
+`rg -n 'Attribution for git commits and pull requests you create from here on'`.
 
-These are in the subagent system prompts, not the main system prompt, and not the Bash tool
-description. They are guardrails layered on top of a normal Bash tool: both agents keep Bash
-(`disallowedTools` strips Agent, ExitPlanMode, Edit, Write, NotebookEdit, but not Bash), so each
-still receives a full Bash description through the `tWK`/`gU3` path keyed on its own model. Explore
-is pinned to `haiku`, so it lands on the legacy Bash description and its Bash description carries
-the ungated "For git commands:" block plus, when the switch is on, the full the commit/PR workflow
-builder commit/PR workflow -- even though this system prompt simultaneously forbids `git commit`.
-Plan uses `model: "inherit"`, so it follows the parent's model.
+It is re-emitted only when its content changes. The first one is produced when either:
 
-When the git-instructions gate returns false: no effect on these system prompts. They are
-independent of the git-instructions gate and still mention these git commands as examples.
+- the session has a claude.ai session URL (web or Remote Control session) or can send files to the
+  user's other device, regardless of the git switch; or
+- the attribution announcement is on, git instructions are enabled, and the Bash tool is present.
 
-### 5. Legacy Bash Description -- "For git commands:" Short Block
+The announcement is `CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT` (tri-state env var) or else feature flag
+`tengu_reflective_wolf` (default on), latched for the session. Relocate:
+`rg -n 'tengu_reflective_wolf'`. While it is on, the Bash description carries no attribution text:
+the `# Git` block says "End git commit messages and PR bodies with the attribution lines given in
+the conversation's system-reminder, when one is present", and the commit/PR workflow uses the same
+phrase in its commit and PR steps. While it is off, both builders inline the lines (see "Commit
+Attribution").
 
-Inside the legacy Bash description, rendered under the header `"For git commands:"`
-Three rules: prefer new commits over amend, prefer safe alternatives to destructive
-operations, and never skip hooks or signing without an explicit ask. Verbatim text in
-`PROMPTS_RENDERED.md`, section "Bash tool — For git commands (legacy)".
+When git instructions are disabled: no reminder in a local session; a session with a session URL
+still gets one.
 
-When the git-instructions gate returns false: no effect on the legacy variant -- this block sits in
-the ungated body of the legacy Bash description, above the commit/PR workflow builder's append
-point. It is the primary piece of git guidance an older-model session retains when the switch is
-set.
+### 6. Plan / Explore subagent restrictions
 
-This block does not exist in the terse variant. On Opus 4.8 these three rules are not present at all
-when the switch is set, and the differently-worded `# Git` block is gone too.
+The Explore and Plan system prompts enumerate safe and forbidden shell commands. With Bash as the
+shell, two bullets read:
 
-The legacy Bash description also carries an ungated inline example ("if you need to run `git status`
-and `git diff`, send a single message with two Bash tool calls in parallel") -- a command-chaining
-pattern, not git-specific behavior.
+- "Use Bash ONLY for read-only operations (ls, git status, git log, git diff, find, grep, cat, head,
+  tail)"
+- "NEVER use Bash for: mkdir, touch, rm, cp, mv, git add, git commit, npm install, pip install, or
+  any file creation/modification"
 
-### 6. PowerShell Tool Description -- the PowerShell tool description
+The `grep` entry depends on embedded search tools, and with PowerShell as the shell the lists are
+cmdlets plus the same git commands. Relocate: `rg -n 'ONLY for read-only operations'`.
 
-On Windows the Bash-equivalent tool description is built by the PowerShell tool description. It
-contains git references inline:
+These are guardrails on top of a normal Bash tool. Both agents keep Bash (their `disallowedTools`
+strip Agent, the Artifact tools, ExitPlanMode, Edit, Write and NotebookEdit), so each receives a
+full Bash description keyed on its own model. Both use `model: "inherit"`. Explore's inheritance is
+capped at the `opus` alias when the parent's model family ranks above Opus, unless
+`CLAUDE_CODE_DISABLE_EXPLORE_INHERIT_CAP` is set. Under a legacy parent model they get the legacy
+description, with `For git commands:` and, when enabled, the full commit/PR workflow, even though
+their system prompts forbid `git commit`.
 
-- A prohibition on `git rebase -i` and `git add -i`, being interactive editors.
-- A single-quoted here-string commit-message example and the stop-parsing
-  token (`git log --% --format=%H`).
-- A "For git commands:" block mirroring the three rules from section 5.
+When git instructions are disabled: no effect on these system prompts.
 
-When the git-instructions gate returns false: no effect. the PowerShell tool description's git
-content is hardcoded into the template literal; its only conditional inputs are background-task
-notes gated by `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS`, not the git-instructions gate. Windows users
-retain the short git block and the PowerShell-specific examples even with the switch set. the
-PowerShell tool description never includes the full commit/PR workflow.
+### 7. PowerShell tool description
 
-### 7. Sandbox / Deny-Rules Prompt
+The PowerShell tool's description takes no model, so it has one variant. It contains git references
+inline:
 
-The user soft-deny rules list "Git Destructive" (force push, deleting remote
-branches, rewriting remote history) and "Git Push to Default Branch" under destructive/irreversible
-operations.
+- "Never use `git rebase -i`, `git add -i`, or other commands that open an interactive editor".
+- A single-quoted here-string commit-message example and the stop-parsing token
+  (`git log --% --format=%H`; relocate with `rg -n 'git log --% --format=%H'`).
+- A `For git commands:` block with the same three rules as the legacy Bash block.
 
-When the git-instructions gate returns false: no effect. The deny-rules prompt is not gated.
+When git instructions are disabled: no effect. The git content is fixed text; its conditional inputs
+are the PowerShell edition, a build-tools list, and the background-task notes (omitted when
+background tasks are disabled, e.g. by `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS`). It never includes
+the commit/PR workflow or the `# Git` block.
 
-### 8. Auto-Memory Prompt
+### 8. Legacy system prompt: Executing actions with care
 
-The auto-memory system prompt, under "What NOT to save in memory", tells the model
-that `git log` / `git blame` are authoritative for history and recent changes.
+The legacy-path system prompt's `# Executing actions with care` section lists risky actions that
+warrant confirmation, including deleting branches, force-pushing, `git reset --hard`, amending
+published commits, pushing code and commenting on PRs. It warns against bypassing safety checks such
+as `--no-verify`. Relocate: `rg -n 'amending published commits'`. The lean path has no equivalent
+git wording. Not gated.
 
-When the git-instructions gate returns false: no effect. The auto-memory prompt is not gated.
+### 9. Background Session section
 
-### 9. Slash-Command Prompts (on-demand only)
+A session run as a background job (`CLAUDE_CODE_SESSION_KIND=bg` with `CLAUDE_JOB_DIR` set) gets a
+`# Background Session` system-prompt section. Unless the job works in place, it says to commit work
+made in a worktree it entered before finishing, without asking, and push if there is a remote. It
+then adds "Never push to main/master, force-push, or merge.", to open a draft PR when the task calls
+for one, and to ask before committing in a checkout it did not enter itself. Relocate:
+`rg -n 'Never push to main/master, force-push, or merge.'`. Not gated.
 
-Two built-in slash commands embed their own "## Git Safety Protocol", condensed and distinct from
-the commit/PR workflow builder's: `/commit` ("Create a git commit") and `/commit-push-pr` ("Commit,
-push, and open a PR"). Both use `!`git status``/`!`git diff HEAD`` command substitution and call the
-attribution helper for attribution. They are not gated by the git-instructions gate but are injected
-only when the user runs the command, so they never appear in the always-on context. Not captured in
-`PROMPTS_RENDERED.md`.
+### 10. Proactivity reminder
 
-## Git Safety Protocol (inside the commit/PR workflow builder)
+When the user sets a proactivity level, a `proactivity` attachment renders as a system-reminder
+headed `## Proactivity: low`, `medium` or `high` (`rg -n '"## Proactivity: "'`). Each level states a
+git policy:
 
-The protocol is part of the commit/PR workflow rendered by the commit/PR workflow builder. Seven
-rules: no config changes; no destructive commands without explicit request; no hook or signing
-skips; no force-push to main/master; always new commits over `--amend` (a pre-commit hook failure
-means the commit did not happen, so `--amend` would modify the wrong commit); stage specific files
-over `git add -A`/`git add .`; never commit unprompted. Verbatim text in `PROMPTS_RENDERED.md`,
-section "Git workflow — commit & PR".
+- low: never commit, push, or create or update a PR unless the user explicitly confirms it;
+- medium: no commits, pushes or PRs unless the user explicitly asks or confirms;
+- high: commit, push, and create or update PRs without asking, overriding the base instructions, but
+  never force-push or rewrite shared history unprompted.
 
-When the git-instructions gate returns false: the entire protocol disappears along with the rest of
-the commit/PR workflow builder. On the legacy variant the short block in section 5 still covers
-destructive ops, hook-skipping, and amend-vs-new-commit in condensed form. On the terse variant
-nothing survives.
+Withdrawing the setting sends a reminder to follow the base instructions again. Not gated.
 
-## Commit Attribution -- the attribution helper
+### 11. Auto-memory prompt
 
-Attribution text is generated by the attribution helper, called from both the commit/PR workflow
-builder and the `# Git` block builder. It is surface-dependent and configurable.
+The auto-memory prompt, under `## What NOT to save in memory`, says that `git log` / `git blame` are
+authoritative for git history and recent changes (`rg -n 'who-changed-what'`). Not gated.
 
-### Default (CLI and most surfaces)
+### 12. Auto-mode classifier
 
-Commit: `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`
-PR footer: `[robot emoji] Generated with [Claude Code](https://claude.com/claude-code)`
+The auto-mode classifier's system prompt has no git rule names of its own in the bundle. It does
+describe two git-related harness meta lines:
 
-The model name in the commit trailer is resolved dynamically: inside an internal Anthropic repo
-the actual model name is used; otherwise the attribution helper falls back to a hardcoded model-name
-literal.
+- `{"meta":{"repoVisibility":…}}` beside exfil-capable git/gh commands;
+- `{"meta":{"gitStatus":…}}` above commands that can destroy uncommitted work, and beside `git add`
+  / `git commit` / `git push`.
 
-### Remote sessions (claude.ai/code)
+Relocate: `rg -nF '{"meta":{"gitStatus"'`. The gitStatus meta lines are inserted only when
+`CLAUDE_CODE_AUTO_MODE_GIT_STATUS` (destructive commands) or
+`CLAUDE_CODE_AUTO_MODE_GIT_STATUS_UPLOADS` (uploads), or their server-side config, is on; both
+default off. Not gated by the git switch.
 
-If `CLAUDE_CODE_REMOTE_SESSION_ID` and `SESSION_INGRESS_URL` are available (and not localhost),
-the attribution helper uses a session URL for both commit and PR attribution. If no session
-URL is available: empty strings (no attribution).
+### 13. `/commit` and `/pr` skills (on demand)
 
-### User configuration overrides
+Two bundled skills embed their own `## Git Safety Protocol`, distinct from the workflow's:
 
-Inside the attribution helper:
+- `/commit` (`rg -n 'menuDescription: "Create a git commit"'`): a ten-rule protocol and a
+  single-commit task. Its context lines use `!` command substitution for `git status`,
+  `git diff HEAD`, the current branch and `git log --oneline -10`.
+- `/pr` (`rg -n 'menuDescription: "Create a pull request"'`): a five-rule protocol (git config,
+  force-push, hooks, `-i` flags, `gh` for GitHub) and a single-PR task, with commits and the diff
+  since `origin/<default branch>`.
 
-- `config.attribution.commit` -- custom commit trailer string
-- `config.attribution.pr` -- custom PR footer string
-- `config.includeCoAuthoredBy === false` -- disables all attribution
+Both are enabled by feature flag `tengu_cinder_relay` (default off, latched for the session;
+`rg -n 'tengu_cinder_relay'`). Both are user-invocable, and their descriptions invite the model to
+use them "whenever you are about to create a commit" or "open a PR". Each computes its own
+attribution, including the session URL. The prompt text enters context only when the skill runs.
+They are not gated by the git switch.
 
-When the git-instructions gate returns false: the attribution helper is unreachable from the Bash
-description path because its only callers there (the commit/PR workflow builder, the `# Git` block
-builder) return empty. Attribution trailers are neither computed nor shown.
+A third command, `/commit-push-pr` ("Commit, push, and open a PR"), carries a seven-rule protocol.
+It is defined only in the internal-only command list (`rg -n 'INTERNAL_ONLY_COMMANDS'`), so the
+external build does not register it.
+
+### 14. Built but disabled: writing guidance
+
+The bundle carries a `# Writing commit messages and PR descriptions` block and extra PR-body
+bullets, wired into the commit/PR workflow and the `/pr` skill. Their guard is hardcoded false in
+this build, so they never render and `tengu_pr_writing_guidance_rendered` never fires. Relocate:
+`rg -n '# Writing commit messages and PR descriptions'`.
+
+## Git Safety Protocol (inside the commit/PR workflow)
+
+The protocol is part of the commit/PR workflow on the legacy variant. Seven rules: no git config
+changes; no destructive commands (`push --force`, `reset --hard`, `checkout .`, `restore .`,
+`clean -f`, `branch -D`) without an explicit request; no hook or signing skips; no force-push to
+main/master; always new commits over `--amend` (a pre-commit hook failure means the commit did not
+happen, so `--amend` would modify the wrong commit); stage specific files over
+`git add -A`/`git add .`; never commit unprompted. Verbatim text in `PROMPTS_RENDERED.md`, section
+"Git workflow — commit & PR".
+
+When git instructions are disabled: the protocol disappears with the rest of the workflow. On the
+legacy variant the `For git commands:` block still covers destructive operations, hook-skipping, and
+amend-vs-new-commit in condensed form. The terse variant never carries the protocol.
+
+## Commit Attribution
+
+### Default text
+
+Commit: `Co-Authored-By: <name> <noreply@anthropic.com>` (`rg -n 'noreply@anthropic.com'`). PR:
+`🤖 Generated with [Claude Code](https://claude.com/claude-code)`
+(`rg -n 'Generated with \[Claude Code\]'`), with ` via <surface>` appended (such as Claude Desktop,
+Mobile or Cowork) when feature flag `tengu_pr_footer_surface_suffix` is on (default off).
+
+The `<name>` is derived from the model. A model id the bundled model table recognizes gives
+`Claude <display name>`, for example `Claude Opus 4.8`, with ` (1M context)` for a `[1m]` model that
+supports the suffix. Fable models have their own branch. A model that resolves to a known model only
+through an alias gives `Claude`, and an unrecognized model id gives `Claude Code`.
+
+The `/pr` skill extends the PR line with a contribution summary when it has data, in the form
+`(<N>% <M>-shotted by <model>, <K> memories recalled)`.
+
+### Session URL
+
+A claude.ai session link is added for web sessions (client type `remote`, using
+`CLAUDE_CODE_REMOTE_SESSION_ID` and `SESSION_INGRESS_URL`) and for Remote Control sessions that are
+not outbound-only. It is skipped for local ingress (a `_local_` session id or a `localhost` URL).
+When present, the commit text gains a `Claude-Session: <url>` trailer (`rg -n 'Claude-Session: '`)
+and the PR text gains the URL on its own paragraph. These add to the configured attribution rather
+than replacing it. `CLAUDE_CODE_SUPPRESS_SESSION_ATTRIBUTION` or `attribution.sessionUrl: false`
+suppresses the link.
+
+The session link reaches the model through the attribution reminder and the `/commit` and `/pr`
+skills. The inline Bash-description attribution, used when the announcement is off, never includes
+it.
+
+### Settings overrides
+
+- `attribution.commit` / `attribution.pr`: custom text. An empty string hides that line, and an
+  unset field keeps the default.
+- `attribution: false`: hides everything, the same as
+  `{ "commit": "", "pr": "", "sessionUrl": false }`. `attribution: true` is the same as unset.
+- `attribution.sessionUrl`: see above.
+- `includeCoAuthoredBy: false`: deprecated. It hides both lines when `attribution` sets neither
+  `commit` nor `pr`.
+
+The final text passes through the `attribution.text` extension point, which a plugin can use to
+rewrite it.
+
+### Where the text appears
+
+- Announcement on (default): only in the attribution reminder (section 5) and the skills.
+- Announcement off: inline in the `# Git` block ("- End git commit messages with:" and "- End PR
+  bodies with:") or in the commit/PR workflow's commit step, HEREDOC example and PR example. An
+  empty line is omitted.
+
+When git instructions are disabled: the Bash description carries no attribution. A session with a
+session URL still receives the attribution reminder.
 
 ## What Remains When Git Instructions Are Disabled
 
-With `CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=true` (or `includeGitInstructions: false`), the gated
-content, being the commit/PR workflow, the `# Git` block and the `gitStatus:` injection, is
-removed. What the model still sees depends on
-the surface:
+With `CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1` (or `includeGitInstructions: false` and the env var
+unset), the gated content is removed: the commit/PR workflow, the `# Git` block, the PR-prep line,
+the `# gitStatus` context, and the local-session attribution reminder. What the model still sees
+depends on the surface:
 
-| Source                                                     | Gated by the git-instructions gate?  | Present when disabled?                  |
-| ---------------------------------------------------------- | ------------------------------------ | --------------------------------------- |
-| Terse Bash the terse Bash description (Opus 4.8)           | yes (the `# Git` block builder)      | No git content at all                   |
-| Legacy Bash the legacy Bash description commit/PR workflow | yes (the commit/PR workflow builder) | Removed                                 |
-| Legacy Bash "For git commands:" block                      | no                                   | Yes (older models only)                 |
-| Legacy Bash inline parallel example                        | no                                   | Yes (older models only)                 |
-| `gitStatus:` context injection                             | yes                                  | Removed                                 |
-| Plan / Explore subagent restrictions                       | no                                   | Yes (git command names as examples)     |
-| PowerShell tool the PowerShell tool description git block  | no                                   | Yes (Windows)                           |
-| Sandbox / deny-rules ("Git Destructive")                   | no                                   | Yes                                     |
-| Auto-memory ("git log / git blame")                        | no                                   | Yes                                     |
-| Commit/PR slash-command prompts                            | no                                   | Only when the command is invoked        |
+| Source                                      | Gated? | Present when disabled?               |
+| ------------------------------------------- | ------ | ------------------------------------ |
+| Terse Bash description, `# Git` block       | yes    | No git content at all                |
+| Legacy Bash description, commit/PR workflow | yes    | Removed                              |
+| PR-prep line                                | yes    | Removed                              |
+| Legacy Bash `For git commands:` block       | no     | Yes (legacy models only)             |
+| Legacy Bash `cd <current-directory>` item   | no     | Yes (legacy models only)             |
+| `# gitStatus` session context               | yes    | Removed                              |
+| Attribution reminder                        | partly | Only with a session URL or file hint |
+| Plan / Explore subagent restrictions        | no     | Yes (git command names as examples)  |
+| PowerShell tool description git content     | no     | Yes                                  |
+| Legacy `# Executing actions with care`      | no     | Yes (legacy models only)             |
+| `# Background Session` git guidance         | no     | Yes (background jobs)                |
+| Proactivity reminder                        | no     | Yes, when a level is set             |
+| Auto-memory (`git log` / `git blame`)       | no     | Yes                                  |
+| Auto-mode classifier git meta lines         | no     | Yes, when enabled                    |
+| `/commit` and `/pr` skills                  | no     | Only when the skill runs             |
 
-The headline: on a current-model session (Opus 4.8, terse), setting the switch removes
-every git instruction from the Bash tool description -- including the three short rules that
-survived in 2.1.104. The git guidance that persists lives elsewhere: subagent prompts, the Windows
-PowerShell tool, the sandbox deny-rules, the auto-memory prompt, and on-demand slash commands. On
-an older-model session (legacy), the three-rule "For git commands:" block additionally
-survives in the Bash description.
+On a terse-model session, setting the switch removes every git instruction from the Bash tool
+description. The git guidance that persists lives elsewhere: subagent prompts, the PowerShell tool,
+background-job and proactivity text, the auto-memory prompt, and on-demand skills. On a legacy-model
+session the three-rule `For git commands:` block and the `# Executing actions with care` examples
+additionally survive.
 
 ## Subagents and the Model Axis
 
-The disable switch and the variant selection are independent axes. the git-instructions gate is
-keyed on an env var / config; the variant selector is keyed on the model that renders the request. A
-subagent runs its own request loop on its own model, so a subagent can land on a different Bash
-variant than the main session -- and therefore on different git instructions.
+The disable switch and the variant selection are independent axes. The gate is keyed on an env var
+and a settings key; the variant selector is keyed on the model that renders the request. A subagent
+runs its own request loop on its own model, so it can land on a different Bash variant than the main
+session, and therefore on different git instructions.
 
-The Bash description is rendered per-request and keyed on the request's model: `PG6(tool, {..., the
-subagent's model is threaded into the tool-schema builder, which calls the tool's prompt getter with
-that model, which runs the variant selector and returns the terse or legacy description accordingly.
-A subagent's effective model is resolved in precedence order: `CLAUDE_CODE_SUBAGENT_MODEL` env var,
-then the agent's frontmatter `model`, then inherit-from-parent.
+The tool-schema builder threads the request's model into each tool's prompt getter, which runs the
+variant selector. A subagent's model is resolved in this order:
 
-The consequence: a subagent whose frontmatter pins a non-Opus-4.8 model (Sonnet, Haiku, Opus ≤ 4.7)
-and which includes the Bash tool receives the legacy variant. That variant carries the
-three-rule "For git commands:" block in its ungated body, so the subagent loads that block even
-when `CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=true` would have stripped git entirely from an Opus 4.8
+1. the Agent tool call's `model` parameter;
+2. the agent definition's `model`, unless `inherit`;
+3. `CLAUDE_CODE_SUBAGENT_MODEL`, when the definition sets no model;
+4. otherwise the parent's model.
+
+`CLAUDE_CODE_SUBAGENT_MODEL_FORCE` drops the first two, except an explicit `inherit`. A requested
+model that is unavailable steps down within its family or falls back to the parent's model.
+
+The consequence: a subagent that resolves to a legacy model and has the Bash tool receives the
+legacy description. That description carries the three-rule `For git commands:` block in its ungated
+body, so the subagent loads that block even when the switch strips git entirely from a terse-model
 subagent.
 
-| Subagent model          | Switch   | Git in subagent Bash description                                                          |
-| ----------------------- | -------- | ----------------------------------------------------------------------------------------- |
-| Opus 4.8                | on       | None                                                                                      |
-| Opus 4.8                | off      | the `# Git` block builder "# Git" block only (no the commit/PR workflow builder workflow) |
-| Sonnet / Haiku / ≤4.7   | on       | "For git commands:" three-rule block only                                                 |
-| Sonnet / Haiku / ≤4.7   | off      | "For git commands:" block + full the commit/PR workflow builder workflow                  |
+| Subagent model | Git instr. | Git in subagent Bash description                         |
+| -------------- | ---------- | -------------------------------------------------------- |
+| terse model    | disabled   | None                                                     |
+| terse model    | enabled    | `# Git` block only (no commit/PR workflow)               |
+| legacy model   | disabled   | `For git commands:` block and the `cd` item              |
+| legacy model   | enabled    | `For git commands:` block, `cd` item, commit/PR workflow |
 
-Two caveats. This applies only if the subagent actually has the Bash tool. The built-in Explore/Plan
-agents do have it (their `disallowedTools` strip Edit/Write/Task but not Bash), so they go through
-the same `tWK`/`gU3` path -- Explore on its pinned `haiku` model lands on legacy the legacy Bash
-description and so carries the ungated "For git commands:" block. Their read-only behavior comes
-from the system prompt (section 4), not from a trimmed Bash description. And the `gitStatus:`
-injection (section 3) is part of the main session's first user message -- gated by the
-git-instructions gate and model-independent -- so it does not factor into the subagent Bash
-description.
+Two caveats. This applies only if the subagent has the Bash tool; Explore and Plan do (section 6).
+And the session-context `# gitStatus` entry is gated separately and omitted for Explore and Plan, so
+it does not factor into the subagent Bash description.
 
 ## Implications
 
 ### For reproducing the system prompt
 
-The git instructions are only available if you include a Bash tool whose description carries the the
-commit/PR workflow builder/the `# Git` block builder content (and, on the legacy variant, the short
-"For git commands:" block) in its description. Reproducing the Claude Code experience via the
-Anthropic API directly requires either embedding the git instructions in your Bash tool description,
-or moving them into your system prompt text (which Claude Code does not do).
+The git instructions are only available if you include a Bash tool whose description carries the
+`# Git` block or the commit/PR workflow (and, on the legacy variant, the short `For git commands:`
+block). Reproducing the Claude Code experience via the Anthropic API directly requires either
+embedding the git instructions in your Bash tool description or moving them into your system prompt
+text, which Claude Code does not do. With the default attribution announcement, the trailers come
+from a separate system-reminder, not from the tool description.
 
 ### For subagents
 
 Subagents that include the Bash tool receive a full Bash description on the variant selected by
-their own model -- see "Subagents and the Model Axis". The restriction on the built-in Explore/Plan
-agents is not a trimmed Bash description: they keep Bash and only strip Edit/Write/Task via
-`disallowedTools`, then add read-only language in their system prompt (section 4). The git workflow
-text can therefore appear in their Bash description even though their system prompt forbids
-mutations. The main agent's git instructions separately prohibit delegating commit and PR
-operations to subagents.
+their own model (see "Subagents and the Model Axis"). The restriction on the built-in Explore and
+Plan agents is not a trimmed Bash description: they keep Bash, strip the editing tools via
+`disallowedTools`, and add read-only language in their system prompts (section 6). The legacy
+commit/PR workflow tells the model never to use the TaskCreate or Agent tools while committing or
+opening a PR.
 
 ### Entanglement
 
-The Bash tool description is a single dynamically-generated string whose git content varies by:
+The git content a request carries varies by:
 
-- Model ID, which selects the terse or legacy description through the variant selector and also
-  affects the Co-Authored-By name
-- Execution surface, `remote` versus others, which affects attribution format
-- Whether the repo is an internal Anthropic repo, which affects model name resolution
-- User config (`attribution`, `includeCoAuthoredBy`, `includeGitInstructions`)
-- `CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS` and `CLAUDE_CODE_SIMPLE_SYSTEM_PROMPT` env vars
-
-## Version history
-
-- 2.1.104: the terse Bash description still carried git content outside the gated `# Git` block.
-- 2.1.154: the terse variant's entire git footprint is the gated `# Git` block, so disabling the
-  switch removes git instructions from it completely. Git status injection truncated at 2,000
-  characters, down from 40k.
-- 2.1.277: the gate reads the env var through a central typed env accessor declared as a tri-state
-  boolean, so the call site reduces to "defined value decides, negated; undefined falls back to
-  config". The truthy and falsy token sets are unchanged and still live in shared helpers. The
-  `tengu_velvet_cascade` flag is gone from the bundle; `simple_system_prompt` remains. Relocate the
-  gate by grepping `CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS` and reading the enclosing function, or
-  `triBool` for the env declaration.
+- Model ID, which selects the terse or legacy description through the variant selector and names the
+  model in the Co-Authored-By trailer
+- `lean_prompt` capability overrides, `tengu_velvet_tide`, client data `simple_system_prompt`, and
+  the prompt-model swap
+- Session kind: remote or Remote Control (session URL, `gitStatus` skipped under
+  `CLAUDE_CODE_REMOTE`), background job, proactivity level
+- Loaded skills (`/verify`, `/simplify`, `/code-review`) for the PR-prep line, and
+  `tengu_cinder_relay` for the `/commit` and `/pr` skills
+- Settings: `includeGitInstructions`, `attribution`, `includeCoAuthoredBy`,
+  `includeCodeReviewSuggestion`
+- Env vars: `CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS`, `CLAUDE_CODE_SIMPLE_SYSTEM_PROMPT`,
+  `CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT`, `CLAUDE_CODE_SUPPRESS_SESSION_ATTRIBUTION`,
+  `CLAUDE_CODE_SUBAGENT_MODEL`
+- Feature flags `tengu_reflective_wolf` (attribution placement) and `tengu_polished_tulip` (PR-prep
+  line)
