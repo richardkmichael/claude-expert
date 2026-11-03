@@ -183,17 +183,65 @@ Claude Desktop runs Claude Code (the CLI) out of process for the Code sidebar. I
 CLI inside the app bundle. Each Desktop build pins one Claude Code version in an embedded manifest
 and downloads that version at runtime into
 `~/Library/Application Support/Claude/claude-code/<version>/<checksum-prefix>/claude.app`, a macOS
-app wrapper around the `claude` binary, next to a `.verified` file holding the bundle's SHA-256.
-Earlier downloaded versions stay beside it. The Cowork VM gets a separate Linux build of the same
-version at `claude-code-vm/<version>/claude`, with the version recorded in
-`claude-code-vm/.sdk-version`.
+app wrapper around the `claude` binary, next to a `.verified` file holding the bundle's SHA-256. The
+Cowork VM gets a separate Linux build of the same version at `claude-code-vm/<version>/claude`, with
+the version recorded in `claude-code-vm/.sdk-version`.
 
 Relocate the pin with `rg -n 'manifestSignatureEnforcement' .vite/build`. It is a `JSON.parse('…')`
 literal shaped
-`{"version", "manifest": {"version", "manifestSignatureEnforcement", "commit", "buildDate", "platforms": {"darwin-arm64": {…, "bundle": {"checksum"}}, …}}}`.
+`{"version", "manifest": {"version", "manifestSignatureEnforcement", "commit", "buildDate", "platforms": {"darwin-arm64": {…, "bundle": {"checksum"}}, …}}, "baseUrl", "sdkWrapperVersion"}`.
 The `prepare-claude-desktop-source` skill reads it into `manifest.json` as `claudeCode`. Build
 4.4212.0 pins Claude Code 2.1.309, and the checksum prefix in its download path matches the
 manifest's `darwin-arm64` bundle checksum.
+
+#### Pin, download URL, and runtime auto-update
+
+The pin is a constant in the bundle, but it is only the starting target. The binary manager sets
+`buildPinVersion` and an initial `currentTarget` from that literal at construction, so a fresh
+launch always targets the build pin. A flag-gated poller can then move the target to a newer Claude
+Code without a Desktop update.
+
+Download URLs are built from the literal's `baseUrl`,
+`https://downloads.claude.ai/claude-code-releases`:
+
+- Binary: `<baseUrl>/<version>/<platform>/claude.zst` (`claude.exe.zst` on Windows).
+- macOS app wrapper: `<baseUrl>/<version>/<platform>/claude.app.tar.zst`. Relocate with
+  `rg -n 'claude.app.tar.zst' .vite/build`.
+- Auto-update pointer: `<baseUrl>/stable`, a plain-text `x.y.z`.
+- Auto-update manifest: `<baseUrl>/<version>/manifest.zst.json` plus
+  `<baseUrl>/<version>/manifest.zst.json.raw-sig.json`.
+
+The poller (log prefix `[CCD-autoupdate]`, relocate with `rg -n 'CCD-autoupdate' .vite/build`) runs
+only when the feature gate `762798616` is on. That ID is read from the Desktop feature-flag store,
+which is filled from `/api/desktop/features` (relocate with
+`rg -n '/api/desktop/features' .vite/build`). The gate's config value is a JSON object with the keys
+`check_interval_ticks`, `target` and `spread_hours`. The poller is skipped for MSIX installs, with a
+local binary override, or when the enterprise policy `autoUpdate.disabled` is set. It checks about
+an hour after start, then every `check_interval_ticks` hourly ticks (default 4, and the value is
+capped at that default). Flags older than two hours stop the check.
+
+Each check resolves a candidate version: the flag's `target` when set, otherwise the content of
+`<baseUrl>/stable`. It then applies these gates, each reported in the
+`desktop_ccd_auto_update_check` event as `gate_reason`:
+
+- The candidate is newer than the current target and not older than the floor, which is the build
+  pin or the highest version ever auto-updated to, recorded as `highWaterMark` in
+  `claude-code/auto-update-state.json`.
+- The manifest's RSA signature verifies against the embedded `claude-code-release-signing-key`.
+- The candidate's own manifest, fetched from the server, lists `sdkCompat.testedWrapperVersions`
+  containing the Desktop build's `sdkWrapperVersion` (4.4212.0 embeds `0.3.309`), and
+  `harnessSchema` is 1. A Claude Code release not tested against this Desktop's Agent SDK wrapper is
+  therefore never adopted.
+- With `spread_hours` set, a per-install hash delays the download within that window.
+
+A passing candidate is downloaded and the target switches to it for the rest of the run. A restart
+resets the target to the build pin, and the poller re-adopts the newer version on its next check.
+
+Cleanup runs after each install. It keeps the version just installed, the build pin, the current
+target, the newest other installed version that is at least the build pin, and any version in use
+this run. Every other directory under `claude-code/` is removed, so at most a few versions remain.
+The retained set can still include a version older than the pin when a session in the current run
+used it, or when removal failed.
 
 The env vars that subprocess honors are in
 [ENVIRONMENT_VARIABLES](./ENVIRONMENT_VARIABLES.md#bundled-claude-code).
@@ -215,7 +263,8 @@ The binary is always a downloaded Claude Code, resolved in this order (relocate 
    `[CCD] LOCAL OVERRIDE: Using local binary at …`. Nothing in the production build calls it.
 3. `preseed_in_place`: a copy shipped inside the package. Only MSIX (Windows Store) installs have
    one. The MSIX check is a constant `false` on macOS.
-4. `required_version`: the build's pinned version under `claude-code/<version>/`.
+4. `required_version`: the current target version under `claude-code/<version>/`. It is the build's
+   pinned version until [auto-update](#pin-download-url-and-runtime-auto-update) adopts a newer one.
 5. `fallback_version`: any other installed version, while the pinned one downloads.
 
 A `claude` on `PATH` is never used, and no preference or setting points Code sessions at another
