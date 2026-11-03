@@ -38,8 +38,8 @@ bundle, are in the root `CLAUDE.md`.
 
 5. Record what you found:
 
-   - Desktop findings go in `analysis/`. Restamp the doc's Verified build in the document map in the
-     same commit.
+   - Desktop findings go in `analysis/`. Restamp the build in the doc's frontmatter and regenerate
+     the document map with `../bin/analysis-index.py`, in the same commit.
    - Claude Code findings go in `../code/analysis/`, following `../code/CLAUDE.md`. Its stamps only
      move forward: if the pinned version is older than a doc's stamp and differs from it, say so in
      your answer and leave the doc describing its own version.

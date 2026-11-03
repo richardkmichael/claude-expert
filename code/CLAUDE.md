@@ -54,7 +54,8 @@ commit subjects and how to search a bundle, are in the root `CLAUDE.md`.
 Update the matching `analysis/` doc, or add a new one, following the root `CLAUDE.md`'s "Documenting
 findings" rules. In addition:
 
-- Restamp the doc's verified version and bump its row in `analysis/README.md` in the same commit.
+- Restamp the doc's frontmatter and regenerate the index with `bin/analysis-index.py` (in the
+  repository root), in the same commit.
 - If the doc was `legacy` style, retrofit the section you touched instead of leaving line-number
   anchors behind.
 - Commit with the subject `(code <version>) analysis: <description>`, where `<version>` is the

@@ -31,7 +31,12 @@ gives its procedure. Common to both:
   config keys, tool names, and the behavioral logic itself. Never anchor on minified symbol names,
   line numbers, or pasted code, which churn every release. In place of a line number, give a grep
   relocation recipe plus the expected shape.
-- Record the version the finding was checked against.
+- Record the version a doc was checked against in its YAML frontmatter (`verified`, `verified_on`).
+  The stamp covers the whole doc: move it forward only after checking every claim in the doc against
+  the new version.
+- The index tables in each product's `analysis/README.md` are generated from that frontmatter. After
+  adding a doc or changing its frontmatter, run `bin/analysis-index.py` and commit the README with
+  the doc. Never edit the tables by hand.
 - A doc describes the current state of the version it is stamped with, and nothing else. When a
   claim no longer holds, rewrite or delete it. Do not keep history: no "in earlier versions", no
   "was renamed from", no Version history sections or dated appendices. Git history records how a doc

@@ -11,6 +11,7 @@ source code is a helpful way to better understand the harnesses.
 | `code/`           | Claude Code: findings, generators, patches, extracted bundles (`code/README.md`)                     |
 | `desktop/`        | Claude Desktop: findings, an asar search tool (`desktop/README.md`)                                  |
 | `.claude/skills/` | Skills for preparing Claude Code and Claude Desktop sources, matching code patterns, porting patches |
+| `bin/`            | `analysis-index.py`, which builds both analysis indexes from each doc's frontmatter                  |
 | `mcp/`            | An MCP server that makes this repo consultable from another project                                  |
 
 ## Claude Expert MCP server

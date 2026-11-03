@@ -103,15 +103,32 @@ script plus a regenerated snapshot over hand-copying.
 - `GIT_USAGE.md` — behavioral deep-dive on git instructions; retrofit toward this style as the
   trial proceeds.
 
-## Version stamping
+## Version stamping and the index
 
-Every findings doc starts with one line recording the bundle it was last checked against:
+Every doc starts with YAML frontmatter that records the bundle it was last checked against and
+carries its row in the index (`README.md`):
 
-    Verified against: cli.prettier.js <version> (<YYYY-MM-DD>)
+```yaml
+---
+verified: 2.1.317                  # the cli.prettier.js version
+verified_on: 2026-11-03
+section: Hooks                     # the README section the row belongs in
+style: landmark                    # landmark, legacy, generated or methodology
+scope: Hook event inventory, I/O schemas, matchers
+landmarks:                         # literal strings to grep for; optional for methodology
+  - hook_event_name
+  - fieldToMatch
+---
+```
 
-This makes the staleness check mechanical: compare the stamp to the latest local version
-(`ls work/ | sort -V | tail -1`). The stamp is a per-release fact — bump it whenever you re-verify,
-even if no wording changed. Mirror the version into the doc's row in `README.md`.
+The stamp covers the whole doc. Move it forward only after checking every claim in the doc against
+the new version, even if no wording changed. A finding about a newer version than the stamp
+therefore means re-checking the rest of the doc first; a doc that covers one topic keeps that cheap.
+
+After changing a doc's frontmatter, or adding a doc, run `bin/analysis-index.py` from the repository
+root. It rewrites the index tables from the frontmatter of every doc, and lists the docs stamped
+behind the newest version in `work/`: the staleness check. `--check` changes nothing and fails if
+the index is out of date or a doc's frontmatter is invalid. Never edit the index tables by hand.
 
 A stamp only moves forward (root `CLAUDE.md`, "Documenting findings"). An older version gets checked
 when a Claude Desktop question leads to the Claude Code version a Desktop build pins.
@@ -120,14 +137,16 @@ when a Claude Desktop question leads to the Claude Code version a Desktop build 
 
 When source behavior has changed, or a doc trails the latest bundle:
 
-1. Relocate the behavior in the current bundle using the doc's landmark strings (and the Key
-   landmarks column in `README.md`). If a landmark string itself changed, update the doc's landmarks
-   to the new string.
-2. Rewrite only the claims that actually changed, in landmark style. Leave correct evergreen prose
-   alone; the goal is minimal, truthful drift, not a rewrite for its own sake.
+1. Relocate the behavior in the current bundle using the doc's landmark strings (its body's recipes
+   and its frontmatter `landmarks`). If a landmark string itself changed, update it to the new
+   string.
+2. Check every claim in the doc, and rewrite only the ones that actually changed, in landmark style.
+   Leave correct evergreen prose alone; the goal is minimal, truthful drift, not a rewrite for its
+   own sake.
 3. If the section you touched was legacy style (line numbers, pasted minified code), retrofit it to
    landmark anchors while you are there. Don't leave a doc half-migrated with fresh line numbers.
-4. Restamp `Verified against:` and bump the Verified column in `README.md`, in the same commit.
+4. Restamp the frontmatter (`verified`, `verified_on`) and run `bin/analysis-index.py`, in the same
+   commit.
 5. Delete claims that no longer hold, and any history the doc still carries (Version history
    sections, dated appendices, "in earlier versions" asides).
 6. Commit with `(code <version>) analysis: <description>`.
