@@ -8,17 +8,6 @@ below. When the installed build is newer, treat a doc's build-specific details a
 re-check them. Docs are brought up to date when a question needs them, not all at once, so their
 builds differ. A doc describes only the build it is stamped with, and a stamp only moves forward.
 
-The last build the whole set was verified against:
-
-| Field             | Value                                    |
-| ----------------- | ---------------------------------------- |
-| App version       | 4.4212.0                                 |
-| Build commit      | cbfe3c56d49c49332ad5a9588303c9dbc70a5e7f |
-| Build timestamp   | 2026-10-29T05:56:32Z                     |
-| Build type        | prod                                     |
-| Platform observed | darwin (macOS)                           |
-
-
 ## Document map
 
 | File                                                | Covers                                                                             | Verified |
@@ -36,25 +25,20 @@ The last build the whole set was verified against:
 | [RESET_LIMITS](./RESET_LIMITS.md)                   | Usage-limit reset grants: the claude.ai endpoints that read and apply them         | 4.4212.0 |
 | [LAUNCH_PREVIEW](./LAUNCH_PREVIEW.md)               | Code-session Browser pane: `.claude/launch.json`, element picker, preview network  | 4.4212.0 |
 
-
-
 ## Refreshing after an update
 
-Re-run the extraction and the [re-verification recipes](./EXTRACTION.md) against the fresh build,
-then restamp each doc you re-check in the document map and update any drifted facts. Key things that
-move between builds:
+Run the `prepare-claude-desktop-source` skill to extract the fresh build, and run the
+[re-verification recipes](./EXTRACTION.md) against it. Then restamp each doc you re-check in the
+document map and update any drifted facts. Key things that move between builds:
 
-- The bundle is code-split, and the split changes between builds: 1.26832.0 had 203
-  `index.chunk-*.js`, 130 `index2.chunk-*.js` and 14 entry-point files; 4.4212.0 has 496
-  `index.chunk-*.js`, no `index2` family and 16 entry-point files. `manifest.json` records the split
+- The bundle is code-split, and the split changes between builds. `manifest.json` records the split
   for each prepared build. Search the whole `.vite/build/` directory rather than one file or one
-  chunk family. The count keeps growing — it was ~90 chunks two builds ago.
+  chunk family.
 - Minified identifiers and single-letter names change every build. Anchor on string literals and
   behavior instead; treat any identifier quoted in these notes as a snapshot illustration.
 - The main app UI is the remotely-served `https://claude.ai` frontend loaded in a `WebContentsView`.
   Web-frontend features (for example the MCP Apps host) are not in this bundle and version-drift
   independently.
-
 
 ## Official Anthropic documentation
 
@@ -65,5 +49,6 @@ the gap-filler. Adjacent public docs:
 - Release notes: <https://docs.anthropic.com/en/release-notes/claude-apps>
 - Claude Code desktop quickstart: <https://code.claude.com/docs/en/desktop-quickstart>
 - Claude Code settings (env-var conventions): <https://code.claude.com/docs/en/settings>
-- Desktop Extensions / one-click MCP install: <https://www.anthropic.com/engineering/desktop-extensions>
+- Desktop Extensions / one-click MCP install:
+  <https://www.anthropic.com/engineering/desktop-extensions>
 - Claude Cowork product page: <https://www.anthropic.com/product/claude-cowork>
