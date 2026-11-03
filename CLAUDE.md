@@ -61,12 +61,12 @@ gives its procedure. Common to both:
 
 # Searching shipped code
 
-- Search a bundle with `rg`, never `grep`. In the Bash tool, `grep` is bundled `ugrep` dispatched
-  busybox-style from the `claude` binary itself (argv-switched — not installed on the machine, and
-  it presents only as `grep`, so you cannot detect it). It catastrophically backtracks on bounded
-  quantifier + alternation patterns (`[^"]{0,90}(a|b|c)…`) over a multi-megabyte bundle such as the
-  25MB `cli.prettier.js`, and hangs. `rg` uses a DFA and stays fast — use it for every bundle scan;
-  restrict `grep` to fixed strings (`-F`).
+- Search a bundle with `rg`, never `grep`. In the Bash tool, `grep` is a shell function that runs
+  the ugrep built into the `claude` binary (`type grep` shows the function; `grep --version` reports
+  ugrep). ugrep slows down in proportion to a bounded repetition such as `[^"]{0,90}`, with or
+  without an alternation after it: over the 70 MB `cli.prettier.js` such a pattern runs for tens of
+  seconds or more, where `rg` takes a fraction of a second, and `-U` does not help. Use `rg` for
+  every bundle scan; keep `grep` to fixed strings (`-F`).
 - When you grep a raw artifact instead — a native binary, or minified JS with no line breaks (e.g.
   to bisect versions without prettifying) — match for presence, not lines: `grep -aqF` (true/false
   via exit code), `-ac` (count), or `-ao` (just the matched substring). Bare line output dumps a
