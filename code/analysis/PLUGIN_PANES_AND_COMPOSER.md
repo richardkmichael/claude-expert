@@ -1,76 +1,86 @@
 # Plugin Panes, the Prompt Composer, and Drag-Select Attachment
 
-Source: `cli.prettier.js` (`work/<version>/package/cli.prettier.js`)
+Verified against: cli.prettier.js 2.1.317 (2026-11-03)
 
-Verified: 2.1.300 (rows-under-the-prompt section); 2.1.286 (pane keyboard and `prompt.edit`
-sections); other sections last checked at 2.1.277
+Source: `cli.prettier.js` (`work/<version>/package/cli.prettier.js`)
 
 Three surfaces meet at the bottom of a fullscreen terminal session, and they are commonly confused
 with one another:
 
 - Panes drawn by a function-hooks plugin through the `Pane` render site. Entirely plugin-authored
   content; the engine supplies chrome, scrolling, focus and keybindings.
-- The engine's own diff sidebar, a native Ink component that predates the `diff` mod and still
-  ships. It is the only surface wired to drag-select-to-attach.
+- The engine's own diff sidebar, a native Ink component that still ships beside the `diff` mod. It
+  is the only surface wired to drag-select-to-attach.
 - The prompt composer, which draws a leading "pill" for an IDE/diff line selection. The pill is not
   composer text and has no plugin-facing API.
 
 The practical consequence: a third-party plugin drawing its own `Pane` cannot get the
-`[⧉ N lines from FILE]` behaviour. Nothing in the plugin API reaches it.
+`[⧉ N lines from FILE]` pill or the `selected_lines_in_diff` attachment. It can read the terminal
+selection (`$.ui.selection`), put text in the composer and colour it (`$.prompt.fill`,
+`$.prompt.paint`), and add context at submit, but not reach the pill itself.
 
 `NATIVE_DIFF_SIDEBAR.md` is the full extraction of the second surface: the `/diff` command and its
 gating, the sidebar's component tree, the drag-to-attach path end to end, focus handling, and a
 capability-by-capability correspondence with the `$` API.
 
 
-## The `diff` mod is a built-in plugin, and it displaces the native sidebar
+## The `diff` mod is a built-in plugin, on by default, and it displaces the native sidebar
 
-Grep `kBe("diff"` — or more stably, the built-in-plugin registration function, found by
-`rg -n 'builtinPluginsInitialized'` and reading the initializer it guards. That initializer registers
-a fixed list of built-in plugins by name: `sec-default`, `agents-md`, `plugin-authoring`, `tips`,
-`mermaid`, `diff`, `claude-test`. Each is a separate bun module required lazily.
+Relocate the built-in-plugin registration with `rg -n 'builtinPluginsInitialized'` and read the
+initializer it guards. It registers built-in plugins by internal name (`cc-plugin-<name>`), each a
+separate bun module required lazily: `sec-default`, `agents-md`, `telemetry`, `privacy`, then
+(unless `CLAUDE_CODE_ENTRYPOINT` is `local-agent`) `plugin-authoring`, `mods-guide`, `tips`,
+`mermaid`, `you-should-know`, and the entrypoint-gated `responsive-mode`, `diff`, `easel`,
+`claude-platform`, `claude-test`. `diff`, `claude-platform` and `claude-test` are skipped when the
+entrypoint is `local-agent` or starts with `remote`.
 
-`diff` and `claude-test` are skipped when `CLAUDE_CODE_ENTRYPOINT` is `local-agent` or starts with
-`remote`. The `diff` mod's `isOnByDefault` is `false`; it also requires function hooks to be on
-(`CLAUDE_CODE_ENABLE_FUNCTION_HOOKS`, see `rg -n 'CLAUDE_CODE_ENABLE_FUNCTION_HOOKS'`).
+The `diff` mod's module exports `isOnByDefault` (true), `availabilityFlag` (`tengu_quiet_dolphin`),
+`isAvailable`, `isOfferedNow`, `isPaneDrawable` and `carryPanelPreference`; relocate them with
+`rg -n 'The diff panel as a plugin pane'` (its plugin description, 1 hit) and read the exports below
+it. `isAvailable` requires a drawable pane (an interactive session, or the Claude Desktop entrypoint
+with a pane surface) and `tengu_quiet_dolphin`, read with default true and pinned for the session.
+Built-in plugins load regardless of the hooks-module rollout gates for installed plugins
+(`rg -n 'built-in plugins load regardless'`), so `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS` does not gate
+the mod. When the mod is offered, `carryPanelPreference` copies the native sidebar's saved
+`diffSidebarOpen` into the mod's store once (`diff: carried the built-in panel's saved preference`).
 
-Ownership handoff: find the predicate with
-`rg -n 'isOwnedByPlugin'` (3 hits — a factory, a comparison, and the gate). The factory reads two
-things: whether the sidebar feature is on at all, and whether the `diff` plugin owns it. The
-ownership check requires the plugin to be available, function hooks on, the plugin in the enabled
-set, and its storage id live.
+Ownership handoff: `rg -n 'isOwnedByPlugin'` (3 hits: a factory, a comparison, and the gate). The
+factory reads whether the native sidebar is on at all and whether the mod owns it. Ownership
+requires: not a thin client (remote mode), the `cc-plugin-diff` plugin registered and
+`isAvailable()`, the plugin in the enabled set, and its storage id live.
 
 The two surfaces answer to different flags: the native sidebar is on unless the kill switch
-`tengu_jazzy_ripple` is set, while `tengu_quiet_dolphin` gates the mod (off by default). Do not read
-`tengu_quiet_dolphin` as the `/diff` gate.
+`tengu_jazzy_ripple` is set, while `tengu_quiet_dolphin` gates the mod (default on).
 
 Two consequences follow, both greppable:
 
-- The built-in `/diff` slash command is defined with `isEnabled: () => !<ownedByPlugin>()`. Locate it
-  with `rg -n '"Toggle the diff panel showing uncommitted changes"'` and read the surrounding command
-  object.
-- The native sidebar renders only when `isSidebarOn && (panelFileView !== null || !isOwnedByPlugin)`.
-  In 2.1.277 `panelFileView` has exactly 13 occurrences (`rg -c 'panelFileView'`) and **none of them
-  assign a non-null value** — it is initialized to `null`, read by two selectors, and cleared by
-  three reducers. So when the mod owns the diff, the native sidebar never mounts.
+- The built-in `/diff` slash command is enabled only while the mod does not own the diff. Locate it
+  with `rg -n '"Toggle the diff panel showing uncommitted changes"'` (2 hits: the built-in command,
+  and the mod's own `COMMAND_DESCRIPTION`).
+- The native sidebar renders only when
+  `isSidebarOn && (panelFileView !== null || !isOwnedByPlugin)`. `panelFileView` has 13 occurrences
+  and none assigns a non-null value: it is initialized to `null`, read by selectors, and cleared by
+  reducers. So when the mod owns the diff, the native sidebar never mounts, and by default it does.
 
-□ Tripwire: `rg -c 'panelFileView'` = 13, and `rg -n 'panelFileView:' | rg -v 'null'` is empty.
-  If a setter appears, the native sidebar can coexist with the mod and this section needs revisiting.
+□ Tripwire: `rg -c 'panelFileView'` = 13, and `rg -n 'panelFileView:' | rg -v 'null'` is empty. If a
+setter appears, the native sidebar can coexist with the mod; revisit this section.
 
 
 ## Drag-select to attach: engine-only, native diff sidebar only
 
 ### What the feature is
 
-Dragging a text selection inside the native diff sidebar puts `{ source: "diff", text, lineCount,
-filePath }` into the session's `ideSelection` state. The composer then shows a leading pill, and the
-selected lines travel with the next prompt as a `selected_lines_in_diff` attachment.
+Dragging a text selection inside the native diff sidebar puts
+`{ source: "diff", text, lineCount, filePath }` into the session's `ideSelection` state. The
+composer then shows a leading pill, and the selected lines travel with the next prompt as a
+`selected_lines_in_diff` attachment. It reaches only a user whose native sidebar mounts: the `diff`
+plugin disabled, or `tengu_quiet_dolphin` served off.
 
 ### Locating it
 
-Grep the telemetry event: `rg -n 'diff_selection_attach'`. Expect 3 hits — the event-name allowlist,
-the call site, and a re-declaration inside the `diff` mod's own telemetry key table (the mod reuses
-the same event name for its *file-level* attach, which is a different feature; see below).
+Grep the telemetry event: `rg -n 'diff_selection_attach'`. Expect 3 hits: the event-name allowlist,
+the call site, and the `diff` mod's telemetry key table (the mod reuses the name for its file-level
+attach, a different feature; see below).
 
 The call site is a React hook of the shape:
 
@@ -79,7 +89,7 @@ hook(minCol, getMaxRow, onAskAboutSelection, rowToPath)
   subscribe to the terminal selection store
   bail if: no attach callback | isDragging | no selection
   bail if: no anchor/focus, or anchorSpan.kind === "line"
-  bail if: anchor or focus column < minCol
+  bail if: anchor or focus column (virtual column when set) < minCol
   bail if: anchor or focus row > getMaxRow()
   text = store.getSelectedText(); bail if blank or unchanged
   lineCount = newline count of text.trimEnd() + 1
@@ -87,61 +97,69 @@ hook(minCol, getMaxRow, onAskAboutSelection, rowToPath)
   onAskAboutSelection({ source: "diff", text, lineCount, filePath })
 ```
 
-The terminal selection store itself is the engine's mouse-selection accessor, reachable from
-`rg -n 'subscribeToSelectionChange'` — it exposes `getSelectedText`, `copySelection`,
+The terminal selection store is the engine's mouse-selection accessor, reachable from
+`rg -n 'subscribeToSelectionChange'`. It exposes `getSelectedText`, `copySelection`,
 `copySelectionNoClear`, `hasTextSelection`, `clearTextSelection`, `moveSelectionFocus`,
 `setSelectionBgColor` and the raw `selection` state.
 
-□ Tripwire: `rg -n 'getSelectedText'` has exactly one *consumer* outside the selection store's own
-  class and the null-object stub. If a second consumer appears, the feature has been generalized.
+□ Tripwire: outside the selection store's own class and its null-object stub, `getSelectedText` has
+three consumers: the attach hook, the `$.ui.selection` reader, and the reset of the selection kept
+for that reader. A fourth consumer means the feature has been generalized.
 
 ### What it applies to
 
 Not "any Ink text", not `Code` elements, and not plugin panes.
 
 - The only producer of `ideSelection` with `source: "diff"` is the native diff sidebar's
-  `onAskAboutSelection` prop. Grep `rg -n 'onAskAboutSelection'` — 4 hits, all in the native sidebar
-  chain: the host passes `Tu.setIdeSelection` down, or `undefined` when a modal slot is active.
+  `onAskAboutSelection` prop. `rg -n 'onAskAboutSelection'`: 4 hits, all in the native sidebar
+  chain. The REPL host passes the session's `setIdeSelection` down, or `undefined` while a blocking
+  dialog is visible.
 - The only other writer of `ideSelection` is the IDE MCP connection path
   (`rg -n 'offerIdeSelection'`), which produces `source`-less selections that render as
   `selected_lines_in_ide`.
-- A mod-drawn `Pane` gets drag *autoscroll* (the same selection store is subscribed with
-  `requireScope: true`) and gets its selection *clamped* to its own column band, but no attach. Grep
-  `rg -n 'selectionScope'` — the flag is set by the engine's scrollable-box component, so every
-  scroll container (including a Pane body) confines a drag to its own columns.
+- A mod-drawn `Pane` has its drag clamped to its own column band but gets no attach and no drag
+  autoscroll. The renderer clamps a drag to the nearest ancestor Box with `selectionScope` (inside
+  its border and padding), and both `PaneSite` Boxes set it. Drag autoscroll runs only in the
+  transcript and in the native diff panel, which subscribes with `requireScope: true`
+  (`rg -n 'requireScope: !0'`, 1 hit, in the diff panel).
+
+### Plugins: `$.ui.selection`
+
+`$.ui.selection()` answers the terminal's current mouse selection as `{ text, requestId? }`, or
+nothing. It reads only while the alternate screen is active (fullscreen). `requestId` is set when
+the selection lies wholly within one transcript row the engine can attribute. A selection that was
+taken down (for example by the click that pressed a Button) is kept and answered until a newer
+selection or the next hook run. Telemetry: `plugin_function_hooks_selection_read`. It does not touch
+`ideSelection`, so it produces neither the pill nor the attachment.
 
 ### Where the filename comes from
 
-Not from a `Code` element's `path` prop, not from a heading. The sidebar keeps a `Map<path, inkNode>`
-populated by a per-file `ref` callback on each rendered file block, keyed on the file's repo-relative
-path. A helper walks that map, computes each node's absolute top (summing `getComputedTop()` up the
-parent chain, subtracting `scrollTop` where a parent scrolls), and returns the key whose vertical
-band contains the selection's topmost row. Relocate it by grepping for the ref that does
-`map.set(<file>.path, node)` inside the file-list render, then finding the row→path helper that reads
-the same ref.
+Not from a `Code` element's `path` prop, not from a heading. The sidebar keeps a
+`Map<path, inkNode>` populated by a per-file `ref` callback on each rendered file block, keyed on
+the repo-relative path. A helper walks that map, computes each node's absolute top (summing
+`getComputedTop()` up the parent chain, subtracting `scrollTop` where a parent scrolls), and returns
+the key whose vertical band contains the selection's topmost row.
 
-The mod's `Code` elements do pass `path`, but the engine's `Code` renderer uses it only as the
-`filePath` for syntax highlighting and diff rendering. Confirm with `rg -n 'Code prop "'` to find the
-`Code` prop validator (`source`, `language`, `path`, `startLine`, `format`, `wrap`), then follow the
-terminal renderer — it forwards `path` into the highlighter and registers no node anywhere.
+The mod's `Code` elements do pass `path`, but the terminal `Code` renderer uses it only as the
+`filePath` for syntax highlighting and diff rendering. `rg -n 'Code prop "'` finds the `Code` prop
+validator (`source`, `language`, `path`, `startLine`, `format`, `wrap`).
 
 ### Gating
 
-Placement and width, but through the sidebar's own gates rather than a pane `placement` prop:
+| Gate                       | Where                                                        |
+| -------------------------- | ------------------------------------------------------------ |
+| Fullscreen only            | the sidebar enable predicate requires `fullscreen`           |
+| `columns >= 110`           | same; auto-open needs `>= 144` unless `diffSidebarOpen` true |
+| Git repo, main, not remote | same predicate                                               |
+| `replTab === "diff"`       | the sidebar host returns `null` otherwise                    |
+| Left-edge column           | `minCol` is terminal columns minus sidebar width             |
+| Bottom row                 | `getMaxRow` is the sidebar's last row                        |
+| No blocking dialog         | the host withholds the attach callback while one is visible  |
+| Not a line selection       | `anchorSpan.kind === "line"` (triple-click) is excluded      |
 
-| Gate | Where |
-| ---- | ----- |
-| Fullscreen only | the sidebar enable predicate requires `fullscreen` |
-| `columns >= 110` | same predicate; auto-open needs `>= 144` unless `diffSidebarOpen === true` |
-| A git repo, main session focused, not a thin client | same predicate |
-| `replTab === "diff"` | the sidebar host returns `null` otherwise |
-| Left-edge column | the attach hook's `minCol` is `terminalColumns − sidebarWidth`, so a drag that starts or ends left of the sidebar is ignored |
-| Bottom row | the attach hook's `getMaxRow` is the sidebar's last row |
-| No overlay open | the attach callback is withheld while any overlay other than the autocomplete is active, or while the autocomplete popup / a dialog is showing |
-| Not a line selection | `anchorSpan.kind === "line"` (triple-click) is excluded; character and word drags attach |
-
-`110` and `144` are the same two constants the pane placement gate uses (see Panes below) and the
-same buckets the diff telemetry reports (`under_110`, `110_to_143`, `144_to_199`, `200_plus`).
+`110` and `144` are the constants the pane placement gate uses (see Panes below) and the buckets the
+diff telemetry reports (`under_110`, `110_to_143`, `144_to_199`, `200_plus`). The refusal text is
+`Resize your terminal to at least 110 columns to show the diff panel`.
 
 ### Clipboard
 
@@ -149,7 +167,7 @@ Attach does not suppress copy. Copy-on-select is a separate, global subscriber t
 store, gated on the `copyOnSelect` setting (default on, toggle labelled "Copy on select" in
 `/config`). It fires on drag end and writes through the native clipboard, a tmux buffer, or OSC 52,
 reporting `copied N chars to clipboard` / `sent N chars via OSC 52`. If a drag in the diff sidebar
-does not reach the clipboard, `copyOnSelect` is off — the attach path never calls `copySelection`.
+does not reach the clipboard, `copyOnSelect` is off: the attach path never copies.
 
 ### What the model receives
 
@@ -163,115 +181,111 @@ This may or may not be related to the current task.
 ```
 
 marked as a meta message. The IDE variant is `The user selected the lines <a> to <b> from <file>:`.
-Both attachment types appear in the attachment-type list alongside `selected_lines_in_ide`; grep
-`rg -n 'selected_lines_in_diff'` for all five sites (creation, prompt rendering, type list, transcript
-row, and the type union).
-
-The selection is cleared on submit, so it attaches exactly once.
+`rg -n 'selected_lines_in_diff'` finds five sites: creation, prompt rendering, two attachment-type
+sets, and the transcript row. The selection is cleared on submit, so it attaches exactly once.
 
 ### The mod's own attach is a different thing
 
-The `diff` mod attaches a *whole file's* diff, not a mouse selection, and it does it through the
-`prompt.submit` hook by appending a context block. Grep
-`rg -n 'from the diff pane to this prompt'` — the text is
+The `diff` mod attaches a whole file's diff, not a mouse selection, through its `prompt.submit` hook
+by appending a context block. `rg -n 'from the diff pane to this prompt'`: the text is
 `The user attached the diff of <path> from the diff pane to this prompt:` followed by hunk lines,
 truncated with `(The rest of this diff was cut: it did not fit in the prompt.)`. This produces no
-composer pill. It reuses the `diff_selection_attach` telemetry name, which is why that event name
-appears both in engine and mod code.
+composer pill.
 
 
 ## The composer pill is a `leadingPill`, not text
 
-Grep `rg -n 'leadingPill'`. Expect ~7 hits: the prop in the text-input hook's destructuring, the
-render site, the highlight computation, two memo-cache comparisons, and the construction site.
+`rg -n 'leadingPill'`: 7 hits: the prop in the text-input hook's destructuring, the input's cursor
+model, two renderer reads, a memo comparison, and the construction site.
 
 The pill object is `{ text, onDelete }`. Its label is built in two steps:
 
 1. A label builder producing `⧉ <N> line|lines from <basename(filePath)>` for a diff-sourced
    selection, `⧉ <N> lines from diff` when there is no path, `⧉ <N> lines selected` for an IDE
-   selection, or `⧉ In <basename>` for a cursor-position-only IDE selection. Relocate with
-   `rg -n '\\u29C9 \$\{'` or by grepping the `from diff` / `selected` literals; note the glyph is a
-   hoisted constant, so searching for the rendered string `[⧉ 3 lines from README.md]` finds nothing.
-2. A wrapper that replaces `]` with `)`, collapses newlines to spaces, truncates the label to 32
-   characters middle-out, wraps it in `[...]`, appends a trailing space, and NFC-normalizes.
+   selection (only while the IDE is connected), or `⧉ In <basename>` for a cursor-only IDE
+   selection. The glyph is a hoisted constant: relocate with `rg -n 'In \$\{'` near `"from diff"`,
+   never the rendered `[⧉ 3 lines from README.md]`.
+2. A wrapper that replaces `]` with `)`, collapses newlines to spaces, truncates to 32 columns
+   middle-out, wraps it in `[...]`, appends a trailing space, and NFC-normalizes.
 
 Behaviour that follows from it being a prefix rather than buffer content:
 
-- The composer's cursor model is built from `pillText + value`, and every offset the caller supplies
-  is shifted by `pillText.length`. The cursor is clamped so it cannot move inside the pill.
-- The pill is highlighted as range `[0, pillText.length - 1]` with theme colour `ide` at priority 30.
-  `ide` resolves to `rgb(71,130,200)` in the graphical themes and `ansi:blue` / `ansi:blueBright` in
-  the ANSI themes — the light blue the question describes.
-- Backspacing past offset 0 clears the prefix and fires `onDelete`, which dismisses the selection.
+- The cursor model is built from `pillText + value`, and every offset is shifted by
+  `pillText.length`. The cursor is clamped so it cannot move inside the pill.
+- The pill is highlighted as `[0, pillText.length - 1]` with theme colour `ide` at priority 30.
+  `ide` is `rgb(71,130,200)` in the graphical themes and `ansi:blue` / `ansi:blueBright` in the ANSI
+  themes.
+- Backspace at offset 0 clears the prefix and fires `onDelete`, which dismisses the selection.
 - `$.prompt.read` returns the draft `{ text, cursor }` without the pill.
 
-This is *not* how pasted-text and image placeholders work. Those are literal text in the draft
-buffer: `[Pasted text #N]`, `[Pasted text #N +M lines]`, `[Image #N]`, `[Audio #N]`,
-`[...Truncated text #N +M lines]`. Grep the shared atomic-token regex with
-`rg -n 'Pasted text\|Image\|Audio'` — the same alternation also matches `\[⧉ [^\]\n]+\]`, so the
-composer treats a pasted pill and the selection pill alike for word-motion and atomic delete, but
-only the paste placeholders are in the buffer and expanded at submit. They are drawn with the
-`suggestion` colour, not `ide`.
+Pasted-text placeholders are literal text in the buffer: `[Pasted text #N]`,
+`[Pasted text #N +M lines]`, `[Image #N]`, `[...Truncated text #N +M lines...]`,
+`[✦ Team setup guide #N]`. The shared atomic-token pattern (`rg -nF 'Pasted text|Image|'`) also
+matches `\[⧉ [^\]\n]+\]`, so word motion and atomic delete treat the pill like a placeholder, but
+only placeholders are in the buffer and expanded at submit.
 
-### No plugin API reaches it
+### What a plugin can and cannot do in the composer
 
-The composer's highlight list is computed entirely inside the chat component from engine-owned
-sources (bash-mode prefix, `@`-mentions, slash commands, ultrathink/auto-accept shimmer, ghost text).
-There is no hook, prop, or `$` noun that contributes a range.
+The engine's highlight list (bash prefix, `@`-mentions, slash commands, shimmer, ghost text) is
+computed inside the chat component. Plugin decorations are a separate layer merged over it:
 
-The plugin-facing `$` surface is built by one factory; relocate it with
-`rg -n 'blit: \(' -A 2` or by grepping `\$\.ui\.resolve` and reading the enclosing object. As of
-2.1.277 it is:
+- `$.prompt.paint({ text, decorations })` sets the calling plugin's layer of runs over the draft. It
+  paints only when the composer reads exactly `text`; `decorations: []` clears the layer. Layers
+  paint in first-paint order, a later one winning per style key, and follow later edits.
+- `$.prompt.fill({ text, mode, decorations?, cursor? })` places text (`replace`, `append`, `insert`)
+  and can paint runs over the placed text and set the caret.
+- A `prompt.edit` answer may carry `decorations`, painted when the draft reads its text.
 
-| Noun | Methods |
-| ---- | ------- |
-| `ui` | `notice`, `invalidate`, `blit`, `resolve`, `log`, `status`, `ask`, `toast`, `open`, `close`, `panes`, `scroll`, `focus` |
-| `prompt` | `submit`, `read`, `fill`, `suggest` |
-| `session` | `messages`, `cwd`, `root`, `model`, `turns`, `id`, `repo`, `surface`, `surfaces`, `authorize`, `usage`, `compact` |
-| `model` | `complete`, `fork`, `classify` |
-| `settings` | `read` |
-| others | `audio`, `mcp`, `turn`, `tool`, `command`, `config`, `agent`, `store`, `fs`, `clock`, `http`, `process`, `env` |
+A run is `{ start, end }` in UTF-16 offsets plus `color`, `backgroundColor`, `dimColor`, `bold`,
+`italic`, `underline`, `strikethrough`, and `virtualText`: a zero-width run whose text is drawn at
+`start` without entering the draft. No run key makes a range atomic, and nothing reaches
+`leadingPill` or `ideSelection`.
 
-`prompt.attachment`, `prompt.edit`, `prompt.section` and `prompt.context` exist only as hook *events*
-a plugin registers a handler for — they are not callable methods. `prompt.attachment` in particular
-is a rewrite hook: the engine renders an attachment it already created, matched by
-`{ type }` (e.g. `selected_lines_in_diff`), and a handler may rewrite the text or leave it out. It
-cannot create an attachment, and it never touches the composer.
+The plugin-facing `$` surface is built by one factory; relocate it with `rg -n 'blit: \('` and read
+the enclosing object and its caller, which lists the nouns:
 
-So a plugin can put literal text in the composer with `$.prompt.fill`, and that is all. There is no
-way to colour it and no way to make it atomic.
+- `ui`: `notice`, `invalidate`, `blit`, `resolve`, `log`, `status`, `ask`, `toast`, `notify`,
+  `open`, `close`, `panes`, `place`, `backdrop`, `selection`, `scroll`, `focus`, `copy`, `view`
+- `prompt`: `submit`, `read`, `media`, `fill`, `paint`, `suggest`, `compose`
+- `session`: `messages`, `cwd`, `root`, `model`, `turns`, `id`, `repo`, `surface`, `surfaces`,
+  `authorize`, `identity`, `usage`, `version`, `send`, `append`, `compact`
+- `model`: `complete`, `fork`, `classify`; `settings`: `read`
+- others: `audio`, `mcp`, `turn`, `tool`, `command`, `config`, `telemetry`, `agent`, `fs`, `store`,
+  `state`, `clock`, `http`, `process`, `env`, `flag`
 
-□ Tripwire: the full hook-event list is one array; find it with `rg -n '"prompt.attachment"'` and
-  read the enclosing array. If a text-selection event or a composer-attachment method appears, this
-  section is stale.
+`prompt.attachment`, `prompt.edit`, `prompt.change`, `prompt.section`, `prompt.context`,
+`prompt.autocomplete` and `prompt.mention` exist only as hook events. `prompt.attachment` rewrites
+an attachment the engine already created, matched by `{ type }` (e.g. `selected_lines_in_diff`); it
+cannot create one and never touches the composer.
+
+□ Tripwire: the full hook-event list is one array; find it with `rg -n '"prompt.attachment"'` (the
+first hit) and read the enclosing array. If a pill-related event, a composer-attachment method or an
+atomic decoration key appears, this section is stale.
 
 
 ## `$.prompt.fill` and keyboard focus
 
-Grep `rg -n 'fillDraft'` — 3 hits: the bridge (`composer.write`), the implementation, and one
-re-export. The implementation:
+The implementation: `rg -nF 'fillDraft = '` (1 hit); the bridge is the session scope's `composer`
+object (`write`, `paint`, `read`).
 
-- Refuses (`{ isFilled: false }`) when a modal dialog is open. The pane store is a *different* store,
-  so a focused pane does not block a fill.
-- `replace`: sets input mode back to `prompt`, replaces the value.
-- `append`: concatenates onto the current value. Does **not** reset input mode.
-- `insert`: inserts at the cursor.
-- For `replace` and `append`, moves the cursor to end of value.
+- Refuses with `{ isFilled: false, refusal: "dialog" }` while a dialog is open. The pane store is a
+  different store, so a focused pane does not block a fill.
+- `replace`: sets input mode back to `prompt`, replaces the value. `append`: concatenates, without
+  resetting the mode. `insert`: inserts at the cursor, outside any placeholder.
+- `cursor` places the caret (snapped out of placeholders and to a grapheme boundary); without it,
+  `replace` and `append` move the caret to the end.
 
-It performs no focus manipulation at all. **After `$.prompt.fill`, focus stays wherever it was.** If
-the plugin's pane held the keyboard, it still holds it. Nothing in the dispatch chain above
-`fillDraft` moves focus either.
+It performs no focus manipulation. After `$.prompt.fill`, focus stays wherever it was.
 
-The one focus interaction with the draft runs the other way: a pane opened with
-`$.ui.open({ focus: true })` records a `focusRequest`, and the chat component only honours it when
-the composer draft is empty (plus no dialog, no footer selection, no agent-view selection, and at
-least one pane placed). So filling the composer *prevents* a later pane from taking focus, rather
-than surrendering focus to the composer.
+The one focus interaction runs the other way: a pane opened with `$.ui.open({ focus: true })`
+records a `focusRequest`, honoured only while the draft is empty (and no dialog, footer selection or
+agent-view selection is active, no pane is focused, and a pane is placed). So filling the composer
+prevents a later pane from taking focus.
 
 ### `$.ui.focus` cannot grab focus
 
-`$.ui.focus({ requestId, key })` moves focus **within** a site the plugin already holds. Grep
-`rg -n 'that site does not hold the keyboard'` for the core implementation; it denies with one of:
+`$.ui.focus({ requestId, key })` moves focus within a site the plugin already holds. Grep
+`rg -n 'that site does not hold the keyboard'` for the core; it denies with one of:
 
 - `no such site`
 - `not this plugin's site`
@@ -279,456 +293,354 @@ than surrendering focus to the composer.
 - `another plugin's element holds the keyboard`
 - `no element of its own is drawn under that key`
 
-There is no plugin-callable way to move focus from the composer into a pane.
-
 
 ## Moving focus into a pane: `ctrl+x tab`
 
-Confirmed from the default keybinding table. Grep `rg -n 'abovePrompt:focus'`:
+Default keybinding table, `rg -n 'abovePrompt:focus'`:
 
-- Binding: `"ctrl+x tab"` → `abovePrompt:focus`, in the **`Chat`** context (the composer's context;
-  the engine calls these *contexts*, not bands).
-- Description string: `focus plugin buttons, inputs and selects`.
-- Sibling: `"ctrl+x ctrl+a"` → `abovePrompt:toggle` (`hide/show plugin panel`).
+- `"ctrl+x tab"` → `abovePrompt:focus`, in the `Chat` context, described
+  `focus plugin buttons, inputs and selects`.
+- `"ctrl+x ctrl+a"` → `abovePrompt:toggle` (`hide/show plugin panel`).
 
-The handler cycles, in this order:
+The handler, in order:
 
-1. If a pane is already focused, move to the **next open pane**. The "next" helper returns
-   `open[indexOf(focusedId) + 1] ?? null` — so after the last pane it yields `null`, which returns
-   focus to the composer. Repeated `ctrl+x tab` therefore walks composer → pane 1 → pane 2 → … →
-   composer.
-2. Otherwise, if an above-prompt element is focusable, focus that.
-3. Otherwise, if any pane is open, focus the first one (same helper, with no current focus).
+1. A pane is focused: move to the next open pane (`open[indexOf(focused) + 1] ?? null`); past the
+   last it yields `null`, returning focus to the composer.
+2. The above-prompt band has a focusable: focus it.
+3. Any pane is open: focus the first.
 4. Otherwise the binding is unhandled.
 
-Once a pane holds the keyboard, the relevant contexts are `Pane` (and `PaneField` when the focused
-element is an `Input` or `Select`):
+Once a pane holds the keyboard, its contexts are `Pane`, or `PaneField` plus `AbovePromptInput` /
+`AbovePromptSelect` when the focused element is an `Input` / `Select`:
 
-| Context | Bindings |
-| ------- | -------- |
-| `Pane` | `tab` / `shift+tab` navigate, `enter` press, `escape` leave, `up`/`down`/`pageup`/`pagedown`/`home`/`end` scroll, `ctrl+x left`/`up` grow, `ctrl+x right`/`down` shrink, `ctrl+x x` close |
-| `PaneField` | `ctrl+x x` close |
-| `AbovePrompt` | as `Pane`, plus `right`/`left` navigate and `space` press |
+| Context             | Bindings                                                                |
+| ------------------- | ----------------------------------------------------------------------- |
+| `Pane`              | `tab`/`shift+tab` navigate, `enter` press, `escape` leave, `up`/`down`/ |
+|                     | `pageup`/`pagedown`/`home`/`end` scroll, `ctrl+x left`/`up` grow,       |
+|                     | `ctrl+x right`/`down` shrink, `ctrl+x x` close                          |
+| `PaneField`         | `ctrl+x x` close                                                        |
+| `AbovePromptInput`  | `tab`/`shift+tab` navigate, `enter` submit, `escape` leave              |
+| `AbovePromptSelect` | as `AbovePromptInput`, plus `up`/`down` move the highlight              |
+| `AbovePrompt`       | as `Pane` without the `ctrl+x` chords, plus `right`/`left` navigate and |
+|                     | `space` press                                                           |
 
-`pane:next` / `pane:previous` (`show next/previous plugin pane`) are separate actions that change
-which pane is *shown*, and carry no default chord in the table.
+`pane:next` / `pane:previous` (`show next/previous plugin pane`) are bound in `Global` while two or
+more panes are open, with no default chord. With the composer focused, `escape` closes the shown
+pane when it was opened with `closeOnEscape` and the draft is empty.
 
 ### Keys a focused pane does not consume
 
-A focused pane never takes focus away from the composer's text input. It intercepts keys in two
-layers, and any key neither layer consumes reaches the composer as ordinary typing. The pane loses
-the keyboard as a side effect of that typing. No key rule releases it, and the key is not replayed:
-it was never consumed.
+A focused pane intercepts keys in two layers; any key neither consumes reaches the composer as
+ordinary typing, and the pane loses the keyboard as a side effect. The key is not replayed.
 
-Layer 1 is Button hotkeys, a pre-dispatch interceptor that runs before keybinding resolution.
-Relocate it from the module's exports, `rg -nF 'hotkeysOf: () =>'` and
-`rg -nF 'hotkeyPresses: () =>'`, then read the two definitions and the interceptor that calls the
-second. Shape:
+Layer 1 is Button hotkeys, a pre-dispatch interceptor. Relocate it from the module's exports,
+`rg -nF 'hotkeysOf: () =>'` and `rg -nF 'hotkeyPresses: () =>'`:
 
-- `hotkeysOf` walks the drawn tree and maps each Button's `hotkey` to its press. It does not
-  descend into `engine` nodes.
+- `hotkeysOf` maps each drawn Button's `hotkey` to its press, not descending into `engine` nodes.
 - A key qualifies only with no ctrl, meta, super, escape, tab or return flag, and only if its text
-  matches `/^[^\p{C}\p{Z}]+$/u`. Space is a separator (`\p{Z}`), so Space is never a hotkey.
-- Each character is NFKC-normalized and lowercased before lookup. Shift+A, or A under caps lock,
-  presses the `a` hotkey. The shift flag is not checked.
-- Every character of the input chunk must map to a hotkey. A multi-character chunk (a paste, or
-  keys the terminal delivered together) presses all of them, or none and falls through whole.
-- The interceptor is active only while the `Pane` context is, i.e. the focused element is not an
-  `Input` or `Select`.
-- The Button validator accepts only `/^[0-9a-z]$/` (`rg -nF 'hotkey must be one digit'`).
+  matches `/^[^\p{C}\p{Z}]+$/u`. Space is `\p{Z}`, so Space is never a hotkey.
+- Each character is NFKC-normalized and lowercased; Shift+A presses the `a` hotkey.
+- Every character of the chunk must map to a hotkey, or none is pressed.
+- The interceptor is active only while the `Pane` context is.
+- The Button validator accepts only one digit or lowercase letter
+  (`rg -nF 'hotkey must be one digit'`).
 
-Layer 2 is the `Pane` context table above. Every action in it has a handler in every pane state, so
-each of these keys is consumed even when it has nothing to do:
+Layer 2 is the `Pane` table. Every action has a handler in every pane state:
 
-| Key                                    | Effect                                                                      |
-| -------------------------------------- | --------------------------------------------------------------------------- |
-| `tab` / `shift+tab`                    | walk the ring: plugin focusables, then a stop per other open pane, then `✕` |
-| `enter`                                | press the focused Button or submit the focused Input; else nothing          |
-| `escape`                               | leave the pane, or close it when opened with `closeOnEscape`                |
-| `up` / `down`, content overflows       | scroll one row (`ui.scroll`)                                                |
-| `up` / `down`, nothing to scroll       | previous / next plugin focusable, wrapping; nothing when there are none     |
-| `pageup` / `pagedown` / `home` / `end` | scroll by a page / to an end; nothing when the content fits                 |
-| `ctrl+x` chords                        | grow, shrink, close                                                         |
+| Key                              | Effect                                                       |
+| -------------------------------- | ------------------------------------------------------------ |
+| `tab` / `shift+tab`              | walk the ring: focusables, a stop per other open pane, `✕`   |
+| `enter`                          | press the Button, submit the Input, pick the tab, or close   |
+| `escape`                         | leave the pane, or close it when opened with `closeOnEscape` |
+| `up` / `down`, content overflow  | scroll one row                                               |
+| `up` / `down`, nothing to scroll | previous / next plugin focusable, wrapping; else nothing     |
+| `pageup` `pagedown` `home` `end` | scroll by a page / to an end                                 |
+| `ctrl+x` chords                  | grow, shrink, close                                          |
 
-The `up`/`down` split comes from how the handler map is merged: the ring handlers define
-`pane:scrollUp`/`pane:scrollDown` as focus moves, and the scroll handlers replace them only when
-the pane's `maxOffset > 0`. Relocate with `rg -n '"pane:scrollUp": \(\) =>'`.
+The `up`/`down` split: the ring handlers define `pane:scrollUp`/`pane:scrollDown` as focus moves,
+and the scroll handlers replace them only when `maxOffset > 0`. `rg -n '"pane:scrollUp": \(\) =>'`
+finds both (2 hits).
 
-Every other key reaches the composer: Space, printable characters with no matching hotkey (including
-uppercase letters, punctuation, and digits or letters no Button claims), Backspace, Delete,
-left/right, and ctrl or meta editing chords. Chat and Global bindings the `Pane` context does not
-bind still resolve; `ctrl+x tab` is one.
+Every other key reaches the composer: Space, printable characters no hotkey claims, Backspace,
+Delete, left/right, ctrl or meta editing chords. `Chat` and `Global` bindings the `Pane` context
+does not bind still resolve; `ctrl+x tab` is one.
 
-The release is `useReleaseOnEdit` (see `NATIVE_DIFF_SIDEBAR.md`). While a pane or the band holds the
-keys, it subscribes to the draft store and, on the first change to `value`, clears the band focus
-and calls `focusPane(null)`. It compares `value` only, which splits the fall-through keys:
-
-- A key that changes the draft text releases the pane, and the edit stays in the draft.
-- A key that reaches the composer but leaves the text unchanged does not release. Left/right,
-  ctrl+a/ctrl+e, Backspace at cursor 0 or on an empty draft, and Delete at the end move the
-  composer's cursor or do nothing, and the pane keeps the keyboard.
+The release is `useReleaseOnEdit` (`rg -nF 'useReleaseOnEdit: () =>'`). While a pane or the band
+holds the keys, it watches the draft and, on the first change to `value`, clears the band focus and
+calls `focusPane(null)`. It compares `value` only: a key that changes the text releases the pane and
+the edit stays; a key that leaves the text unchanged (left/right, Backspace at offset 0 or on an
+empty draft, Delete at the end) does not release.
 
 #### What a plugin can do about it
 
 No pane option, Button prop or hook event intercepts an unconsumed key. `$.ui.open` options are
-`title`, `focus`, `closeOnEscape`, `holdToasts`, `rows` and `columns`. `ui.focus` is raised for
-moves within a site; release-on-edit calls `focusPane(null)` directly and raises nothing.
+`id`, `title`, `focus`, `closeOnEscape`, `holdToasts`, `backgroundColor`, `rows` and `columns`.
 
-`prompt.edit` cannot prevent the release, because it runs too late. The composer's key handler
-writes the new value to the draft store first and records the edit for the hook chain second, and
-the relay batches records onto a microtask (`rg -nF "the editor's edit stands"`). By the time a
-handler runs, the pane has already lost the keyboard. A handler can still undo the text: answering
-the before state `{ text: e.text, cursor: e.cursor }` is committed if the draft has not changed
-since. The input carries:
+`prompt.edit` cannot prevent the release: the composer writes the new value first and records the
+edit second, and the relay batches onto a microtask (`rg -nF "the editor's edit stands"`). A handler
+can still undo the text by answering the before state `{ text: e.text, cursor: e.cursor }`. The
+input's `origin` is always `{ kind: "composer" }`; nothing marks a key that fell through from a
+pane. `key` is present only when the batch holds one edit.
 
-- `origin`: always `{ kind: "composer" }` for composer typing. Nothing marks a key that fell through
-  from a pane. A plugin's only signal is the last `isFocused` its `ui.render` received, and the
-  re-render with `isFocused: false` can land before or after the `prompt.edit` call.
-- `key`: present only when the batch holds exactly one edit. It is `{ key, ctrl?, shift?, meta? }`,
-  where `key` is the single character typed, `"space"` for Space, or the key name for a named key.
+Taking the keyboard back: `$.ui.focus` is denied (`that site does not hold the keyboard`).
+`$.ui.open({ id, focus: true })` records a `focusRequest`; the settle step
+(`rg -nF 'settleFocusRequest'`) re-evaluates it when it or the draft changes and honours it only
+under the empty-draft conditions above. So re-focusing works only when the draft was empty before
+the key and the undo has committed. The pane's focus index resets when it loses the keyboard, so a
+plugin must call `$.ui.focus({ requestId, key })` to put the ring back on its Button.
 
-Taking the keyboard back is narrower still. `$.ui.focus` is denied (`that site does not hold the
-keyboard`). `$.ui.open({ id, focus: true })` on a pane that is already open records a
-`focusRequest`. The settle step (`rg -nF 'settleFocusRequest'`) re-evaluates the request whenever
-it or the draft text changes, honours it only when the draft is `""`, no dialog, footer or
-agent-view selection is active, no pane is focused and a pane is placed, and otherwise clears it. So
-re-focusing works only when the draft was empty before the key, and only if the open runs after the
-undo has committed; an open issued from inside the `prompt.edit` handler sees the unreverted draft
-and is dropped. The pane's focus index resets to none when it loses the keyboard, so a plugin that
-regains it must call `$.ui.focus({ requestId, key })` to put the ring back on its Button.
-
-□ Tripwire: the hotkey test still excludes `\p{Z}` and still lowercases; the `Pane` table has no
-  `space`, `backspace` or `left`/`right` binding; `useReleaseOnEdit` still compares only `value`;
-  the composer still applies the edit before it records it for `prompt.edit`. If any of these
-  changes, this section is stale.
+□ Tripwire: the hotkey test still excludes `\p{Z}` and lowercases; the `Pane` table has no `space`,
+`backspace` or `left`/`right`; `useReleaseOnEdit` compares only `value`; the composer applies the
+edit before recording it. If any changes, this section is stale.
 
 
 ## What `prompt.edit` receives: edit shape, Vim mode and undo
 
-Only two composer paths record an edit for the `prompt.edit` relay. Relocate them with
-`rg -n 'we\.record\(\{|nv\.record\(\{'` (symbol names churn; the shape is `<relay>.record({ before,
-after, key? })`):
+The relay records only while some plugin hooks `prompt.edit` (`rg -n 'prompt.edit: hooked'`). Two
+composer paths record (`rg -n '\.record\(\{'`, 2 hits):
 
-- The base text input's key handler, after it has applied a key: `before`/`after` are
-  `{ text, cursor }` with the leading pill stripped, and `key` is the key event. It records only
-  when the text or the cursor changed.
-- The composer's insert-text path for typed insertions, without a `key`.
+- The base text input's key handler, after it applied a key: `before`/`after` are `{ text, cursor }`
+  with the pill stripped, and `key` is the key event. It records only when text or cursor changed.
+- The composer's insert-text path, without a `key`.
 
-Everything else changes the draft without raising `prompt.edit`: Vim NORMAL and VISUAL commands,
-undo, `$.prompt.fill`, and the hook's own commits.
+Everything else changes the draft without raising `prompt.edit`: Vim NORMAL and VISUAL commands, Vim
+INSERT remaps (`vimInsertModeRemaps`), undo, `$.prompt.fill`, and the hook's own commits.
 
 ### Field derivation
 
-The relay batches records onto a microtask (`rg -nF "the editor's edit stands"`). A batch is
-`{ before: first.before, after: last.after }`, and `key` is kept only when the batch holds exactly
-one record. The hook input is then:
+A batch is `{ before: first.before, after: last.after }`, with `key` only for a single record. The
+hook input (budget 50 ms):
 
-- `text`, `cursor`: the batch's `before`. `cursor` is the cursor before the edit.
-- `start`, `end`, `inputText`: a prefix/suffix diff of `before` against `after`. Relocate the diff
-  with `rg -n 'return \{ start: n\.cursor, end: n\.cursor, inputText: "" \}'`. When the text is
-  unchanged it returns `start = end = after.cursor` and `inputText: ""`. Otherwise the common
-  prefix is capped at `min(before.cursor, after.cursor)`.
+- `text`, `cursor`: the batch's `before`.
+- `start`, `end`, `inputText`: a prefix/suffix diff of `before` against `after`, found in the same
+  block as the relay. Unchanged text gives `start = end = after.cursor` and `inputText: ""`;
+  otherwise the common prefix is capped at `min(before.cursor, after.cursor)`.
 - `origin`: `{ kind: "composer" }`.
-- `key`: `{ key, ctrl?, shift?, meta? }`. `key` is the single character, `"space"`, or the key name.
+- `key`: `{ key, ctrl?, shift?, meta? }`; `key` is the single character, `"space"`, or the key name.
 
-| Edit, cursor `c`                  | `start` | `end` | `inputText` | `cursor` | `key`                     |
-| --------------------------------- | ------- | ----- | ----------- | -------- | ------------------------- |
-| Backspace (default or Vim INSERT) | `c-1`   | `c`   | `""`        | `c`      | `{ key: "backspace" }`    |
-| Left arrow                        | `c-1`   | `c-1` | `""`        | `c`      | `{ key: "left" }`         |
-| Typed `x`                         | `c`     | `c`   | `"x"`       | `c`      | `{ key: "x" }`            |
+| Edit at cursor `c` | `start` | `end` | `inputText` | `cursor` | `key`                  |
+| ------------------ | ------- | ----- | ----------- | -------- | ---------------------- |
+| Backspace          | `c-1`   | `c`   | `""`        | `c`      | `{ key: "backspace" }` |
+| Left arrow         | `c-1`   | `c-1` | `""`        | `c`      | `{ key: "left" }`      |
+| Typed `x`          | `c`     | `c`   | `"x"`       | `c`      | `{ key: "x" }`         |
 
-A deletion always has `end > start`, so `start === end && inputText === ""` identifies a pure
-cursor move. The one exception is a batch whose edits cancel out, such as a deletion and a retype
-merged while the chain was busy.
+Backspace has this shape in the default editor and in Vim INSERT.
+
+`start === end && inputText === ""` identifies a pure cursor move, except for a batch whose edits
+cancel out.
+
+The answer `{ text, cursor, decorations? }` commits when the draft still reads the editor's `after`.
+If typing moved on meanwhile, the answer's change is rebased over it when the two do not overlap;
+otherwise it is dropped with `a rewrite no longer fits the draft (it moved meanwhile)`.
 
 ### Vim mode
 
-The Vim key handler sits in front of the base input. Relocate it with
-`rg -n 'else if \(ye && S\.name === "backspace"\) Ce = "h"'` (symbols churn; the shape is "map
-arrow/backspace/delete to `h`/`l`/`k`/`j`/`x`, then run the command table").
+The Vim key handler sits in front of the base input; relocate it with `rg -n 'vim_insert_remap'`
+(the telemetry calls inside it).
 
-- INSERT: every key that is not a remap is forwarded to the base handler, so Backspace deletes and
-  is recorded as in the table above. Esc's one-column step left is not recorded.
-- NORMAL: Backspace becomes the `h` motion, Delete becomes `x`, and left/right become `h`/`l`.
-  Motions and edits (`h`, `w`, `b`, `x`, `dd`, `p`, ...) run in the Vim layer, which sets the
-  cursor and text directly. None of them raises `prompt.edit`. The keys forwarded to the base
-  handler, and therefore recorded, are ctrl and meta chords, Return, `up`/`down` while no command
-  is pending, and `left` on an empty draft.
+- INSERT: every key that is not a remap is forwarded to the base handler, so Backspace is recorded
+  as above. Esc's step left is not recorded.
+- NORMAL: Backspace is Vim's backspace motion (left, crossing line starts), Delete is `x`, arrows
+  are `h`/`j`/`k`/`l`. Motions and edits run in the Vim layer and raise no `prompt.edit`. Forwarded
+  and recorded: ctrl and meta chords, Return, `up`/`down` while idle, `left` on an empty draft.
 - VISUAL: never forwarded, never recorded.
 
-A `prompt.edit` hook that snaps the cursor out of a token therefore does nothing in NORMAL mode.
-Backspace walks the cursor left through the token one column at a time, and `x`/`d` edits can cut
-it without the hook seeing them.
-
-The current Vim mode lives in the draft store's `vimMode`. Hook inputs, `$.prompt.read` (only
-`{ text, cursor }`), and `ui.render` props do not expose it. The status-line command's
-`vim.mode` field is the only outside reader. Whether Vim is on is the global-config key
-`editorMode` (`"vim"`).
+The current mode is the draft store's `vimMode`; hook inputs, `$.prompt.read` and `ui.render` props
+do not expose it. The status-line command's `vim.mode` field is the only outside reader. Vim is on
+when the `editorMode` setting is `"vim"`.
 
 ### Undo
 
-`chat:undo` (`ctrl+_`, `ctrl+-`, `ctrl+shift+-`, `ctrl+shift+_`) and Vim `u` call the same undo
-function. It pops a snapshot and sets the value and cursor directly, so undo raises no
-`prompt.edit`. A hook cannot see or re-shape an undo, and nothing marks a later edit as following
-one.
+`chat:undo` (`ctrl+_`, `ctrl+-`, `ctrl+shift+-`, `ctrl+shift+_`) and Vim `u` pop a snapshot and set
+the value directly, so undo raises no `prompt.edit`. It does raise `prompt.change` with
+`origin: { kind: "undo" }`, an observer event for draft changes that are not composer typing; its
+answer is not applied, so a hook can see an undo but not re-shape it.
 
-The snapshots come from the composer's change handler. Relocate it with
-`rg -n 'maxBufferSize: 50, debounceMs: 1000'`. Each draft change pushes the text before the
-change, and that includes a hook's commit, which goes through the same handler. Pushes are
-debounced at 1000 ms: a push within 1 s of the last real push cancels any pending one and
-reschedules itself. The exceptions are Vim NORMAL mode, where every push is immediate, and the
-first push after each Vim mode change. Undo cancels a pending push.
+Snapshots come from the composer's change handler (`rg -n 'maxBufferSize: 50, debounceMs: 1000'`).
+Each change pushes the text before it, including a hook's commit. Pushes are debounced at 1000 ms: a
+push within 1 s of the last cancels any pending one and reschedules itself. With Vim on, pushes
+outside INSERT and the first push after a mode change are immediate. Undo cancels a pending push.
 
-For a keystroke the hook rewrites, the keystroke pushes the original text and the hook's commit
-pushes the intermediate text (keystroke applied, before the rewrite):
+For a keystroke the hook rewrites, the keystroke pushes the original and the commit pushes the
+intermediate text:
 
 - Undo within 1 s of an idle start restores the original in one step.
 - Undo after 1 s restores the intermediate text first, then the original.
-- When the keystroke came within 1 s of earlier typing, the original's push is replaced by the
-  intermediate's, so undo reaches the intermediate text and never the original.
+- When the keystroke came within 1 s of earlier typing, undo reaches the intermediate text and never
+  the original.
 
-□ Tripwire: `rg -n '\.record\(\{'` inside the composer still finds exactly the two relay sites;
-  the Vim NORMAL path still maps Backspace to `h`; the undo handler still sets the value without
-  recording. If any changes, this section is stale.
+□ Tripwire: `rg -n '\.record\(\{'` still finds exactly two relay sites; NORMAL Backspace is still a
+motion; undo still sets the value without recording. If any changes, this section is stale.
 
 
-## Pane placement and width
+## Pane placement and size
 
-Panes are placed only when the terminal is wide enough. The predicate compares
-`Nme.get()?.columns` against `110` if the user has already been asked about this pane
-(the pane store's `asked` list), or `144` otherwise. Same constants as the diff sidebar. Relocate by
-grepping for the pane store's shape: `rg -n 'focusedId'` and read the reducer file that also defines
-`shownId`, `unplaced`, `asked`, `placements`, `closing`.
+A pane opens placed only when the terminal is wide enough: `110` columns if the person opened that
+id before (the pane store's persisted `asked` list), else `144`; a person-initiated open bypasses
+the gate. Otherwise it waits in `unplaced` with a reason starting `unasked below <N> columns`
+(`rg -n 'unasked below'`), placed when the person opens it or the terminal is widened.
 
-The `Pane` render site passes these props to the plugin's `ui.render` handler:
+A placed pane docks or sits inline:
+
+- Docked (`placement: "dock"`): fullscreen, the native diff sidebar not showing, and `>= 110`
+  columns. Default width `min(floor(0.45 × columns), 90, columns − 70)`; a chosen or requested width
+  is clamped to `[24, min(floor(0.45 × columns), columns − 60)]`.
+- Inline (`placement: "inline"`): above the prompt, full width. Default height a third of the rows,
+  at least 5.
+
+Sizes chosen with the grips or `ctrl+x` chords persist in global config `pluginPanes`
+(`dockColumns`, `inlineRows`). Relocate with `rg -nF 'DOCK_GRIP_COLUMNS: () =>'`, whose export map
+also lists `chromeRows`, `dockColumns`, `inlineRows`, `PaneDock`, `PaneHost`, `PaneSite`,
+`PaneTabs`, `DockTail` and `InlinePanes`.
+
+The `Pane` render site passes the plugin's `ui.render` handler:
 
 ```
 { title, isFocused, bodyColumns, placement: "dock" | "inline", scroll: { offset, bodyRows }, view }
 ```
 
-`placement` is `"dock"` when the pane fills, `"inline"` otherwise. The engine components a plugin can
-draw are fixed; grep the component→site map with `rg -n 'AskUserQuestionPermissionDialog'` — it maps
+The components a plugin can draw are a fixed map (`rg -n 'AskUserQuestionPermissionDialog'`):
 `AskUserQuestion`, `UserMessage`, `AssistantMessage`, `ToolUse`, `ToolResult`, `ToolGroup`,
 `ToolProgress`, `CommandOutput`, `Spinner`, `TurnDuration`, `InfoNotice`, `SessionMode`,
-`PromptHint`, `AbovePrompt`, `Pane`. The elements available per surface are a separate table
-(`rg -n '"Raster"'`); the `terminal` surface allows `Box`, `Text`, `Button`, `Input`, `Select`,
-`Link`, `Code`, `Markdown`, `Client`, `Raster`, `Image`.
+`PromptHint`, `AbovePrompt`, `Pane`, `Placed`, and `Backdrop` (drawn only by a remote surface). The
+`terminal` surface allows `Box`, `Text`, `Button`, `Input`, `Select`, `Link`, `Code`, `Markdown`,
+`Client`, `Raster`, `Image` (`rg -n 'mobile: \["Box"'` finds the per-surface table).
 
 
 ## Vertical chrome: which surface owns the blank rows
 
-No shared container inserts a blank row. The fullscreen layout's side slots, the pane dock, and the
-pane host all add zero vertical padding, so every blank row above a panel's first line of content is
-drawn by that panel's own tree.
+### The layout's side slots add width, nothing vertical
 
-### The layout's two side slots add width and a background, nothing else
+`rg -n 'sidebarWidth'` (2 hits: the fullscreen layout's prop and its caller). The layout wraps the
+sidebar, when its width is positive, in a column Box with `width`, `flexShrink: 0`,
+`overflow: "hidden"` and `backgroundColor: "composerSidebarBackground"`, and the dock in the same
+Box with `display: "flex" | "none"` and no background. Neither sets `padding*`, `margin*` or `gap`.
+The dock's fill comes from `PaneDock` and `DockTail`: `composerSidebarBackground`, or none when the
+shown pane was opened with `backgroundColor: "transparent"`.
 
-Grep `rg -n 'sidebarWidth'` — 2 hits, the prop and its single consumer, the fullscreen layout
-component. That component takes `sidebar` / `sidebarWidth` and `dock` / `dockWidth`, and wraps
-each in the same Box:
-
-```
-{ width, flexShrink: 0, flexDirection: "column", overflow: "hidden",
-  backgroundColor: "composerSidebarBackground" }
-```
-
-(the dock slot additionally sets `display: "flex" | "none"`). Relocate both by grepping
-`rg -n 'backgroundColor: "composerSidebarBackground"'` — 3 hits in the layout module: the sidebar
-slot, the dock slot, and the absolutely-positioned dock tail below the pane. None of the three sets
-`padding*`, `margin*` or `gap`.
-
-The transcript column is the one slot that insets itself. Its scroll box carries
-`paddingTop: <1, or 0 while a sticky prompt is showing>`. That row belongs to the transcript; the
-side slots never receive it.
+The transcript scroll box carries `paddingTop: 1`, or `0` while a sticky prompt shows; that row
+belongs to the transcript.
 
 ### The diff sidebar's blank top row is a `paddingY: 1` on its own header block
 
-The native diff panel body is the component that registers the base-cycling binding; find it with
-`rg -n 'context: "DiffPanel"'` (2 hits: the default keybinding table and the component). Its root
-is
-
-```
-Box { flexDirection: "column", width, height: "100%", onWheel, selectionScope: true }
-```
-
-with no padding, no margin and no gap, and exactly two children:
+`rg -n 'context: "DiffPanel"'` (2 hits: the keybinding table and the panel). Its root is
+`Box { flexDirection: "column", width, height: "100%", onWheel, selectionScope: true }` with two
+children:
 
 | Child         | Props                                                              |
 | ------------- | ------------------------------------------------------------------ |
-| header block  | `flexDirection: "column", paddingX: 1, paddingY: 1, flexShrink: 0`  |
-| scroll region | `flexGrow: 1, flexDirection: "column", overflow: "hidden"`          |
+| header block  | `flexDirection: "column", paddingX: 1, paddingY: 1, flexShrink: 0` |
+| scroll region | `flexGrow: 1, flexDirection: "column", overflow: "hidden"`         |
 
-The `paddingY: 1` on the header block is the inset. It puts one blank row above the header's first
-line, the `<N> files changed` row built as
-`[Text{bold}[count, " ", plural("file")], " ", "changed", <+/- counts>]`, and one blank row below
-the block's last child. The base-mode line (`uncommitted (vs HEAD)`, `branch vs <base>`,
-`vs HEAD (no base branch)`, or `no commits yet — showing staged and new files`) is the header
-block's second child and sits directly under the count row with nothing between them.
+The `paddingY: 1` puts one blank row above the header's first line and one below its last child. The
+first line is a row: `<N> files changed` with `+/-` counts, a spacer, and a close button. Under it,
+the base-mode line (`this session`, `uncommitted (vs HEAD)`, `branch vs <base>`,
+`vs HEAD (no base branch)`, or `no commits yet — showing staged and new files`), shown unless the
+base is `session`; then a progress bar and the file list, each with `marginTop: 1`. Relocate the
+block from `rg -nF 'uncommitted (vs HEAD)'` (1 hit, the label helper).
 
-Relocate the header block from the base-mode label: `rg -nF 'uncommitted (vs HEAD)'` (1 hit) finds
-the label helper, whose sole caller is the header block's second child. Read up from that call to
-the enclosing Box carrying `paddingX: 1, paddingY: 1`.
+Below the header the scroll region adds `paddingX: 1` only. The empty state centres its headline
+with `paddingX: 1`, plus a `paddingBottom: 1` row for files edited before the session.
 
-Below the header, the scroll region adds `paddingX: 1` only; the scrollable Box spreads its rest
-props straight into `style` and contributes no padding of its own. The empty-state branch
-(`Loading diff…`, `No uncommitted changes`, …) likewise sets `paddingX: 1` with no vertical
-padding.
+□ Tripwire: if the header block loses `paddingY: 1` for `paddingTop`/`paddingBottom`, the insets can
+diverge.
 
-□ Tripwire: `rg -n 'paddingY' <bundle>` in the diff panel's component; if the header block loses
-  `paddingY: 1` in favour of `paddingTop`/`paddingBottom`, the top and bottom insets can diverge.
+### A docked plugin pane reserves one top row
 
-### A plugin pane's tree starts on the first body row
+`PaneDock` is a row Box (`flexGrow: 1`, the dock fill) holding the drag grip
+(`DOCK_GRIP_COLUMNS = 1`) and a column Box around `PaneHost`, which renders `PaneSite` in an error
+boundary. Neither adds padding.
 
-The dock chain is three components, all exported from one module's `Cs(...)` map — grep
-`rg -n 'PaneSite: \(\) =>'` and read the enclosing export list for `PaneDock`, `PaneHost`,
-`PaneSite`, `PaneTabs`, `chromeRows`, `DOCK_GRIP_COLUMNS`.
-
-`PaneDock` is a row Box, `flexGrow: 1`, holding the drag grip (`DOCK_GRIP_COLUMNS = 1`) and a plain
-`flexDirection: "column"` Box around `PaneHost`. `PaneHost` resolves the shown pane and renders
-`PaneSite` inside an error boundary. Neither adds padding.
-
-`PaneSite` is the chrome. Its outer Box:
+`PaneSite` is an outer column Box (`width`, `onClick`, `onWheel`, `selectionScope: true`) holding
+the chrome Box and the close mark:
 
 ```
 Box {
-  flexDirection: "column", flexShrink: 0, width, height: <fill ? rows : undefined>,
+  flexDirection: "column", flexShrink: 0, height: <dock ? rows : undefined>, selectionScope: true,
   borderStyle: <inline ? "round" : undefined>, borderDimColor: !isFocused,
   borderTopDimColor: !isFocused && !lit, borderTopColor: <lit ? "suggestion" : undefined>,
-  paddingX: <inline ? 1 : 0>, onClick, onWheel, selectionScope: true,
+  paddingX: <inline ? 1 : 0>,
 }
 ```
 
-`inline` is `!fill`, and `fill` is what the `placement` prop reports: `placement: fill ? "dock" :
-"inline"`. So a docked pane gets `paddingX: 0` and no border at all. There is no `paddingY`,
-`paddingTop`, `marginTop` or `gap` on this Box in either placement.
+| Child     | Condition           | Shape                                                          |
+| --------- | ------------------- | -------------------------------------------------------------- |
+| tab strip | 2+ panes open       | `PaneTabs`: row Box, `height: 1`, `gap: 1`, `overflow: hidden` |
+| blank row | docked, single pane | `Box { flexShrink: 0, height: 1 }`                             |
+| viewport  | always              | `backgroundColor`, `maxHeight`, `overflowY: "hidden"`          |
 
-Its children, in order:
+The close mark is absolutely positioned at `top: 0`, `right: 2` inline or `right: 1` docked, so it
+sits on the border or the reserved top row. The viewport holds one Box with
+`marginTop: -<scroll offset>`, `0` at offset 0, around the plugin's tree.
 
-| Child        | Condition         | Shape                                                        |
-| ------------ | ----------------- | ------------------------------------------------------------ |
-| `PaneTabs`   | 2+ panes open     | row Box, `height: 1`, `gap: 1`, `overflow: "hidden"`          |
-| viewport     | always            | `flexShrink: 0, maxHeight, overflowY: "hidden"`               |
-| close button | always            | `position: "absolute", top: 0, right: <inline ? 1 : 0>`       |
+So a docked pane's first plugin row is the pane's second row: the first is the blank row (with `✕`)
+or the tab strip. Inline, it is the first row inside the border, under the tabs when shown.
+`chromeRows = (hasTabs || docked ? 1 : 0) + (inline ? 2 : 0)`, and
+`bodyColumns = columns − (inline ? 4 : 0)`.
 
-The viewport wraps one inner Box, `marginTop: -<scroll offset>, flexDirection: "column",
-flexShrink: 0`, whose children are the plugin's rendered tree. That negative `marginTop` is the
-viewport's only vertical offset, and it is `0` at scroll offset 0. The close button is absolutely
-positioned and consumes no row. So the plugin's first row lands on the pane's first body row, with
-the single-row tab strip above it only when a second pane is open.
+To match the diff sidebar from a docked pane, the reserved row already gives one blank row above;
+add `paddingX: 1` yourself, which a docked pane does not get.
 
-The row budget agrees: `chromeRows = (hasTabs ? 1 : 0) + (inline ? 2 : 0)`, so a docked single pane
-reserves nothing. The column budget is `bodyColumns = columns - (inline ? 4 : 0)`: 4 for the round
-border plus `paddingX: 1` on both sides.
+□ Tripwire: a docked single pane still renders the `height: 1` spacer; if it goes, plugin trees
+start on the pane's first row and this section is stale.
 
-To match the diff sidebar's look from a plugin pane, draw the blank row yourself: wrap the pane's
-header in a `Box` with `paddingY: 1` (and `paddingX: 1`, which a docked pane also does not get).
-
-□ Tripwire: `PaneSite`'s outer Box carries `paddingX` and no other spacing prop. If a `paddingY`
-  or `gap` appears there, docked plugin panes gain an inset and this section is stale.
 
 ## The rows under the prompt: `$.ui.status`, the `statusLine` command, and `PromptHint`
 
-Three things a user can read as "the status line" are drawn by three separate components, each on
-its own row. Outside screen-reader mode, the prompt column stacks them in this order:
+Outside screen-reader mode, the prompt column stacks:
 
-| Order | Row                         | Drawn by                                 | Plugin access               |
-| ----- | --------------------------- | ---------------------------------------- | --------------------------- |
-| 1     | prompt input box            | composer                                 | `prompt.*` ops and hooks    |
-| 2     | pinned notices, one per row | pinned-notice list                       | `$.ui.status` adds one row  |
-| 3     | `statusLine` command output | footer, left column, first child         | none                        |
-| 4     | footer hint line            | `FooterHintLine` inside `PromptHintPart` | `ui.render` on `PromptHint` |
+| Order | Row                         | Drawn by                     | Plugin access               |
+| ----- | --------------------------- | ---------------------------- | --------------------------- |
+| 1     | prompt input box            | composer                     | `prompt.*` ops and hooks    |
+| 2     | pinned notices, one per row | pinned list                  | `$.ui.status` adds one row  |
+| 3     | `statusLine` command output | footer left column 1st child | none                        |
+| 4     | footer hint line            | `FooterHintLine`             | `ui.render` on `PromptHint` |
 
 The footer's right column (MCP status, IDE selection, mode labels, toasts) sits beside rows 3-4, or
-below them when the footer wraps to a column. With a screen reader on, the input box moves below the
-footer.
+below them when the footer wraps. With a screen reader on, the input box moves below the footer.
 
-Relocate the prompt column by grepping `rg -n 'Waiting for permission\\u2026'` (2 hits). The hit
-whose element feeds a `flexDirection: "column"` Box lists the column's children: the permission-wait
-line, the input box (guarded by the screen-reader flag), the pinned-notice list, then the memoized
-footer, with a second copy of the input box at the end for screen-reader mode.
+Relocate the column with `rg -n 'Waiting for permission\\u2026'` (2 hits). The hit inside a
+`flexDirection: "column"` Box lists the permission-wait line, the input box, the pinned-notice list,
+the footer, and a second input box for screen-reader mode.
 
 ### `$.ui.status` is a pinned notification
 
-The REPL host's `status(plugin, text)` removes the notification keyed `plugin-status-<plugin>` and,
-unless `text` is `undefined`, adds a new one with `kind: "event"`, `priority: "low"`, `pinned: true`
-and text `<plugin display name>: <text>`. Relocate with `rg -n 'plugin-status-'` (1 hit). Its
-sibling `toast` method sits directly above it.
+The REPL host's `status(plugin, text)` removes the notification `plugin-status-<plugin>` and, unless
+`text` is `undefined`, adds one with `kind: "event"`, `priority: "low"`, `pinned: true` and text
+`<plugin display name>: <text>`. `rg -n 'plugin-status-'` (1 hit); `toast` and `notify` sit above.
 
-The pinned-notice list reads `notifications.pinned` (`rg -n 'notifications\.pinned'`, 3 hits: two in
-the add reducer, one selector). It sorts by priority (`immediate`, `high`, `medium`, `low`) and
-draws one `Text` per notice in a `paddingX: 2` column. Each row is prefixed with `⚠`, coloured
-`warning` unless the notice sets a colour, and set to `wrap: "truncate"` unless it sets `wrap`. A
-plugin status sets neither, so it is always a single yellow `⚠ plugin: text` row cut to the terminal
-width. The sort is stable and every call re-adds the notice, so among `low` notices the most
-recently updated plugin status is drawn last. The engine's own low-priority pinned notices share
-this list.
+The pinned-notice list (`rg -n 'notifications\.pinned'`, 3 hits) sorts by priority and draws one
+`Text` per notice in a `paddingX: 2` column, prefixed `⚠`, coloured `warning` unless set, truncated
+unless the notice asks to wrap. A plugin status sets neither, so it is a single yellow
+`⚠ plugin: text` row. Among `low` notices the most recently updated status is drawn last.
 
-In a headless session there is no status row. The call logs `no status row in a headless session`
-and goes nowhere.
+In a headless session the call logs `no status row in a headless session`.
 
 ### The `statusLine` command row
 
-The footer component reads `statusLine` from settings and mounts the status-line component only when
-the footer is in `prompt` mode, no exit message is showing, the user is not pasting, and a
-`statusLine` is configured. Relocate the component with `rg -n 'tengu_status_line_mount'` (its
-runner class) and the executor with `rg -n 'Skipping StatusLine command execution'`.
-
-The runner keeps the command's last stdout in its own state and the session's memory (`lastText`).
-The component draws one dim `wrap: "truncate"` `Text`, or a column of them for multi-line output,
-inside a Box with `paddingX` from `statusLine.padding`. Nothing else reads that text, and the
-command runs through the settings command-hook executor (event `StatusLine`), which does not raise
-any plugin hook.
+The footer mounts the status-line component when in `prompt` mode, no exit message shows, the user
+is not pasting, and a `statusLine` is configured. Relocate with `rg -n 'tengu_status_line_mount'`
+and `rg -n 'Skipping StatusLine command execution'`. The runner keeps the last stdout (`lastText`);
+the component draws dim truncated `Text` lines in a Box with `paddingX` from `statusLine.padding`.
+Nothing else reads that text.
 
 ### What a plugin can and cannot do to the `statusLine` row
 
-- No render site exists for it. The component-to-site map
-  (`rg -n 'AskUserQuestionPermissionDialog'`) has 15 entries and none is the status line, so
-  `ui.render` cannot draw or replace it.
-- No op or hook input exposes its text. `$.settings.read` returns the `statusLine` config, so a mod
-  can run the command itself through `$.process.run` and show the result in its own `$.ui.status`
-  row, `AbovePrompt` band or `PromptHint` draw. The engine's row stays as it is.
-- `ui.status` is in the op list, and op calls go through the hook chain like any other op event. A
-  hook on `ui.status` therefore sees other plugins' `$.ui.status` calls (`{ text }`) and can rewrite
-  them. It never sees the `statusLine` command, which is not an op.
+- No render site exists for it; the component map has no status-line entry.
+- No op or hook input exposes its text. A mod can read `statusLine` with `$.settings.read`, run it
+  with `$.process.run`, and show the result in `$.ui.status`, `AbovePrompt` or `PromptHint`.
+- `ui.status` calls pass through the hook chain, so a `ui.status` hook sees and can rewrite other
+  plugins' `$.ui.status` calls. It never sees the `statusLine` command.
 
 ### `PromptHint` is the row below the `statusLine` row
 
-The footer's left column is a `flexDirection: "column"` Box whose children are the status-line
-component and then `FooterHintLine`. They are two rows, one above the other.
+The footer's left column holds the status-line component, then `FooterHintLine`. A configured
+`statusLine` sets `suppressHint`, which hides only the `? for shortcuts` fallback;
+`suppressHintExceptStatusline` (2 hits) omits that term for the compact footer.
 
-A configured `statusLine` suppresses part of the hint row's content. The footer passes
-`FooterHintLine` `suppressHint: <caller's suppressHint> || <searching> || <statusLine configured>`
-and `suppressHintExceptStatusline` without the status-line term
-(`rg -n 'suppressHintExceptStatusline'`, 2 hits). In the normal footer, `suppressHint` gates the
-`"? for shortcuts"` fallback. The mode indicator, `esc to interrupt` and the other hint items stay.
-The alternate compact footer uses `suppressHintExceptStatusline`, so a status line does not remove
-its hint.
+`FooterHintLine` wraps its hint in `PromptHintPart`. With `ui.render` hooks for `PromptHint`, it
+reads the drawn hint text, strips the mode label, and passes `{ isDraft, isWorking, hint }` to
+`PromptHintSite` (`rg -n 'useRenderInput\("PromptHint"'`, 1 hit), never the status-line text.
 
-`PromptHintPart` wraps `FooterHintLine`. When a plugin has `ui.render` hooks for `PromptHint`, it
-reads the drawn hint row's text, strips the mode label, and passes `{ isDraft, isWorking, hint }` to
-`PromptHintSite` (`rg -n 'useRenderInput\("PromptHint"'`, 1 hit). That text comes from the hint row
-only, never from the status-line row above it.
-
-□ Tripwire: `rg -c 'plugin-status-'` = 1 and its notice still sets `pinned`; the component map still
-has no status-line entry; the footer's left column still lists the status-line component before
-`FooterHintLine`. If any changes, this section is stale.
-
-## Version notes
-
-- 2.1.300: `$.ui.status` is a pinned low-priority notification drawn as its own `⚠ plugin: text`
-  row between the input box and the `statusLine` row. The `statusLine` row has no render site
-  and no plugin reader; `PromptHint` is the hint row below it, which loses only its
-  `? for shortcuts` fallback when a `statusLine` is configured.
-
-- 2.1.286: keys a focused pane does not bind reach the composer, and a resulting draft change
-  releases the pane through `useReleaseOnEdit`. Hotkeys lowercase their input and never match
-  Space. `prompt.edit` runs after the release and reports `origin: { kind: "composer" }`.
-- 2.1.286: Vim NORMAL/VISUAL commands and undo (`chat:undo`, Vim `u`) raise no `prompt.edit`;
-  NORMAL-mode Backspace is the `h` motion. Undo snapshots include a hook's commits.
-
-- 2.1.277: the pane dock adds no vertical padding; a plugin pane's tree starts on the first body
-  row. The diff sidebar's leading blank row is a `paddingY: 1` on its own header block.
-- 2.1.277: `diff` is a built-in plugin, off by default, requiring function hooks. When it owns the
-  sidebar the native diff panel is unreachable, because `panelFileView` has no setter. Drag-select
-  attachment therefore only reaches a user running the native sidebar (the mod off, or function
-  hooks off).
+□ Tripwire: `rg -c 'plugin-status-'` = 1 and its notice sets `pinned`; the component map has no
+status-line entry; the footer's left column lists the status line before `FooterHintLine`.
