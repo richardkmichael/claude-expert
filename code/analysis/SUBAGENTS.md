@@ -1,6 +1,6 @@
 # The Agent Tool and Subagents
 
-Verified against: cli.prettier.js 2.1.316 (2026-11-02)
+Verified against: cli.prettier.js 2.1.317 (2026-11-03)
 
 This document follows the landmark style in `GUIDELINES.md`: it anchors on version-stable strings
 (tool names, the tool's `.describe(...)` and prompt strings, config keys, env vars, `tengu_*` names,
@@ -80,9 +80,11 @@ Schema shaping:
 - `model` is removed when `CLAUDE_CODE_SUBAGENT_MODEL_FORCE` is set. `inherit` is a definition
   frontmatter value, not a tool parameter.
 - `effort` is removed when `CLAUDE_CODE_EFFORT_LEVEL` pins the session effort. With the gate
-  `tengu_snappy_pelican` (env `CLAUDE_CODE_SNAPPY_PELICAN`) on, and no forced subagent model or
-  effort, it also accepts the relative values `lower` and `higher`, one step from the agent's usual
-  effort. Otherwise a stray `lower`/`higher` is dropped from the input before validation.
+  `tengu_snappy_pelican` (env `CLAUDE_CODE_SNAPPY_PELICAN`) on, it also accepts the relative values
+  `lower` and `higher`, one step from the agent's usual effort. The gate is forced off while
+  `CLAUDE_CODE_SUBAGENT_MODEL`, `CLAUDE_CODE_SUBAGENT_MODEL_FORCE`, `CLAUDE_CODE_SUBAGENT_EFFORT` or
+  `CLAUDE_CODE_EFFORT_LEVEL` is set. Otherwise a stray `lower`/`higher` is dropped from the input
+  before validation.
 - `cwd` is defined internally ("Absolute path to run the agent in") but omitted from the schema the
   model sees. A plugin's `agent.spawn` hook can still set it on a spawn.
 
@@ -190,7 +192,8 @@ agent. `CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS` in a non-interactive session em
 `workflow-subagent` runs Workflow scripts.
 
 Model "default" means the definition sets none: the agent runs on the configured default subagent
-model, else the parent's. `bubble` is the definition's `permissionMode`.
+model, else the parent's (see "Subagent model" below). `bubble` is the definition's
+`permissionMode`.
 
 | Agent type          | Model                | Tools                 | Role                       |
 | ------------------- | -------------------- | --------------------- | -------------------------- |
@@ -213,14 +216,43 @@ Notes:
 
 - `Explore` and `Plan` disallow `Agent`, `Artifact`, `ArtifactComments`, `ArtifactData`,
   `ArtifactCheck`, `ExitPlanMode`, `Edit`, `Write` and `NotebookEdit`, and set `omitClaudeMd`.
-  `Explore` has a shorter `whenToUseLean` description for lean prompts. Its model is capped at opus
-  on the first-party API unless `CLAUDE_CODE_DISABLE_EXPLORE_INHERIT_CAP` is set; other providers
-  inherit uncapped. Their result handling is special-cased (grep `new Set(["Explore", "Plan"])`).
+  `Explore` has a shorter `whenToUseLean` description for lean prompts. Its inheritance is capped
+  (see "Subagent model"). Their result handling is special-cased (grep
+  `new Set(["Explore", "Plan"])`).
 - `web-fetch` runs on `haiku` when a first-party condition and the gate `tengu_nimble_wren` hold,
   otherwise `inherit`. It never takes isolation, defaults to foreground, sets `omitClaudeMd`, and
   renders as "Fetching in background" when backgrounded.
 - Agent Teams teammates are not built-ins. An in-process teammate gets a synthesized definition
   named after the teammate (`whenToUse` "In-process teammate: <name>", source `projectSettings`).
+
+### Subagent model
+
+Relocate the resolver with `rg -n '\[\w+, "frontmatter"\]'` (one hit): that line sits in the
+function that labels the winning source `tool`, `frontmatter`, `env` or `inherit` and logs
+`subagent_model_resolve`. A non-fork subagent's model resolves in this order:
+
+1. the Agent tool call's `model`;
+2. the agent definition's `model`, where `inherit` means the parent's model;
+3. `CLAUDE_CODE_SUBAGENT_MODEL` (unless `inherit`), only when the definition sets no model;
+4. otherwise the parent's model.
+
+`CLAUDE_CODE_SUBAGENT_MODEL_FORCE` drops the first two, keeping only an explicit `inherit` from the
+tool call, so the env model or the parent's model applies; it also removes `model` from the tool
+schema. Inside a Workflow run, `CLAUDE_CODE_WORKFLOW_SUBAGENT_MODEL` (unless `inherit`) replaces the
+first two. An alias that names the parent's own family resolves to the parent's exact model. A model
+outside the `availableModels` allowlist steps down within its family or falls back to the parent's
+model, with the warning "is not in the availableModels allowlist". A fork always runs on the
+parent's model.
+
+Explore's `model: "inherit"` carries a cap. Relocate it with
+`rg -nF 'CLAUDE_CODE_DISABLE_EXPLORE_INHERIT_CAP) return "inherit"'`: on the first-party API,
+when the parent's model belongs to a catalog family ranked above Opus, Explore runs on `opus`
+instead. `CLAUDE_CODE_DISABLE_EXPLORE_INHERIT_CAP` lifts the cap, and other providers inherit
+uncapped. Under `CLAUDE_CODE_SUBAGENT_MODEL_FORCE` the cap survives only while
+`CLAUDE_CODE_SUBAGENT_MODEL` is unset. Plan inherits uncapped.
+
+The resolved model also selects the Bash tool's description, and with it the git instructions a
+subagent sees: `GIT_USAGE.md`, "Subagents and the Model Axis".
 
 ### claude-code-guide
 
@@ -255,9 +287,12 @@ it by the result fields `hasWildcard`, `invalidTools`, `unavailableTools`, `reso
   `mcp__server__tool`, or a server-level `mcp__server` / `mcp__server__*`. `mcp__*` is not
   recognized in `tools`. A server-level entry that matches no connected server logs "takes no tool:
   no connected MCP server of that name has one."
-- When the embedded search tools hide `Glob`/`Grep` from the session, an explicit list naming them
-  without `Bash` still receives the real `Glob`/`Grep` tools. A list that resolves `Bash`,
-  `PowerShell` or `REPL` also receives `GetTask`.
+- Embedded search drops `Glob` and `Grep` from the session on a native build (see
+  `TOOLS_AND_EXECUTION.md`, "Embedded search"). An explicit list whose resolved tools have no `Bash`
+  still receives the real `Glob`/`Grep` tools for entries naming them, unless the agent disallows
+  them; with `Bash` resolved, those entries resolve to nothing. Denying or disabling `Bash` for the
+  session puts `Glob` and `Grep` back into the session's tool set, and so into the pool subagents
+  draw from. A list that resolves `Bash`, `PowerShell` or `REPL` also receives `GetTask`.
 - `disallowedTools` removes exact names, `mcp__server`, `mcp__server__*`, and `mcp__*` (every MCP
   tool). Relocate its matcher by the returned `isServerLevelDisallowed`.
 - Agent-frontmatter `mcpServers` tools are appended after resolution. They are filtered by
@@ -393,13 +428,13 @@ Async built-in filter. The per-agent filter (destructured `isTeammate`, `agentDe
 `subagentMemoryMode`; see above) drops every built-in tool that is not in the async allowlist when
 `isAsync` is set. Before it, the same filter removes a set every agent loses: ExitPlanMode outside
 plan mode, EnterPlanMode, the `memory_*` tools, AskUserQuestion, Poll, ConnectGitHub,
-OfferChromeSetup, `propose_skills`, WaitForMcpServers, RefreshMcpTools, Workflow, ScheduleWakeup,
-ReadNotifications, ProposeGoal, PublishPlugin, the continue-in-projects tools and EndConversation.
-`SendMessage` is dropped where the host restricts subagent sends, and `Agent` is kept only while
-depth is under the cap. The async allowlist is `Read`, `WebSearch`, `TodoWrite`, `Grep`, `WebFetch`,
-`Glob`, `Bash`, `PowerShell`, `Edit`, `Write`, `NotebookEdit`, `Skill`, `StructuredOutput`,
-`ToolSearch`, `EnterWorktree`, `ExitWorktree`, `REPL`, `LSP`, `Monitor`, `TaskStop`, `SendMessage`,
-`Artifact` and the plugin/skill search and list tools.
+OfferChromeSetup, `propose_skills`, WrapUp, WaitForMcpServers, RefreshMcpTools, Workflow,
+ScheduleWakeup, ReadNotifications, ProposeGoal, PublishPlugin, the continue-in-projects tools,
+EndConversation and AppifactRepl. `SendMessage` is dropped where the host restricts subagent sends,
+and `Agent` is kept only while depth is under the cap. The async allowlist is `Read`, `WebSearch`,
+`TodoWrite`, `Grep`, `WebFetch`, `Glob`, `Bash`, `PowerShell`, `Edit`, `Write`, `NotebookEdit`,
+`Skill`, `StructuredOutput`, `ToolSearch`, `EnterWorktree`, `ExitWorktree`, `REPL`, `LSP`,
+`Monitor`, `TaskStop`, `SendMessage`, `Artifact` and the plugin/skill search and list tools.
 
 One exception admits more for teammates. When Agent Teams is enabled and the agent is a teammate,
 `TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate`, `SendMessage`, `CronCreate`, `CronDelete` and
@@ -457,10 +492,11 @@ own.
 without exact tools or a structured-output schema receives the `SubagentHandback` tool (relocate by
 `searchHint: "deliver your final report to the agent that spawned you"`). It is switched on by
 `CLAUDE_CODE_SENDMESSAGE_HANDBACK`, else the gate `tengu_lively_waffle` (default on), and is off
-under `CLAUDE_CODE_EVAL_CONFINED`. The subagent must deliver its report through that call: "plain
-text you write at the end of your run is NOT delivered". The call passes the auto-mode classifier,
-which flags rather than blocks. A subagent that ends without calling it returns "The subagent ended
-without delivering a report through SubagentHandback, so no report was delivered."
+under `CLAUDE_CODE_DISABLE_SUBAGENT_HANDBACK` or `CLAUDE_CODE_EVAL_CONFINED`. The subagent must
+deliver its report through that call: "plain text you write at the end of your run is NOT
+delivered". The call passes the auto-mode classifier, which flags rather than blocks. A subagent
+that ends without calling it returns "The subagent ended without delivering a report through
+SubagentHandback, so no report was delivered."
 
 Other launches return different results: `async_launched` ("Async agent launched successfully", with
 an `agentId`, and, when the caller has Read or Bash, an `output_file` and a warning not to read it,
@@ -491,6 +527,12 @@ metered assistant message only, picked by a `findLast` over the message list, no
 turns. So `subagent_tokens`, the `Done (…)` token count, and the `total_tokens` telemetry are a
 final-turn snapshot that undercounts the run. For the exact cross-turn total and the full accounting
 story, see `MONITORING_USAGE.md`.
+
+A completed sync result can also carry an internal `taskCalls` field: the subagent's `TaskCreate`
+and `TaskUpdate` calls that succeeded, in order, with input and result text, so the main transcript
+can account for the subagent's writes to the session task list. It is gated on `tengu_bright_kettle`
+(default off) and dropped when it exceeds 16,384 bytes (event `task_list_subagent_calls`,
+`over_size_limit`). Relocate with `rg -n 'taskCalls'`.
 
 ### What the human sees
 
