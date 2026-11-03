@@ -1,308 +1,450 @@
 # Claude Code Entrypoints and Execution Surfaces
 
+Verified against: cli.prettier.js 2.1.317 (2026-11-03)
+
 Source: `cli.prettier.js` (`work/<version>/package/cli.prettier.js`)
-Verified against: cli.prettier.js 2.1.76 (2026-06-06); entrypoint set, client-type resolution and
-prompt-variant routing re-verified against 2.1.277 (2026-09-19).
 
 ## Overview
 
-Claude Code (`cli.prettier.js`) is a Node.js application that runs across multiple execution
-surfaces. It is never executed directly in a web browser -- even for web-based surfaces like
-claude.ai/code, the Node.js process runs server-side with the browser providing a terminal UI over
-WebSocket.
+Claude Code is one JavaScript application, shipped as a bun-compiled native binary, that runs behind
+many execution surfaces: a terminal, the VS Code extension, the Claude desktop app and its Cowork
+workspace, claude.ai/code and the mobile app, Slack and Teams, GitHub Actions, and the Agent SDKs.
+On the web, mobile, Slack and Teams surfaces the process runs in a sandbox provisioned for the
+session, not on the user's computer; the app relays its messages.
 
-The execution surface is identified by the `CLAUDE_CODE_ENTRYPOINT` environment variable, which
-influences behavior in authentication, telemetry, feature availability, and potentially system
-prompt selection.
+The surface is named by the `CLAUDE_CODE_ENTRYPOINT` environment variable. From it the code derives
+a display client type, a `# Surface` system-prompt section, the name requests go out under, and a
+set of per-surface gates in authentication, telemetry, feature-flag targeting and UI.
 
 ## Entrypoint Detection
 
 ### Setting the entrypoint
 
-Relocate: `rg -n 'claude-code-github-action'`. The function that assigns
-`process.env.CLAUDE_CODE_ENTRYPOINT` is the setter.
+Relocate: `rg -n 'claude-code-github-action'`; the hit that assigns the value to
+`CLAUDE_CODE_ENTRYPOINT` is in the setter.
 
-It returns immediately if `CLAUDE_CODE_ENTRYPOINT` is already set, so a hosting environment
-(VSCode, Claude Desktop, remote infrastructure) always wins over the CLI's own detection. Failing
-that it checks argv for `mcp serve` and sets `mcp`, then checks `CLAUDE_CODE_ACTION` and sets
-`claude-code-github-action`, and otherwise sets `sdk-cli` when running non-interactively or `cli`
-when not.
+If `CLAUDE_CODE_ENTRYPOINT` is already set, a hosting environment (VS Code, Claude Desktop, remote
+infrastructure, an SDK) has named the surface and the setter keeps it, with two rewrites:
+`local_agent` becomes `local-agent`, and `cli` becomes `sdk-cli` when the session is
+non-interactive. Otherwise it checks argv for `mcp serve` and sets `mcp`, then a truthy
+`CLAUDE_CODE_ACTION` and sets `claude-code-github-action`, and otherwise sets `sdk-cli` when
+non-interactive or `cli` when not.
 
-"Non-interactive" here means any of `--print`, `--init-only`, `--sdk-url`, or stdout not being a
-TTY.
+"Non-interactive" means the launch path declares the session non-interactive, or argv holds `-p`,
+`--print`, `--init-only` or a `--sdk-url` flag, or stdout is not a TTY. The setter runs at startup,
+before the client type is resolved.
 
 ### Valid entrypoint values
 
-At 2.1.277 the entrypoint is validated against a fixed set, and a value outside it is treated as
-unset rather than passed through. Relocate by grepping `remote_cowork_trigger`, which appears
-nowhere else.
+Relocate: `rg -n '"claude-coworker-terminal": '`. Of the two object literals it hits, the valid set
+is the one whose every value is true; the other maps each entrypoint to an opaque code for the
+`x-claude-code-wiggly-dove` header (see Request identification).
 
     cli  mcp  bench
     sdk-cli  sdk-ts  sdk-py
     claude-vscode  claude-desktop  claude-desktop-3p  claude-coworker  claude-coworker-terminal
     claude-code-github-action  local-agent  local_agent
     remote  remote_baku  remote_cowork  remote_trigger  remote_cowork_trigger  remote_desktop
-    remote_mobile
+    remote_mobile  remote_projects
     claude_in_slack  claude-in-slack  claude-in-teams
     claude-security  ssh-remote
 
-Tripwire: the set held 9 recognized values at 2.1.76 and 27 at 2.1.277, and unknown values were
-accepted then and are rejected now. Re-read the set rather than trusting this list.
+The validated accessor returns the value only when it is in this set, so an unknown value reads as
+unset wherever the code goes through it: telemetry, GrowthBook attributes, the bootstrap request,
+the `# Surface` section. Not every reader validates. The User-Agent, the attribution block, the
+`anthropic-client-platform` header, the client-type resolver and several single-value checks read
+the raw variable and pass an unknown value through or treat it as `cli`.
+
+Tripwire: □ the set has 27 members □ the setter rewrites `local_agent` to `local-agent` □ the setter
+rewrites a preset `cli` to `sdk-cli` when non-interactive.
+
+### Request entrypoint name
+
+Requests can go out under a name other than `CLAUDE_CODE_ENTRYPOINT`. When this name is set, the
+User-Agent, the attribution block and the `# Surface` lookup in diskless sessions use it in place of
+the entrypoint; the entrypoint itself, telemetry and the client type are unchanged. Three routes set
+it, and the first to claim it wins:
+
+- `CLAUDE_CODE_ENTRYPOINT_ON_REQUESTS`, read only when the entrypoint is `claude-desktop-3p`. The
+  name must be 1 to 32 characters of `a-z`, `0-9`, `_` and `-`, start with a letter and not start
+  with `sdk`; an entrypoint name, any name beginning with `remote`, and `local_projects` are
+  reserved. Each rejection is logged with a message starting
+  `CLAUDE_CODE_ENTRYPOINT_ON_REQUESTS ignored`. The variable is unset after it is read.
+- A Remote Control child (`CLAUDE_CODE_ENVIRONMENT_KIND=bridge`) with
+  `CLAUDE_CODE_BRIDGE_CHILD_PROJECTS_ENTRYPOINT`, or a bridge grant asking for the projects
+  entrypoint, sends requests as `local_projects`. Event: `bridge_projects_entrypoint_name`.
+- A Remote Control child whose entrypoint is `sdk-cli`, with
+  `CLAUDE_CODE_BRIDGE_CHILD_CLI_ENTRYPOINT` and the `tengu_gentle_orchard` flag (default on), sends
+  requests as `cli`. Event: `bridge_cli_entrypoint_name`.
+
+Relocate: `rg -nF 'CLAUDE_CODE_ENTRYPOINT_ON_REQUESTS ignored'`; the two bridge routes sit beside
+it.
 
 ### Client type resolution
 
-After the entrypoint is set, a display-friendly `clientType` is resolved and stored in global state.
-Relocate by grepping `sdk-typescript`; the resolver and the enum of valid client types are separate
-hits.
+After the entrypoint is set, a display client type is resolved and stored in global state. Relocate:
+`rg -n '"sdk-typescript"'`. The hits are the client-type enum, the resolver (just before the
+`main_client_type_determined` checkpoint), and a lookup table in a separate module.
 
-The resolver checks in order: `GITHUB_ACTIONS` truthy gives `github-action`; then the entrypoint
+The resolver checks, in order: `GITHUB_ACTIONS` truthy gives `github-action`; then the entrypoint
 values `sdk-ts`, `sdk-py`, `sdk-cli`, `claude-vscode`, `local-agent` and `claude-desktop` map to
-their own client types; then a remote credential of any kind, or an explicit `remote` entrypoint,
-gives `remote`; otherwise `cli`.
+`sdk-typescript`, `sdk-python`, `sdk-cli`, `claude-vscode`, `local-agent` and `claude-desktop`; then
+a remote credential, or an explicit `remote` entrypoint, gives `remote`; otherwise `cli`.
 
 The remote credentials are `CLAUDE_CODE_SESSION_ACCESS_TOKEN`,
 `CLAUDE_CODE_WEBSOCKET_AUTH_FILE_DESCRIPTOR`, `CLAUDE_SESSION_INGRESS_TOKEN_FILE`, and a truthy
 `CLAUDE_CODE_REMOTE` combined with an available session credential. Any one of them yields `remote`
-without an explicit entrypoint value.
+without an explicit entrypoint.
 
-Note that the client-type set is narrower than the entrypoint set: the many `remote_*` entrypoints
-all collapse to the single `remote` client type.
+The enum has 9 client types: `cli`, `remote`, `github-action`, `sdk-typescript`, `sdk-python`,
+`sdk-cli`, `claude-vscode`, `local-agent`, `claude-desktop`. Every `remote_*` entrypoint, and every
+entrypoint without a case of its own, collapses to `remote` or `cli`.
+
+The client type decides a few things directly. `CLAUDE_CODE_QUESTION_PREVIEW_FORMAT` (`markdown` or
+`html`) is honored everywhere, and without it question previews default to markdown except for SDK,
+`claude-desktop`, `local-agent` and `remote` sessions and non-interactive VS Code.
+`CLAUDE_CODE_QUESTION_EXTENDED` and `CLAUDE_CODE_QUESTION_OPTIONAL_DESCRIPTIONS` take effect only
+for an SDK, `local-agent`, `claude-desktop` or `claude-desktop-3p` entrypoint or a `remote` client
+type. The Agent-SDK-but-not-VS-Code predicate (below) also reads the client type.
 
 ## Known Entrypoints
 
-| Entrypoint                                                    | Client type      | Surface                     | Set by                                   |
-| ------------------------------------------------------------- | ---------------- | --------------------------- | ---------------------------------------- |
-| `cli`                                                         | `cli`            | Standalone terminal         | Auto-detected, interactive TTY           |
-| `sdk-cli`                                                     | `sdk-cli`        | Agent SDK via CLI           | Auto-detected, non-interactive           |
-| `sdk-ts`                                                      | `sdk-typescript` | TypeScript Agent SDK        | TypeScript SDK package                   |
-| `sdk-py`                                                      | `sdk-python`     | Python Agent SDK            | Python SDK wrapper                       |
-| `claude-vscode`                                               | `claude-vscode`  | VSCode extension            | VSCode extension host                    |
-| `claude-desktop`                                              | `claude-desktop` | Desktop app                 | Desktop app host                         |
-| `remote` and `remote_*`                                       | `remote`         | Web and hosted sessions     | Remote infrastructure                    |
-| `local-agent`, `local_agent`                                  | `local-agent`    | Local agent mode            | Hosting environment                      |
-| `mcp`                                                         | `cli`            | MCP server mode             | Auto-detected from `mcp serve` in argv   |
-| `claude-code-github-action`                                   | `github-action`  | GitHub Actions              | Auto-detected from `CLAUDE_CODE_ACTION`  |
-| `claude_in_slack`, `claude-in-slack`, `claude-in-teams`       | `cli`            | Chat integrations           | Hosting environment                      |
-| `claude-coworker`, `claude-coworker-terminal`                 | `cli`            | Coworker surfaces           | Hosting environment                      |
-| `claude-security`, `ssh-remote`, `bench`, `claude-desktop-3p` | `cli`            | Other hosted surfaces       | Hosting environment                      |
+| Entrypoint                  | Client type      | Surface key      | Set by                     |
+| --------------------------- | ---------------- | ---------------- | -------------------------- |
+| `cli`                       | `cli`            | `terminal`       | Auto, interactive          |
+| `sdk-cli`                   | `sdk-cli`        | `sdk`            | Auto, non-interactive      |
+| `sdk-ts`                    | `sdk-typescript` | `sdk`            | TypeScript Agent SDK       |
+| `sdk-py`                    | `sdk-python`     | `sdk`            | Python Agent SDK           |
+| `mcp`                       | `cli`            | `sdk`            | Auto, `mcp serve` in argv  |
+| `claude-vscode`             | `claude-vscode`  | `vscode`         | VS Code extension          |
+| `claude-desktop`            | `claude-desktop` | `desktop`        | Desktop app                |
+| `claude-desktop-3p`         | `cli`            | `desktop`        | Desktop app, 3P provider   |
+| `local-agent`               | `local-agent`    | `cowork`         | Desktop app, Cowork        |
+| `local_agent`               | `local-agent`    | `cowork`         | Rewritten to `local-agent` |
+| `remote`                    | `remote`         | `web`            | claude.ai/code             |
+| `remote_baku`               | `remote`         | `web`            | Hosted session             |
+| `remote_projects`           | `remote`         | `web`            | Hosted session             |
+| `remote_desktop`            | `remote`         | `desktop`        | Cloud, driven from Desktop |
+| `remote_mobile`             | `remote`         | `mobile`         | Cloud, driven from mobile  |
+| `remote_cowork`             | `remote`         | `cowork`         | Cloud Cowork               |
+| `remote_trigger`            | `remote`         | `scheduled`      | Scheduled or triggered run |
+| `remote_cowork_trigger`     | `remote`         | `scheduled`      | Scheduled Cowork run       |
+| `claude_in_slack`           | `cli`/`remote`   | `slack`          | Slack relay                |
+| `claude-in-slack`           | `cli`/`remote`   | `slack`          | Slack relay                |
+| `claude-in-teams`           | `cli`/`remote`   | `slack`          | Teams relay                |
+| `claude-code-github-action` | `github-action`  | `github_action`  | Auto, `CLAUDE_CODE_ACTION` |
+| `claude-coworker`           | `cli`            | `terminal`/`sdk` | Coworker host              |
+| `claude-coworker-terminal`  | `cli`            | `terminal`/`sdk` | Coworker host              |
+| `claude-security`           | `cli`            | `terminal`/`sdk` | Hosting environment        |
+| `ssh-remote`                | `cli`            | `terminal`/`sdk` | Hosting environment        |
+| `bench`                     | `cli`            | `terminal`/`sdk` | Hosting environment        |
 
-An entrypoint with no client-type case of its own falls through to `cli` unless a remote credential
-is present. `github-action` is the one client type derived from the environment rather than the
-entrypoint: it is set when `GITHUB_ACTIONS` is truthy, which is checked before every entrypoint
-comparison.
+Client type `remote` for a `remote_*` or Slack/Teams entrypoint assumes the hosted session carries a
+remote credential; without one, only the literal `remote` entrypoint yields `remote`.
+`github-action` comes from `GITHUB_ACTIONS`, which a GitHub Actions runner sets, and it is checked
+before every entrypoint comparison. `terminal`/`sdk` means `sdk` when non-interactive, else
+`terminal`.
 
-The `remote` client type is also reached by credential presence alone, without an explicit `remote`
-entrypoint: see the resolution order above.
+## Entrypoint Groups
 
-## Remote (Web) Surface Details
+The module holding the valid set also defines the groups the rest of the code tests. Relocate them
+from the valid set; they are its neighbors.
 
-The `remote` surface is claude.ai/code -- Claude Code running as a web-accessible session. Key
-environment variables:
+- Remote workspace: every `remote*` value plus `claude_in_slack`, `claude-in-slack` and
+  `claude-in-teams`. `# Surface` tells these sessions they run in a remote sandbox.
+- Triggered: `remote_trigger`, `remote_cowork_trigger`. Scheduled-run behavior; surface `scheduled`.
+- Cloud Cowork: `remote_cowork`, `remote_cowork_trigger`. Cowork behavior in cloud sessions.
+- Desktop-hosted: `claude-desktop`, `claude-desktop-3p`, `local-agent`. Desktop-host behavior, such
+  as naming `--model` rather than `/model` in hints.
+- Slack and Teams: `claude_in_slack`, `claude-in-slack`, `claude-in-teams`. Relay behavior.
+- SDK: `sdk-ts`, `sdk-py`, `sdk-cli`. SDK-only behavior.
+- Settings hint off: the three Slack/Teams values, both triggered values, `remote_cowork` and
+  `remote_baku`. Messages omit hints to raise a setting; the web-search limit message, for one,
+  otherwise says to raise `CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION`.
+  `CLAUDE_CODE_HIDE_SETTINGS_HINT` truthy turns the hint off on every surface.
+- Attended: `claude-vscode`, `claude-desktop`, `claude-desktop-3p`, `local-agent`, `local_agent`,
+  `remote`, `remote_desktop`, `remote_mobile`, `remote_projects`, `remote_cowork`, `ssh-remote`, the
+  three Slack/Teams values, `claude-coworker` and `claude-coworker-terminal`. A non-interactive
+  session from one of these counts as attended unless it is a child session or
+  `CLAUDE_CODE_SESSION_KIND` is `bg`, `daemon` or `daemon-worker`.
+- Followed in app: `remote`, `remote_desktop`, `remote_mobile`, `remote_projects`, `remote_trigger`,
+  with a truthy `CLAUDE_CODE_REMOTE`. `# Session-specific guidance` gains a bullet starting
+  `The user follows this cloud session in the Claude app`, which steers files meant for the user
+  into directories the app can open.
 
-| Variable                                     | Purpose                                         |
-| -------------------------------------------- | ----------------------------------------------- |
-| `CLAUDE_CODE_REMOTE`                         | Boolean flag, enables remote-specific behaviors |
-| `CLAUDE_CODE_REMOTE_SESSION_ID`              | Session identifier for the web session          |
-| `CLAUDE_CODE_REMOTE_ENVIRONMENT_TYPE`        | Type of remote environment                      |
-| `CLAUDE_CODE_REMOTE_MEMORY_DIR`              | Override for auto memory directory in remote    |
-| `CLAUDE_CODE_SESSION_ACCESS_TOKEN`           | Session auth token for remote sessions          |
-| `CLAUDE_CODE_WEBSOCKET_AUTH_FILE_DESCRIPTOR` | File descriptor for WebSocket auth              |
-| `CLAUDE_CODE_CONTAINER_ID`                   | Container ID in remote infrastructure           |
+## Relationship to the System Prompt
 
-Remote sessions require claude.ai OAuth authentication. Grep
-`API key authentication is not sufficient` for the refusal message.
+### The `# Surface` section
 
-## Authentication Context
+On the lean-rewrite prompt path (see `PROMPTS.md`), the system prompt carries a `# Surface` section
+keyed by the entrypoint. Relocate: `rg -nF 'You are running as Claude Code on the web'`; the
+per-surface texts are its neighbors, followed by the entrypoint-to-key switch.
 
-### The claude.ai-authentication predicate
+The key comes from the validated entrypoint, per the Surface key column above. In a diskless session
+the lookup uses the CCR-derived surface, then the request entrypoint name, then the raw variable,
+validated. Every key has a one-line text opening `You are running ...`: `terminal`, `vscode`,
+`desktop`, `web`, `mobile`, `slack`, `scheduled`, `github_action`, `cowork`, `sdk`. A `coworker` key
+exists with an empty text, and no entrypoint maps to it.
 
-A small predicate answers "is this session authenticated through claude.ai OAuth rather than an API
-key". It returns false unless OAuth is in use at all, and otherwise checks that the stored token's
-scopes are the ones claude.ai issues.
+After the surface line comes a workspace line. `github_action` and `coworker` get none. Otherwise
+the session is remote when it is diskless, its entrypoint is in the remote-workspace group, or the
+entrypoint starts with `remote`. A remote session gets
+`This session is running in a remote sandbox provisioned for it`; any other gets
+`This session is running on a machine the user controls`.
 
-The OAuth check rejects a raw API key, Bedrock, Vertex and Foundry. The scope check looks for
-`user:inference`, which is the claude.ai OAuth scope.
+Tripwire: □ 11 surface keys □ `coworker` text empty □ `claude-desktop-3p` and `remote_desktop` both
+map to `desktop`.
 
-So the predicate is true only for claude.ai OAuth, never for an API key.
+### The identity line
 
-This is significant because:
-1. It gates the `client_data` API call, so only claude.ai-authenticated users receive server-side
-   `system_prompt_variant` overrides.
-2. It is reported in telemetry as `isClaudeAiAuth`.
+The first system-prompt line is chosen from three strings by interactivity, not by entrypoint:
+`You are Claude Code, Anthropic's official CLI for Claude.` for interactive sessions and always on
+Vertex; for non-interactive sessions,
+`You are Claude Code, Anthropic's official CLI for Claude, running within the Claude Agent SDK.`
+when an append-system-prompt is given, else
+`You are a Claude agent, built on Anthropic's Claude Agent SDK.` Relocate:
+`rg -nF 'running within the Claude Agent SDK'`.
 
-### Auth source detection
+### Server-side targeting
 
-The code detects auth from multiple sources:
-1. `ANTHROPIC_AUTH_TOKEN` env var
-2. `CLAUDE_CODE_OAUTH_TOKEN` env var
-3. `CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR`
-4. API key helper (`apiKeyHelper`)
-5. claude.ai OAuth access token with the required scopes, reported as source `claude.ai`
+Two server channels can vary the prompt by surface. The bootstrap request sends the entrypoint as a
+query parameter, and its `client_data` feeds prompt and model-capability switches such as
+`temporal_hare` and `breezy_horizon` (see Bootstrap). GrowthBook receives the entrypoint as a
+targeting attribute. The client sends no `system_prompt_variant` and compares no variant name;
+surface targeting happens on the server through these two channels and the local `# Surface` text.
 
-## User-Agent Strings
+## Request Identification
 
 ### Anthropic API User-Agent
 
-Sent with API requests to Anthropic:
-```
-claude-cli/<version> (external, ${CLAUDE_CODE_ENTRYPOINT}[, agent-sdk/${SDK_VERSION}][, client-app/${CLIENT_APP}])
-```
+Relocate: `rg -n 'claude-cli/'`; the builder is the hit that is a `return` template.
 
-Examples:
-- CLI: `claude-cli/<version> (external, cli)`
-- VSCode: `claude-cli/<version> (external, claude-vscode)`
-- Remote: `claude-cli/<version> (external, remote)`
-- Agent SDK: `claude-cli/<version> (external, sdk-ts, agent-sdk/1.0.0)`
+    claude-cli/<version> (external, <name>[, agent-sdk/<v>][, client-app/<app>][, workload/<w>])
 
-### Attribution header
+`<name>` is the request entrypoint name, unless the caller asks for its own entrypoint, then the raw
+`CLAUDE_CODE_ENTRYPOINT`, then `cli`. `agent-sdk/` comes from `CLAUDE_AGENT_SDK_VERSION`,
+`client-app/` from `CLAUDE_AGENT_SDK_CLIENT_APP`, and `workload/` from the current workload context.
 
-Sent as `x-anthropic-billing-header` when `tengu_attribution_header` feature flag is enabled:
-```
-x-anthropic-billing-header: cc_version=<version>.${MODEL_HASH}; cc_entrypoint=${ENTRYPOINT}; cch=00000;
-```
+Examples: `claude-cli/<version> (external, cli)`, `claude-cli/<version> (external, claude-vscode)`,
+`claude-cli/<version> (external, sdk-ts, agent-sdk/<v>)`.
+
+MCP HTTP requests use a different form, built from the same parts:
+
+    claude-code/<version> (<name>[, agent-sdk/<v>][, client-app/<app>])
+
+where `<name>` is the request entrypoint name, else the raw `CLAUDE_CODE_ENTRYPOINT`, and the
+parenthesis is omitted when all parts are empty. The bootstrap, sessions and Remote Control APIs and
+GrowthBook send a bare `claude-code/<version>`.
+
+### Attribution block
+
+Relocate: `rg -nF 'x-anthropic-billing-header: cc_version='`. Despite the header-style text, this is
+a text block placed first in the system prompt, not an HTTP header:
+
+    x-anthropic-billing-header: cc_version=<version>.<fingerprint>; cc_entrypoint=<name>; ...
+
+`<name>` is the request entrypoint name, else the raw `CLAUDE_CODE_ENTRYPOINT`, else `unknown`.
+Optional fields follow, most of them first-party only: `cch=00000`, `cc_workload`, `cc_is_subagent`,
+`cc_prev_req`, `cc_prompt_id`, `cc_turn_origin`, prompt and turn indexes, `cc_gateway`, `cc_project`
+and `cc_project_src`, and `cc_prev_msg`. The block is on by default;
+`CLAUDE_CODE_ATTRIBUTION_HEADER` set falsy (`0`, `false`, `no`, `off`) removes it, except where a
+caller forces it.
+
+### `anthropic-client-platform`
+
+Requests to the sessions and Remote Control APIs carry `anthropic-client-platform`, mapped from the
+raw entrypoint. Relocate: `rg -nF '"claude_code_github_action"'`.
+
+| Entrypoint                  | Value                       |
+| --------------------------- | --------------------------- |
+| `claude-vscode`             | `claude_code_vscode`        |
+| `remote`                    | `claude_code_remote`        |
+| `remote_baku`               | `claude_code_remote`        |
+| `remote_cowork`             | `claude_code_remote`        |
+| `remote_desktop`            | `claude_code_remote`        |
+| `remote_mobile`             | `claude_code_remote`        |
+| `remote_projects`           | `claude_code_remote`        |
+| `claude-in-teams`           | `claude_code_remote`        |
+| `sdk-cli`                   | `claude_code_sdk`           |
+| `sdk-ts`                    | `claude_code_sdk`           |
+| `sdk-py`                    | `claude_code_sdk`           |
+| `mcp`                       | `claude_code_mcp`           |
+| `claude-code-github-action` | `claude_code_github_action` |
+| `local-agent`               | `claude_code_local_agent`   |
+| `claude_in_slack`           | `claude_in_slack`           |
+| `claude-in-slack`           | `claude-in-slack`           |
+| anything else               | `claude_code_cli`           |
+
+### `x-claude-code-wiggly-dove`
+
+When `tengu_wiggly_dove` is on, API requests carry an `x-claude-code-wiggly-dove` metadata header in
+which the entrypoint is one member, encoded as an opaque two-letter code from a per-entrypoint table
+(an unknown entrypoint gets a fallback code). Relocate: `rg -nF 'x-claude-code-wiggly-dove'`.
+
+## Bootstrap and `client_data`
+
+Relocate: `rg -nF '/api/claude_cli/bootstrap'`. The bootstrap fetch is a GET to
+`/api/claude_cli/bootstrap` with the query parameters `entrypoint` and `model` and the User-Agent
+`claude-code/<version>`. Its response carries `client_data` along with model options, costs, access
+and the org default model.
+
+The `entrypoint` parameter is the validated entrypoint. In a Cowork cloud session whose host fetches
+client data, it is the CCR-derived surface instead.
+
+The fetch is skipped when nonessential traffic is disabled, for a third-party provider, under
+`ANTHROPIC_UNIX_SOCKET`, and when no usable credential exists. It authenticates with workload
+identity, an OAuth access token or an API key; a gateway provider queries `/v1/models` instead, and
+only with `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY`.
+
+Because the entrypoint is an explicit parameter, the server can return different `client_data` per
+surface. `client_data` keys drive prompt variants (`temporal_hare`, `breezy_horizon`; see
+`PROMPTS.md`), model capabilities (`tengu_model_capability_from_client_data`), reminders and the
+footer indicator.
 
 ## GrowthBook Feature Flag Targeting
 
 ### Attributes
 
-The attributes sent to GrowthBook for feature flag evaluation:
+Relocate: `rg -n 'cacheKeyAttributes'` for the client; the attribute builder sits beside the
+`slackTagConnected` and `ccrDerivedSurface` fields.
 
-| Attribute                | Value                                                   |
-| ------------------------ | ------------------------------------------------------- |
-| `id`, `deviceID`         | Device id                                               |
-| `sessionId`              | Session id                                              |
-| `platform`               | `process.platform`                                      |
-| `organizationUUID`       | Present when authenticated through an org               |
-| `accountUUID`            | Present when authenticated                              |
-| `userType`               | Hardcoded `external`                                    |
-| `subscriptionType`       | Pro, Max, Team, Enterprise and so on                    |
-| `rateLimitTier`          | When available                                          |
-| `firstTokenTime`         | When available                                          |
-| `email`                  | When available                                          |
-| `appVersion`             | Bundle version                                          |
-| `githubActionsMetadata`  | Present when running in GitHub Actions                  |
+| Attribute                 | Value                                               |
+| ------------------------- | --------------------------------------------------- |
+| `id`, `deviceID`          | Device id                                           |
+| `sessionId`               | Session id                                          |
+| `platform`                | Platform                                            |
+| `apiBaseUrlHost`          | Host of a non-default `ANTHROPIC_BASE_URL`          |
+| `organizationUUID`        | When authenticated through an org                   |
+| `accountUUID`             | When authenticated                                  |
+| `userType`                | `external`                                          |
+| `subscriptionType`        | Pro, Max, Team, Enterprise and so on                |
+| `rateLimitTier`           | When available                                      |
+| `organizationRole`        | When the OAuth account matches                      |
+| `subscriptionCreatedAt`   | When the OAuth account matches                      |
+| `firstTokenTime`, `email` | When available                                      |
+| `appVersion`              | Bundle version                                      |
+| `githubActionsMetadata`   | When running in GitHub Actions                      |
+| `entrypoint`              | Validated entrypoint                                |
+| `sessionOrigin`           | `CLAUDE_CODE_SESSION_ORIGIN`, e.g. `claude_ai_chat` |
+| `ccrDerivedSurface`       | CCR-derived surface, for Cowork sessions in CCR     |
+| `atisPin`                 | When pinned                                         |
+| `hasUsedRemoteSession`    | When true                                           |
+| `hasRemoteEnvironment`    | When true                                           |
+| `slackTagConnected`       | When true                                           |
 
-Notably absent: the entrypoint and the client type. Flag targeting cannot discriminate by surface
-through these attributes.
+Flags can target the surface directly through `entrypoint`, `sessionOrigin` and `ccrDerivedSurface`.
+The client type is not an attribute.
 
-The GrowthBook attributes do NOT include `clientType`, `CLAUDE_CODE_ENTRYPOINT`, or any surface
-identifier. Feature flags like `tengu_vinteuil_phrase` can be targeted by user, organization,
-subscription type, or platform -- but not directly by execution surface.
+### Cache key attributes
 
-### Cache Key Attributes
+Flag evaluations are cached by `id`, `organizationUUID`, `slackTagConnected`, `atisPin`,
+`ccrDerivedSurface` and `sdkCachePartition`. `entrypoint` is not a cache key.
 
-GrowthBook uses `id` and `organizationUUID` as cache key attributes, so flag evaluations are cached
-per device and organization.
+## Authentication Context
 
-## Client Data API -- Server-Side Surface Override
+### The claude.ai-authentication predicate
 
-### Endpoint
+A predicate answers "is this session authenticated through claude.ai OAuth rather than an API key".
+It returns false unless OAuth is in use at all, then checks that the stored token's scopes include
+`user:inference`, the claude.ai OAuth scope.
 
-Relocate: `rg -n 'client_data'`. The fetch is skipped entirely unless the session is claude.ai
-authenticated, and the path is `/api/oauth/claude_cli/client_data` under the configured base API
-URL, sent with auth headers and the User-Agent described above.
+OAuth counts as not in use for a third-party provider (Bedrock, Vertex, Foundry, a gateway), under
+workload identity, in bare mode with an `apiKeyHelper`, and when `ANTHROPIC_AUTH_TOKEN`, an API key,
+an `apiKeyHelper` or `CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR` supplies the credential. Under
+`ANTHROPIC_UNIX_SOCKET` it counts as in use only with `CLAUDE_CODE_OAUTH_TOKEN`.
 
-The request includes:
-- Auth headers (OAuth token)
-- User-Agent: `claude-cli/<version> (external, ${ENTRYPOINT}...)`
+The predicate is reported in telemetry as `isClaudeAiAuth`.
 
-The server response can include `system_prompt_variant`, which is checked at the prompt-routing
-site:
-The returned `system_prompt_variant` is compared against a known variant name, and a match routes
-the session to the simple system-prompt path. The client treats the value opaquely: it is a string
-equality check, not a parsed instruction.
+### Auth token source
 
-At 2.1.76 the variant name was `tengu_vinteuil_phrase`. That string is absent from 2.1.277, as is
-`tengu_velvet_cascade`, so relocate this by grepping `system_prompt_variant` and reading what the
-result is compared against rather than by grepping a variant name.
+Relocate: `rg -nF 'source: "claude.ai"'`. The token source resolves in order:
 
-This is the one mechanism where the server CAN differentiate by surface: the User-Agent header
-contains the entrypoint, so the server could return different `system_prompt_variant` values for
-`cli` vs `remote` vs `claude-vscode`.
+1. Bare mode (`--bare` or `CLAUDE_CODE_SIMPLE`): `apiKeyHelper` or `none`, nothing else.
+2. `ANTHROPIC_AUTH_TOKEN`.
+3. `CLAUDE_CODE_OAUTH_TOKEN`.
+4. A token on a file descriptor: `CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR`, or
+   `CCR_OAUTH_TOKEN_FILE` when the CCR host injected it.
+5. `apiKeyHelper`.
+6. `profile`, under workload identity.
+7. `claude.ai`, a stored OAuth token whose scopes include `user:inference`.
 
-However, the client code treats it opaquely -- it just checks if the returned string equals a known
-variant name.
+## Remote (Web) Surface Details
+
+| Variable                                     | Purpose                                         |
+| -------------------------------------------- | ----------------------------------------------- |
+| `CLAUDE_CODE_REMOTE`                         | Boolean flag, enables remote-specific behaviors |
+| `CLAUDE_CODE_REMOTE_SESSION_ID`              | Session identifier for the cloud session        |
+| `CLAUDE_CODE_REMOTE_ENVIRONMENT_TYPE`        | Type of remote environment, e.g. `self_hosted`  |
+| `CLAUDE_CODE_ENVIRONMENT_KIND`               | Kind: `byoc`, or `bridge` for Remote Control    |
+| `CLAUDE_CODE_REMOTE_MEMORY_DIR`              | Overrides the auto-memory base directory        |
+| `CLAUDE_CODE_SESSION_ACCESS_TOKEN`           | Session auth token for remote sessions          |
+| `CLAUDE_CODE_WEBSOCKET_AUTH_FILE_DESCRIPTOR` | File descriptor for WebSocket auth              |
+| `CLAUDE_SESSION_INGRESS_TOKEN_FILE`          | Session-ingress token file                      |
+| `CLAUDE_CODE_CONTAINER_ID`                   | Container ID in remote infrastructure           |
+
+`CLAUDE_CODE_SESSION_ACCESS_TOKEN`, `CLAUDE_CODE_WEBSOCKET_AUTH_FILE_DESCRIPTOR` and
+`CLAUDE_SESSION_INGRESS_TOKEN_FILE` each make the client type `remote` (see Client type resolution).
+The terminal's `/teleport` flow refuses without a claude.ai account and shows
+`Teleport requires a Claude.ai account.`
 
 ## Surface-Specific Behavior in the Codebase
 
-### VSCode-Specific
+### Agent SDK and VS Code
 
-- A predicate for "Agent SDK, but not VSCode" returns true when the session is non-interactive and
-  the entrypoint is not `claude-vscode`. It gates two things:
-  - The message `Fast mode is not available in the Agent SDK`, shown for non-interactive
-    non-VSCode sessions only.
-  - Special `ANTHROPIC_API_KEY` resolution for Agent SDK contexts, skipped for VSCode.
+A predicate for "Agent SDK, but not VS Code" is true when the session is non-interactive and the
+client type is not `claude-vscode`. It gates two things:
 
-### Remote-Specific
+- Fast mode in a non-interactive non-VS Code session needs an opt-in, from the session or from
+  `fastMode` in flag settings. Without one the reason is `sdk_opt_in_required`, shown as
+  `Fast mode is not available in the Agent SDK`.
+- `ANTHROPIC_API_KEY` is used directly as the API key in that context.
 
-- Memory directory override via `CLAUDE_CODE_REMOTE_MEMORY_DIR`
-- Session tracking via `CLAUDE_CODE_REMOTE_SESSION_ID`
-- Container tracking via `CLAUDE_CODE_CONTAINER_ID`
-- Required claude.ai authentication
-- Teleport requires a claude.ai account
+### Claude Desktop
 
-### Claude Desktop Integration
+`claude-desktop` (Anthropic sign-in), `claude-desktop-3p` (third-party provider setup) and
+`local-agent` (Cowork) are the entrypoints the desktop app sets. For `claude-desktop` and
+`local-agent`, `CLAUDE_CODE_DESKTOP_APP_VERSION` is read and reported in telemetry as
+`desktopAppVersion`. Only `claude-desktop-3p` honors `CLAUDE_CODE_ENTRYPOINT_ON_REQUESTS`.
 
-There is no `claude-desktop` entrypoint. Claude Desktop interaction is limited to:
-- The `add-from-claude-desktop` CLI command imports MCP servers from the Claude Desktop config, and
-  describes itself as Mac and WSL only.
-- The WebSocket transport marks its connection source as `electron` when the runtime reports an
-  Electron version.
+Separately, `claude mcp add-from-claude-desktop` imports MCP servers from the Claude Desktop config;
+its description says `Import MCP servers from Claude Desktop (Mac and WSL only)`.
 
-Claude Desktop appears to be a separate application that can share MCP server configuration with
-Claude Code, not a host for the Claude Code process itself.
+### Pull request footer
 
-## Relationship to System Prompt Routing
-
-The system prompt dual-path routing (documented in PROMPTS.md) is controlled by:
-
-1. GrowthBook feature flag `tengu_vinteuil_phrase` -- targets by user/org/subscription, NOT by surface
-2. Server-side `client_data.system_prompt_variant` -- CAN target by surface (via User-Agent parsing), but only for claude.ai-authenticated users
-
-Neither mechanism is hardcoded to a specific surface in the client code. The server could in
-principle serve the simple prompt to all `remote` sessions and the legacy prompt to `cli` sessions,
-but we cannot confirm this without server-side code.
-
-The wording differences in the simple prompt path ("interactive agent" vs "interactive CLI tool", no
-CLI-specific framing, bulleted environment info instead of XML `<env>` tags) are consistent with a
-prompt designed for non-CLI surfaces, but this is circumstantial.
+With `tengu_pr_footer_surface_suffix` on, the PR footer `Generated with [Claude Code](...)` gains
+` via <surface>`. The surface name comes from the validated entrypoint: `Claude Desktop` (both
+desktop entrypoints and `remote_desktop`), `Mobile`, `Cowork` (`local-agent`, `remote_cowork`),
+`Claude Tag in Slack`, `Claude Tag in Teams`, `GitHub Actions`; other surfaces get no suffix.
+Relocate: `rg -nF 'tengu_pr_footer_surface_suffix'`.
 
 ## Telemetry Context
 
-The full telemetry context reports:
+Relocate: `rg -nF 'isLocalAgentMode'`. The telemetry context reports, among other fields:
 
-| Field                       | Source                                       |
-| --------------------------- | -------------------------------------------- |
-| `platform`, `arch`          | `process.platform`, `process.arch`           |
-| `nodeVersion`               | Runtime version                              |
-| `terminal`                  | Terminal detection result                    |
-| `isRunningWithBun`          | Runtime check                                |
-| `isCi`                      | CI detection                                 |
-| `isClaubbit`, `isConductor` | Host-environment detection                   |
-| `isClaudeCodeRemote`        | `CLAUDE_CODE_REMOTE`                         |
-| `isLocalAgentMode`          | Entrypoint equal to `local-agent`            |
-| `remoteEnvironmentType`     | `CLAUDE_CODE_REMOTE_ENVIRONMENT_TYPE`        |
-| `claudeCodeContainerId`     | `CLAUDE_CODE_CONTAINER_ID`                   |
-| `claudeCodeRemoteSessionId` | `CLAUDE_CODE_REMOTE_SESSION_ID`              |
-| `isGithubAction`            | `GITHUB_ACTIONS`                             |
-| `isClaudeCodeAction`        | `CLAUDE_CODE_ACTION`                         |
-| `isClaudeAiAuth`            | The claude.ai-authentication predicate       |
-| `version`                   | Bundle version                               |
-| `deploymentEnvironment`     | Deployment environment                       |
-| `clientType`                | Resolved client type                         |
-| `entrypoint`                | `CLAUDE_CODE_ENTRYPOINT`                     |
+| Field                                  | Source                                                 |
+| -------------------------------------- | ------------------------------------------------------ |
+| `platform`, `platformRaw`, `arch`      | Platform, `CLAUDE_CODE_HOST_PLATFORM`, architecture    |
+| `nodeVersion`, `isRunningWithBun`      | Runtime                                                |
+| `terminal`, `shell`                    | Terminal and shell detection                           |
+| `packageManagers`, `runtimes`          | Detected tools                                         |
+| `isCi`                                 | CI detection                                           |
+| `isClaubbit`, `isConductor`            | Host-environment detection                             |
+| `isClaudeCodeRemote`                   | `CLAUDE_CODE_REMOTE`                                   |
+| `isLocalAgentMode`                     | Raw entrypoint equal to `local-agent`                  |
+| `remoteEnvironmentType`                | `CLAUDE_CODE_REMOTE_ENVIRONMENT_TYPE`                  |
+| `claudeCodeContainerId`                | `CLAUDE_CODE_CONTAINER_ID`                             |
+| `claudeCodeRemoteSessionId`            | `CLAUDE_CODE_REMOTE_SESSION_ID`                        |
+| `tags`                                 | `CLAUDE_CODE_TAGS`, comma-separated                    |
+| `isGithubAction`, `isClaudeCodeAction` | `GITHUB_ACTIONS`, `CLAUDE_CODE_ACTION`                 |
+| `isClaudeAiAuth`                       | The claude.ai-authentication predicate                 |
+| `version`, `buildTime`                 | Bundle version and build time                          |
+| `deploymentEnvironment`                | Deployment environment                                 |
+| `entrypoint`                           | Validated entrypoint, or `other` when set but unknown  |
+| `clientType`                           | Resolved client type                                   |
+| `isInteractive`                        | Interactivity                                          |
+| `agentSdkVersion`                      | `CLAUDE_AGENT_SDK_VERSION`                             |
+| `desktopAppVersion`                    | `CLAUDE_CODE_DESKTOP_APP_VERSION`, desktop entrypoints |
+| `remoteControlLane`, `projectsSession` | Remote Control lane, projects session                  |
 
-The list is not exhaustive and grows between releases.
-
-This confirms that Anthropic tracks both the surface (entrypoint/clientType) and auth type
-(isClaudeAiAuth) in their analytics, allowing them to analyze prompt variant effectiveness per
-surface server-side even if the client-side targeting is user/org-based.
-
-## Version history
-
-- 2.1.76: 9 recognized entrypoint values, accepted without validation. Prompt variant name
-  `tengu_vinteuil_phrase`.
-- 2.1.277: entrypoint validated against a 27-member set, and an unrecognized value is treated as
-  unset. `claude-desktop` added as a client type. Remote detection extended with
-  `CLAUDE_SESSION_INGRESS_TOKEN_FILE` and a truthy `CLAUDE_CODE_REMOTE` paired with an available
-  session credential. `tengu_vinteuil_phrase` and `tengu_velvet_cascade` both absent.
+`entrypoint` is omitted when `CLAUDE_CODE_ENTRYPOINT` is unset. Telemetry thus records both the
+surface (entrypoint, client type) and the auth type (`isClaudeAiAuth`).
