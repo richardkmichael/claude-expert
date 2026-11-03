@@ -22,8 +22,8 @@ source.
 
 ## The tools
 
-    ask_claude_code_expert(question: string, session_id?: string, model?: string) -> text
-    ask_claude_desktop_expert(question: string, session_id?: string, model?: string) -> text
+    ask_claude_code_expert(question: string, session_id?: string, model?: string, effort?: string) -> text
+    ask_claude_desktop_expert(question: string, session_id?: string, model?: string, effort?: string) -> text
 
 | Tool                        | Runs in    | Researches                                                                                               | Trailer                               |
 | --------------------------- | ---------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------- |
@@ -44,6 +44,12 @@ other.
 `model` is one of `opus`, `sonnet` or `haiku`, and lets the caller drop a simple lookup onto a
 cheaper model. Anything else is ignored in favour of the server's own default, so a calling agent
 cannot dial the cost up.
+
+`effort` is the effort (thinking) level, one of `low`, `medium` or `high`, passed to the nested
+session as `--effort`. The default is `medium`. As with `model`, anything else falls back to the
+server's default, so `xhigh` and `max` are available only through `EXPERT_EFFORT`. The server also
+removes `CLAUDE_CODE_EFFORT_LEVEL` from the nested session's environment, because that variable
+outranks `--effort`.
 
 ## Routing: the guide first
 
@@ -119,6 +125,7 @@ All optional, via environment variables on the server entry:
                                (default: Read,Grep,Glob,Bash,WebFetch,Write,Edit,Agent,Skill)
     EXPERT_TIMEOUT_MS          Per-question wall-clock budget (default: 1500000)
     EXPERT_MODEL               Model the nested session runs on (default: opus)
+    EXPERT_EFFORT              Effort level the nested session runs at (default: medium)
 
 The default allowlist lets an expert research (`Read`/`Grep`/`Glob`/`Bash`/`WebFetch`), prepare
 sources with the repo's skills (`Skill`), write or edit analysis docs directly (`Write`/`Edit`), and

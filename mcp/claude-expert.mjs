@@ -38,6 +38,10 @@
 //                             wrote — so every question would bill at the rate the calling
 //                             session happens to be set to. Pinning it here keeps the cost of
 //                             a consultation independent of the caller.
+//   EXPERT_EFFORT             Effort level the nested session runs at (default: medium). Pinned
+//                             for the same reason as EXPERT_MODEL: without --effort the nested
+//                             session takes the caller's `effortLevel` setting or
+//                             CLAUDE_CODE_EFFORT_LEVEL.
 
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -65,6 +69,10 @@ const MODEL = process.env.EXPERT_MODEL || "opus";
 // fixed set rather than forwarded to --model as given. EXPERT_MODEL is set by whoever
 // registers the server and stays free-form, so it can name a full model id.
 const CALLABLE_MODELS = new Set(["opus", "sonnet", "haiku"]);
+// The same split for effort: a caller may lower the effort or raise it to high, while xhigh and
+// max are left to whoever registers the server.
+const EFFORT = process.env.EXPERT_EFFORT || "medium";
+const CALLABLE_EFFORTS = new Set(["low", "medium", "high"]);
 
 // Set on every nested session. A copy of this server started inside one (for example from a
 // user-scope registration) sees it and offers no tools, so an expert never consults itself.
@@ -230,12 +238,20 @@ const inputSchema = (toolName) => ({
         "bundle research well. Pass sonnet for a simple lookup (a flag name, a setting key, a " +
         "string that is either present or absent).",
     },
+    effort: {
+      type: "string",
+      enum: ["low", "medium", "high"],
+      description:
+        "Optional. The effort (thinking) level the research session runs at. Defaults to " +
+        "medium. Pass high for a question that needs tracing behavior across many modules, or " +
+        "low for a simple lookup.",
+    },
   },
   required: ["question"],
   additionalProperties: false,
 });
 
-function runExpert(expert, { question, session_id, model }) {
+function runExpert(expert, { question, session_id, model, effort }) {
   const allowedTools = [BASE_ALLOWED_TOOLS, ...expert.mcpServers.map((s) => `mcp__${s}`)].join(
     ",",
   );
@@ -256,6 +272,8 @@ function runExpert(expert, { question, session_id, model }) {
   if (session_id) args.push("--resume", session_id);
   const chosenModel = model && CALLABLE_MODELS.has(model) ? model : MODEL;
   if (chosenModel) args.push("--model", chosenModel);
+  const chosenEffort = effort && CALLABLE_EFFORTS.has(effort) ? effort : EFFORT;
+  if (chosenEffort) args.push("--effort", chosenEffort);
 
   // Start the nested session clean: drop the markers that tell a process it is running inside
   // a Claude Code session, so the child behaves like a fresh CLI invocation. Auth is read from
@@ -264,6 +282,9 @@ function runExpert(expert, { question, session_id, model }) {
   delete env.CLAUDECODE;
   delete env.CLAUDE_CODE_ENTRYPOINT;
   delete env.CLAUDE_CODE_SSE_PORT;
+  // CLAUDE_CODE_EFFORT_LEVEL outranks --effort, so an inherited value would override the effort
+  // chosen above.
+  delete env.CLAUDE_CODE_EFFORT_LEVEL;
   // An --add-dir directory's CLAUDE.md loads only with this set. Set it here rather than rely
   // on the caller's settings, so the desktop expert always has code/'s instructions.
   if (expert.addDirs.length > 0) env.CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD = "1";
@@ -349,12 +370,14 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
   }
   const session_id = req.params.arguments?.session_id;
   const model = req.params.arguments?.model;
+  const effort = req.params.arguments?.effort;
   log(
     `${expert.name}: question (${question.length} chars)` +
       (session_id ? ` [resume ${session_id}]` : "") +
-      ` [model ${model && CALLABLE_MODELS.has(model) ? model : MODEL}]`,
+      ` [model ${model && CALLABLE_MODELS.has(model) ? model : MODEL}]` +
+      ` [effort ${effort && CALLABLE_EFFORTS.has(effort) ? effort : EFFORT}]`,
   );
-  const out = await runExpert(expert, { question, session_id, model });
+  const out = await runExpert(expert, { question, session_id, model, effort });
   return { isError: out.isError, content: [{ type: "text", text: out.text }] };
 });
 
