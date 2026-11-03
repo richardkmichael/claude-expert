@@ -100,7 +100,6 @@ Style legend:
 | `COMMAND_HISTORY.md`             | `~/.claude/history.jsonl` input history: record format, what is recorded, pasted text, up-arrow and ctrl+r scoping, retention and purge                                   | 2.1.317  | landmark | `Skipping malformed history line`, `"paste-cache"`, `historySearch:cycleScope`, `CLAUDE_CODE_SKIP_PROMPT_HISTORY`                                                  |
 | `CONTEXT_OPS_DIAGRAMS.md`        | Diagrams: how /compact, Summarize, /clear, /branch, /fork and /rewind change the JSONL vs the model view; what removes history                                            | 2.1.317  | landmark | `content: "Conversation compacted"`, `Old tool result content cleared`, `Create a branch of the current conversation`, `rewind persist-failure remote heal failed` |
 | `KEYBOARD_INPUT_DECODING.md`     | stdin key decoding (tokenizer, CSI-u/modifyOtherKeys/legacy), Kitty/extended-keys negotiation and probe, keybinding matching, push-to-talk hold detection                 | 2.1.317  | landmark | `CLAUDE_CODE_BS_AS_CTRL_BACKSPACE`, `pendingByteEvents`, `CSI ? u not asked`, `Terminal capabilities:`, `awaitingVoiceSubmitDoubleTap`                             |
-| `SESSION_MEMORY_AND_SUMMARY.md`  | Background summary compaction (removed by 2.1.138)                                                                                                                        | 2.1.76   | landmark | `tengu_session_memory`, `session-memory/summary.md`                                                                                                                |
 | `SESSION_RESUME.md`              | Post-resume "resume vs summary" prompt and dismissal                                                                                                                      | 2.1.277  | landmark | `tengu_gleaming_fair`, `tengu_gleaming_fair_reuse`, `resumeReturnDismissed`                                                                                        |
 | `SESSION_TRANSCRIPT.md`          | JSONL transcript format, record types, linkage model                                                                                                                      | 2.1.281  | landmark | `parentUuid`, `logicalParentUuid`, `<sessionId>.jsonl`, `"atis-latch": "last-wins"`, `tengu_context_announcement`                                                  |
 | `SLEEP_PREVENTION.md`            | macOS `caffeinate` inhibitor: held only while the session is busy; background Bash and Monitors do not hold it                                                            | 2.1.280  | landmark | `Restarting sleep inhibitor`, `caffeinate`, `in_process_teammate`, `local_bash`                                                                                    |
@@ -121,9 +120,7 @@ Style legend:
 
 <!-- /analysis-index -->
 
-The durable memory family is auto / agent / team; start at `MEMORY_SYSTEM.md`. Session memory
-(`summary.md`, in `SESSION_MEMORY_AND_SUMMARY.md`) is a separate, removed compaction experiment —
-not part of this family despite the name.
+The durable memory family is auto / agent / team; start at `MEMORY_SYSTEM.md`.
 
 ## Config, settings, and frontmatter
 

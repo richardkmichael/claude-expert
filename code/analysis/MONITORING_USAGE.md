@@ -46,7 +46,6 @@ attribution recipe. It cross-references the field-level references that already 
 | `message.usage` field reference (per-message)    | `SESSION_TRANSCRIPT.md`         |
 | statusLine `context_window` input object         | `PROMPTS_RENDERED.md`           |
 | `compactMetadata.preTokens`, microcompact tokens | `CLEAR_COMPACT_FORK_CONTEXT.md` |
-| Session-memory background billing                | `SESSION_MEMORY_AND_SUMMARY.md` |
 | Subagent output pipeline, the `Done (…)` summary | `SUBAGENTS.md`                  |
 | Hook input schemas, including SubagentStop       | `HOOKS.md`                      |
 

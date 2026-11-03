@@ -17,10 +17,6 @@ leaf that matches the store you care about.
 - `AGENT_MEMORY.md` — per-subagent memory, opted into by an agent's `memory:` frontmatter field.
 - `TEAM_MEMORY.md` — shared memory synced from a remote memory-service.
 
-Not part of this family: session memory (`summary.md`). Despite the name it was a compaction
-optimization, not durable memory, and it was removed between 2.1.119 and 2.1.138. See
-`SESSION_MEMORY_AND_SUMMARY.md`, now marked removed.
-
 
 ## One mechanism, three stores
 
@@ -210,4 +206,3 @@ a stable string inside or emitted by it, not the (volatile) function name.
 - `□` `memory_type` telemetry taxonomy is exactly `auto` / `team` / `agent`.
 - `□` `Gc()` is the single gate for all three stores; `CLAUDE_CODE_DISABLE_AUTO_MEMORY` and
   `autoMemoryEnabled` disable the whole family.
-- `□` Session memory (`summary.md`) is absent (removed) — `rg -c session-memory` returns 0.

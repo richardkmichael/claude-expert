@@ -227,5 +227,4 @@ Skill-related telemetry, for orientation, includes `tengu_propose_skills`, `teng
 ## Related
 
 - `SKILLS.md`: skill sources, registration, filters, execution paths and `allowed-tools`.
-- `SESSION_MEMORY_AND_SUMMARY.md`: the session memory pipeline.
 - `MEMORY_SYSTEM.md`: the memory files `propose_skills` cites as evidence.
