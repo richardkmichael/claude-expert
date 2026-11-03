@@ -1,8 +1,12 @@
+---
+verified: 4.4212.0
+scope: 'Code-session Browser pane: `.claude/launch.json`, element picker, preview network'
+---
 # Launch preview (Code-session browser pane)
 
-Verified build: 4.4212.0. Code sessions have a Browser pane backed by a main-process "launch
-preview" subsystem. Paths below are under `work/<version>/app/.vite/build/`. All code is in the
-`index.chunk-*` files, so relocate by the strings given, not by chunk name.
+Code sessions have a Browser pane backed by a main-process "launch preview" subsystem. Paths below
+are under `work/<version>/app/.vite/build/`. All code is in the `index.chunk-*` files, so relocate
+by the strings given, not by chunk name.
 
 ## Starting a dev server: `.claude/launch.json`
 

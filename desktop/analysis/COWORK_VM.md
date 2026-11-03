@@ -1,3 +1,7 @@
+---
+verified: 4.4212.0
+scope: Where Cowork runs (device or cloud); the local VM's `vm_bundles/`, images, updates
+---
 # Cowork VM Bundle On Disk
 
 Where a Cowork task can run, what `vm_bundles/` contains for the local placement, why `du` disagrees

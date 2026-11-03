@@ -1,6 +1,18 @@
+---
+verified: 2.1.317
+verified_on: 2026-11-03
+section: Sessions, context, and history
+style: landmark
+scope: >-
+  `~/.claude/history.jsonl` input history: record format, what is recorded, pasted text, up-arrow
+  and ctrl+r scoping, retention and purge
+landmarks:
+  - Skipping malformed history line
+  - '"paste-cache"'
+  - historySearch:cycleScope
+  - CLAUDE_CODE_SKIP_PROMPT_HISTORY
+---
 # Command Input History
-
-Verified against: cli.prettier.js 2.1.317 (2026-11-03)
 
 Claude Code keeps a global input history file separate from the JSONL conversation transcripts. It
 powers up-arrow/down-arrow recall of previous inputs and the ctrl+r prompt search.

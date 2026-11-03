@@ -1,6 +1,21 @@
+---
+verified: 2.1.317
+verified_on: 2026-11-03
+section: UI surfaces and plugin panes
+style: landmark
+scope: >-
+  `Pane` render site, placement and chrome, and the `$` plugin API; composer `leadingPill` vs
+  `$.prompt.paint` decorations; drag-select-to-attach and `$.ui.selection`; pane focus keys;
+  `prompt.edit`, Vim and undo; rows under the prompt
+landmarks:
+  - leadingPill
+  - diff_selection_attach
+  - panelFileView
+  - unasked below
+  - 'prompt.edit: hooked'
+  - plugin-status-
+---
 # Plugin Panes, the Prompt Composer, and Drag-Select Attachment
-
-Verified against: cli.prettier.js 2.1.317 (2026-11-03)
 
 Source: `cli.prettier.js` (`work/<version>/package/cli.prettier.js`)
 

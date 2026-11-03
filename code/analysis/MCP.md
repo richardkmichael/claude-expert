@@ -1,6 +1,21 @@
+---
+verified: 2.1.317
+verified_on: 2026-11-03
+section: API, networking, and MCP
+style: landmark
+scope: >-
+  MCP integration: `.mcp.json` approval and trust, `claude mcp add` scopes, timeouts, backgrounding,
+  tasks extension, session ID, channels
+landmarks:
+  - enabledMcpjsonServers
+  - 'by: "non_interactive"'
+  - MCP tool idle timeout
+  - tengu_mcp_auto_background
+  - io.modelcontextprotocol/tasks
+  - CLAUDE_CODE_SESSION_ID
+  - claude/channel
+---
 # Claude Code MCP Implementation Analysis
-
-Verified against: cli.prettier.js 2.1.317 (2026-11-03)
 
 How Claude Code's MCP client behaves: which servers load, how calls are bounded and backgrounded,
 what a server can see and send, and how to tell the bundled MCP SDK from Claude Code's own code.

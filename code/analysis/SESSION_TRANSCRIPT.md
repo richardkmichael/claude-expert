@@ -1,6 +1,17 @@
+---
+verified: 2.1.281
+verified_on: 2026-09-23
+section: Sessions, context, and history
+style: landmark
+scope: JSONL transcript format, record types, linkage model
+landmarks:
+  - parentUuid
+  - logicalParentUuid
+  - <sessionId>.jsonl
+  - '"atis-latch": "last-wins"'
+  - tengu_context_announcement
+---
 # Session Transcript Format
-
-Verified against: cli.prettier.js 2.1.281 (2026-09-23)
 
 This document follows the landmark style in `GUIDELINES.md`: it anchors on version-stable strings
 (record `type` discriminants, field names, the JSONL path patterns, env vars, `tengu_*` events,

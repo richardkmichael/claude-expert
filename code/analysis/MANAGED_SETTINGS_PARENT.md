@@ -1,6 +1,14 @@
+---
+verified: 2.1.309
+verified_on: 2026-11-02
+section: Config, settings, and frontmatter
+style: landmark
+scope: '`--managed-settings` parent tier: restrictive filter, precedence'
+landmarks:
+  - parent managed settings
+  - parentSettingsBehavior
+---
 # Claude Code Analysis - The SDK Parent Managed-Settings Tier
-
-Verified against: cli.prettier.js 2.1.309 (2026-11-02)
 
 How Claude Code treats managed settings that a host process passes in with `--managed-settings` (the
 Agent SDK `managedSettings` option), and how that tier composes with the admin managed sources:

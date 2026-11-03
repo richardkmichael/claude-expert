@@ -1,6 +1,19 @@
+---
+verified: 2.1.317
+verified_on: 2026-11-03
+section: Sessions, context, and history
+style: landmark
+scope: >-
+  Voice dictation: enablement gates, hold vs tap, tap-mode self-termination, auto-submit and
+  double-tap send, STT stream and recovery, what an external process can observe
+landmarks:
+  - '[voice] Toggle silence timeout'
+  - voice_transcript_insert
+  - speech_to_text/voice_stream
+  - allow_voice_mode
+  - awaitingVoiceSubmitDoubleTap
+---
 # Voice Mode (dictation)
-
-Verified against: cli.prettier.js 2.1.317 (2026-11-03)
 
 How voice dictation records, when a recording ends on its own, when it submits the prompt without
 being asked to, where the audio goes, and what an external process can observe about any of it.

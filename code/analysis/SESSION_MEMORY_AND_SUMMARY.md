@@ -1,3 +1,12 @@
+---
+verified: 2.1.76
+section: Sessions, context, and history
+style: landmark
+scope: Background summary compaction (removed by 2.1.138)
+landmarks:
+  - tengu_session_memory
+  - session-memory/summary.md
+---
 # Session Memory: Background Note-Taking Pipeline in Claude Code
 
 Status: REMOVED. This feature no longer ships. The strings `summary.md`, `session-memory`,

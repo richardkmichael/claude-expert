@@ -1,3 +1,7 @@
+---
+verified: 4.4212.0
+scope: Feature codenames, Cowork/VM download control, `chillingSloth`
+---
 # Features, Codenames, and Cowork/VM
 
 Feature codenames, how they resolve, and the Cowork VM-download control. Codenames rename and shift

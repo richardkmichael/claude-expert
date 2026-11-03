@@ -1,6 +1,19 @@
+---
+verified: 2.1.317
+verified_on: 2026-11-03
+section: Sessions, context, and history
+style: landmark
+scope: >-
+  /compact and auto-compaction (threshold, prompt-too-long, idle, /autocompact), compaction prompt
+  arms, /clear, /branch, /fork, /rewind
+landmarks:
+  - compact_boundary
+  - CLAUDE_AUTOCOMPACT_PCT_OVERRIDE
+  - Your task is to create a detailed summary
+  - tengu_curried_trinket
+  - You are now in the new branch
+---
 # Clear, Compact, Fork, and Rewind: How Context Operations Work
-
-Verified against: cli.prettier.js 2.1.317 (2026-11-03)
 
 Five user-facing operations manipulate conversation context. They differ in what the model sees
 going forward, whether the session continues or a new one is created, and whether file changes are

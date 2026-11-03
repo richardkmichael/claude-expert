@@ -1,6 +1,18 @@
+---
+verified: 2.1.317
+verified_on: 2026-11-03
+section: System prompts and instructions
+style: landmark
+scope: >-
+  Git instructions in prompts and tool descriptions, per-model gating, attribution, gitStatus
+  context
+landmarks:
+  - CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS
+  - includeGitInstructions
+  - '# Committing changes with git'
+  - tengu_reflective_wolf
+---
 # Claude Code Git Usage in System Prompts
-
-Verified against: cli.prettier.js 2.1.317 (2026-11-03)
 
 Source: `cli.prettier.js` (`work/<version>/package/cli.prettier.js`). Recipes below are `rg` runs
 over that file.

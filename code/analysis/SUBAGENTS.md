@@ -1,6 +1,18 @@
+---
+verified: 2.1.317
+verified_on: 2026-11-03
+section: Tools, skills, and execution
+style: landmark
+scope: >-
+  Agent tool and subagents: schema, launch, model resolution, tool set, background and fork
+  placement, output, handback, isolation
+landmarks:
+  - delegate work to a subagent
+  - tengu_agent_tool_completed
+  - '"tengu_fork_subagent_enabled"'
+  - CLAUDE_CODE_SUBAGENT_MODEL_FORCE
+---
 # The Agent Tool and Subagents
-
-Verified against: cli.prettier.js 2.1.317 (2026-11-03)
 
 This document follows the landmark style in `GUIDELINES.md`: it anchors on version-stable strings
 (tool names, the tool's `.describe(...)` and prompt strings, config keys, env vars, `tengu_*` names,

@@ -1,5 +1,15 @@
-Verified against: cli.prettier.js 2.1.289 (2026-10-07)
-
+---
+verified: 2.1.289
+verified_on: 2026-10-07
+section: API, networking, and MCP
+style: landmark
+scope: 'First-party OAuth login: authorize params, redirects, token exchange, refresh, setup-token'
+landmarks:
+  - MANUAL_REDIRECT_URL
+  - code_challenge_method
+  - 'grant_type: "refresh_token"'
+  - setup-token
+---
 # OAuth login (claude.ai subscription and Console)
 
 How `/login`, `claude auth login` and `claude setup-token` obtain first-party OAuth tokens: the

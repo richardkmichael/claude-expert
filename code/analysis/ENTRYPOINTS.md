@@ -1,6 +1,18 @@
+---
+verified: 2.1.317
+verified_on: 2026-11-03
+section: Architecture and dependencies
+style: landmark
+scope: >-
+  How `CLAUDE_CODE_ENTRYPOINT` is set and what it drives: client type, `# Surface` prompt section,
+  request headers and User-Agent, bootstrap `client_data`, GrowthBook targeting, telemetry
+landmarks:
+  - CLAUDE_CODE_ENTRYPOINT_ON_REQUESTS ignored
+  - '"sdk-typescript"'
+  - /api/claude_cli/bootstrap
+  - 'x-anthropic-billing-header: cc_version='
+---
 # Claude Code Entrypoints and Execution Surfaces
-
-Verified against: cli.prettier.js 2.1.317 (2026-11-03)
 
 Source: `cli.prettier.js` (`work/<version>/package/cli.prettier.js`)
 

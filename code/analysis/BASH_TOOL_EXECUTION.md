@@ -1,9 +1,19 @@
+---
+verified: 2.1.207
+section: Tools, skills, and execution
+style: landmark
+scope: Bash tool, shell snapshots, search-tool wrappers
+landmarks:
+  - shell-snapshots
+  - SNAPSHOT_FILE=
+  - RIPGREP_FUNC_END
+---
 # Claude Code Bash Tool Execution Analysis
 
-Behavioral model verified against 2.1.207. This document follows the landmark style in
-`GUIDELINES.md`: it anchors on version-stable strings (env vars, log/telemetry names, literal shell
-tokens, behavioral logic) and gives grep re-location recipes instead of minified names or line
-numbers, which churn every release. Per-release specifics live in the appendix.
+This document follows the landmark style in `GUIDELINES.md`: it anchors on version-stable strings
+(env vars, log/telemetry names, literal shell tokens, behavioral logic) and gives grep re-location
+recipes instead of minified names or line numbers, which churn every release. Per-release specifics
+live in the appendix.
 
 For the Bash tool's `description` field — the prompt text the model sees, including the Git Safety
 Protocol, commit instructions, and PR instructions — see `PROMPTS.md` (section "Tool-description

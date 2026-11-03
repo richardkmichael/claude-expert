@@ -1,3 +1,7 @@
+---
+verified: 4.4212.0
+scope: Product surfaces, process model, Claude Code subprocess, file tree, workers, IPC
+---
 # Architecture
 
 How the macOS Claude Desktop app is laid out: product surfaces, processes, the `app.asar` file tree,

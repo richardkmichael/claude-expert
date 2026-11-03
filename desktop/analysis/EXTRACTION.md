@@ -1,3 +1,7 @@
+---
+verified: 4.4212.0
+scope: Unpacking, repacking/re-signing, re-verification recipes
+---
 # Extraction, Modification, and Re-verification
 
 How to unpack the app for inspection, repack a modified copy, and re-check the facts in this doc set

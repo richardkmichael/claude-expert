@@ -1,9 +1,18 @@
+---
+verified: 2.1.207
+section: Tools, skills, and execution
+style: landmark
+scope: Ripgrep bundling, embedded/system selection, config
+landmarks:
+  - USE_BUILTIN_RIPGREP
+  - tengu_ripgrep_availability
+  - no-config
+---
 # Ripgrep: Bundling, Binary Selection, and Configuration
 
-Behavioral model verified against 2.1.207. This document follows the landmark style in
-`GUIDELINES.md`: anchors are version-stable strings (env vars, log lines, `tengu_*` telemetry
-names, literal error text) with grep re-location recipes, never minified symbol names or line
-numbers. Per-release facts live in the appendix.
+This document follows the landmark style in `GUIDELINES.md`: anchors are version-stable strings (env
+vars, log lines, `tengu_*` telemetry names, literal error text) with grep re-location recipes, never
+minified symbol names or line numbers. Per-release facts live in the appendix.
 
 Ripgrep powers all of Claude Code's internal file search: the Grep and Glob tools, the `@`-file
 suggestion fallback, markdown discovery scans, bounded directory listings, and file-count

@@ -1,8 +1,15 @@
+---
+verified: 2.1.76
+verified_on: 2026-06-06
+section: API, networking, and MCP
+style: landmark
+scope: API call sites and request-construction pipeline
+landmarks:
+  - beta.messages.stream
+  - CLAUDE_CODE_EXTRA_BODY
+  - DISABLE_PROMPT_CACHING
+---
 # Anthropic API Call Sites Analysis
-
-Source: `cli.prettier.js` (`work/<version>/package/cli.prettier.js`)
-Verified against: cli.prettier.js 2.1.76 (2026-06-06). Not re-verified against a current bundle;
-treat specifics as 2.1.76 facts and re-check with the landmark greps in each section.
 
 This document analyzes all locations where Claude Code makes API requests to Anthropic's API,
 documenting the request construction pipeline and all control mechanisms that affect what context

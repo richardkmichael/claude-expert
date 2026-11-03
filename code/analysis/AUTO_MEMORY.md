@@ -1,6 +1,15 @@
+---
+verified: 2.1.316
+verified_on: 2026-11-02
+section: Memory
+style: landmark
+scope: 'Per-project auto memory: dir resolution, load, `/memory`'
+landmarks:
+  - '"MEMORY.md"'
+  - autoMemoryDirectory
+  - Edit CLAUDE.md files and memory settings
+---
 # Auto Memory (MEMORY.md)
-
-Verified against: cli.prettier.js 2.1.316 (2026-11-02)
 
 The user-facing, cross-session memory the main session builds up over time: a per-project directory
 holding a `MEMORY.md` index plus per-topic memory files, written by the model as it works and loaded

@@ -1,3 +1,7 @@
+---
+verified: 4.4212.0
+scope: Config stores, preferences schema, enterprise/user layering
+---
 # Configuration
 
 The on-disk config stores, the user-preferences schema, and how enterprise config layers over user

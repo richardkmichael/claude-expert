@@ -1,6 +1,18 @@
+---
+verified: 2.1.317
+verified_on: 2026-11-03
+section: Architecture and dependencies
+style: landmark
+scope: >-
+  Third-party libraries inlined or embedded, version anchors, Bun built-ins used in their place, and
+  libraries not bundled
+landmarks:
+  - '"ajv implementation error"'
+  - X-Stainless-Package-Version
+  - 'reconcilerVersion: "'
+  - This runtime has no Bun.Image
+---
 # Inlined Third-Party Dependencies
-
-Verified against: cli.prettier.js 2.1.317 (2026-11-03)
 
 The third-party code Claude Code ships inside `cli.prettier.js`: for each library, the string that
 locates it, the string that pins its version where the bundle carries one, and what the app uses it

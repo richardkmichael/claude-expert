@@ -1,6 +1,15 @@
+---
+verified: 2.1.316
+verified_on: 2026-11-02
+section: Tools, skills, and execution
+style: landmark
+scope: Live `propose_skills` skill proposals; dead Skillify prompt
+landmarks:
+  - propose_skills
+  - CLAUDE_CODE_SKILL_PROPOSALS
+  - '# Skillify'
+---
 # Skill Proposals, and the Dead Skillify Prompt
-
-Verified against: cli.prettier.js 2.1.316 (2026-11-02)
 
 Two things answer the question "does Claude Code ever notice a repeated procedure and offer to turn
 it into a skill":

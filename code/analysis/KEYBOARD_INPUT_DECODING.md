@@ -1,6 +1,19 @@
+---
+verified: 2.1.317
+verified_on: 2026-11-03
+section: Sessions, context, and history
+style: landmark
+scope: >-
+  stdin key decoding (tokenizer, CSI-u/modifyOtherKeys/legacy), Kitty/extended-keys negotiation and
+  probe, keybinding matching, push-to-talk hold detection
+landmarks:
+  - CLAUDE_CODE_BS_AS_CTRL_BACKSPACE
+  - pendingByteEvents
+  - CSI ? u not asked
+  - 'Terminal capabilities:'
+  - awaitingVoiceSubmitDoubleTap
+---
 # Keyboard Input Decoding
-
-Verified against: cli.prettier.js 2.1.317 (2026-11-03)
 
 How raw terminal bytes on stdin become key events, what escape-sequence dialects Claude Code
 negotiates, and where the CSI-u (Kitty keyboard protocol) support stops. Also covers how keystroke

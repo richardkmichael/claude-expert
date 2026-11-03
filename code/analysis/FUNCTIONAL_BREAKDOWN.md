@@ -1,7 +1,15 @@
+---
+verified: 2.1.277
+verified_on: 2026-09-19
+section: Architecture and dependencies
+style: landmark
+scope: 'Orientation map: where app concerns live, and which doc owns each'
+landmarks:
+  - CLAUDE_CONFIG_DIR
+  - .config.json
+  - triBool
+---
 # Application Functional Breakdown
-
-Source: `cli.prettier.js` (`work/<version>/package/cli.prettier.js`)
-Verified against: cli.prettier.js 2.1.277 (2026-09-19)
 
 An orientation map: which app-level concerns live in the bundle, how to find each one, and which
 doc covers it in depth. This doc deliberately holds no detail that another doc owns.

@@ -1,6 +1,15 @@
+---
+verified: 2.1.316
+verified_on: 2026-11-02
+section: Config, settings, and frontmatter
+style: landmark
+scope: '`tengu_*` flags: remote-eval fetch, disk cache, read order'
+landmarks:
+  - getFeatureValueWithSource
+  - cachedGrowthBookFeatures
+  - /api/eval/
+---
 # Feature Flags
-
-Verified against: cli.prettier.js 2.1.316 (2026-11-02)
 
 How Claude Code receives, caches and reads its `tengu_*` feature flags. The flags come from a
 GrowthBook client that Anthropic's servers answer per account; nothing in the CLI decides a flag's

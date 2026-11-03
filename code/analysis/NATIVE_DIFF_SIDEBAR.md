@@ -1,6 +1,19 @@
+---
+verified: 2.1.317
+verified_on: 2026-11-03
+section: UI surfaces and plugin panes
+style: landmark
+scope: >-
+  Native `/diff` sidebar as fallback to the default-on `diff` mod: command gating, tree,
+  drag-to-attach, focus, close marks; plugin-API correspondence
+landmarks:
+  - tengu_quiet_dolphin
+  - isOwnedByPlugin
+  - Diff panel shown
+  - useReleaseOnEdit
+  - selected_lines_in_diff
+---
 # The Native `/diff` Sidebar, End to End
-
-Verified against: cli.prettier.js 2.1.317 (2026-11-03)
 
 A reference extraction of the engine's own diff sidebar: who owns `/diff`, the command, the
 component tree, the drag-to-attach path, focus handling and the close mark. It exists to be compared

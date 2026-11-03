@@ -1,6 +1,14 @@
+---
+verified: 2.1.316
+verified_on: 2026-11-02
+section: Tools, skills, and execution
+style: landmark
+scope: claude-code-guide agent, `claude-code-docs` skill, bundled refs
+landmarks:
+  - You are the Claude guide agent.
+  - tengu_birch_kettle
+---
 # Claude Code's Self-Help: the Guide Agent and the claude-code-docs Skill
-
-Verified against: cli.prettier.js 2.1.316 (2026-11-02)
 
 Claude Code ships two ways for the model to answer questions about Claude Code itself: the built-in
 `claude-code-guide` subagent, and a bundled `claude-code-docs` skill that is off by default. Both

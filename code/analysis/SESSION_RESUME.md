@@ -1,7 +1,15 @@
+---
+verified: 2.1.277
+verified_on: 2026-09-19
+section: Sessions, context, and history
+style: landmark
+scope: Post-resume "resume vs summary" prompt and dismissal
+landmarks:
+  - tengu_gleaming_fair
+  - tengu_gleaming_fair_reuse
+  - resumeReturnDismissed
+---
 # Session Resume: The "Resume as-is vs Summary" Prompt
-
-Source: `cli.prettier.js` (`work/<version>/package/cli.prettier.js`)
-Verified against: cli.prettier.js 2.1.277 (2026-09-19)
 
 When a user invokes `claude -r` / `claude --resume` and the selected conversation is both old enough
 and large enough, Claude Code shows a post-resume overlay asking whether to compact the session or

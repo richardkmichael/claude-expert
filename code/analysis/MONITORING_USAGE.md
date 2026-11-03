@@ -1,6 +1,20 @@
+---
+verified: 2.1.317
+verified_on: 2026-11-03
+section: Observability
+style: landmark
+scope: >-
+  Where token, cost and plan-limit usage can be observed (statusLine, `/usage`, subagent `<usage>`,
+  OTel, cached blob, usage endpoint); cap-hit records, grace, auto-continue, `cedar_ember` resets
+landmarks:
+  - What's contributing to your usage?
+  - claude_code.session.count
+  - cachedUsageUtilization
+  - api/oauth/usage
+  - 'hook_event_name: "StopFailure"'
+  - cedar_ember
+---
 # Monitoring Token Usage and Cost
-
-Verified against: cli.prettier.js 2.1.317 (2026-11-03)
 
 This document follows the landmark style in `GUIDELINES.md`: it anchors on version-stable strings
 (slash-command names, `tengu_*` event and flag names, env var names, OTEL metric and attribute

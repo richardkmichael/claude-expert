@@ -1,5 +1,17 @@
-Verified against: cli.prettier.js 2.1.280 (2026-09-22)
-
+---
+verified: 2.1.280
+verified_on: 2026-09-22
+section: Sessions, context, and history
+style: landmark
+scope: >-
+  macOS `caffeinate` inhibitor: held only while the session is busy; background Bash and Monitors do
+  not hold it
+landmarks:
+  - Restarting sleep inhibitor
+  - caffeinate
+  - in_process_teammate
+  - local_bash
+---
 # Sleep prevention (`caffeinate`)
 
 How the CLI keeps a Mac awake while it works, and which kinds of work it does not cover. The public

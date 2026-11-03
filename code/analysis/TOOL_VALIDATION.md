@@ -1,11 +1,19 @@
+---
+verified: 2.1.165
+section: Tools, skills, and execution
+style: landmark
+scope: Zod-then-business-logic validation, per-tool errors
+landmarks:
+  - InputValidationError
+  - Shell command failed
+---
 # Tool Validation
 
-Behavioral model verified against 2.1.165. This document follows the landmark style in
-`GUIDELINES.md`: it anchors on version-stable strings (user-facing error messages, class names,
-`tengu_*` names, tool names, behavioral logic) with grep re-location recipes, not on minified symbol
-names or line numbers, which churn every release. Error-message strings are the durable anchors here;
-numeric `errorCode` values are a weaker contract and are shown as current 2.1.165 values. Per-release
-changes are in the appendix.
+This document follows the landmark style in `GUIDELINES.md`: it anchors on version-stable strings
+(user-facing error messages, class names, `tengu_*` names, tool names, behavioral logic) with grep
+re-location recipes, not on minified symbol names or line numbers, which churn every release.
+Error-message strings are the durable anchors here; numeric `errorCode` values are a weaker contract
+and are shown as current 2.1.165 values. Per-release changes are in the appendix.
 
 ## Validation architecture
 

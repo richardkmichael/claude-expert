@@ -1,6 +1,13 @@
+---
+verified: 2.1.186
+verified_on: 2026-06-26
+section: Memory
+style: landmark
+scope: 'Hub: shared memory machinery, gates, stores comparison'
+landmarks:
+  - tengu_memdir_loaded
+---
 # Memory System
-
-Verified against: cli.prettier.js 2.1.186 (2026-06-26)
 
 Claude Code has one persistent-memory mechanism pointed at three different stores. This doc is the
 hub: it describes the shared machinery and routes to the per-store docs. Read it first, then the

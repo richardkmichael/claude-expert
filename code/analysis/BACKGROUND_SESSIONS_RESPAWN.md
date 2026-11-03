@@ -1,6 +1,15 @@
+---
+verified: 2.1.169
+section: Sessions, context, and history
+style: landmark
+scope: Background-session retire→wake flag/env preservation, respawn-state validation
+landmarks:
+  - retireIfSettled
+  - respawnFlags
+  - stripped non-allowlisted
+  - tengu_bg_retired
+---
 # Background sessions: retire → wake flag/env preservation and respawn-state validation
-
-Verified against `cli.prettier.js` 2.1.169.
 
 This documents what "background sessions" are, the retire → wake lifecycle, and the allowlists that
 decide which CLI flags and provider env vars survive a respawn. The 2.1.169 changelog line "Background

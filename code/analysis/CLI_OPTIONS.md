@@ -1,6 +1,13 @@
+---
+verified: 2.1.76
+section: Config, settings, and frontmatter
+style: legacy
+scope: Undocumented CLI flags and auto-mode behavior
+landmarks:
+  - '--permission-mode'
+  - isAutoModeCircuitBroken
+---
 # CLI Options
-
-Source: `cli.prettier.js` 2.1.76 (`work/2.1.76/package/cli.prettier.js`)
 
 ## Undocumented options
 

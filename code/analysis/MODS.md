@@ -1,6 +1,19 @@
+---
+verified: 2.1.317
+verified_on: 2026-11-03
+section: Hooks
+style: landmark
+scope: >-
+  Mods: sources, the 14 built-in plugins, refusal order, reloads, rollout gate (bounded wait, late
+  load, mid-session follow), `plugin test`, dev mods
+landmarks:
+  - tengu_plugin_hooks_modules
+  - as loadPluginHooks
+  - which governs installed plugins
+  - builtinPluginsInitialized
+  - hooksModulesSwitchJoin
+---
 # Mods (Plugin Hooks Modules)
-
-Verified against: cli.prettier.js 2.1.317 (2026-11-03)
 
 A mod is a plugin's hooks module: the JavaScript or TypeScript file that a plugin's
 `hooks/hooks.json` names under `modules`, whose `register(on, options)` adds hooks and calls the `$`

@@ -1,6 +1,11 @@
+---
+verified: 2.1.168
+verified_on: 2026-06-08
+section: Methodology (not findings)
+style: methodology
+scope: Bun-era distribution; bisecting a behavior change
+---
 # Version Bisection — finding when a behavior changed
-
-Verified against: cli.prettier.js 2.1.168 (2026-06-08)
 
 How to locate the exact release that introduced or removed a behavior, without prettifying every
 candidate. This is research methodology, not a finding about any one version.

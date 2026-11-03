@@ -1,6 +1,17 @@
+---
+verified: 2.1.317
+verified_on: 2026-11-03
+section: Tools, skills, and execution
+style: landmark
+scope: >-
+  `@` mentions at submit: file, directory and line-range reads, size and token caps, PDFs, MCP
+  resources, agent and peer mentions
+landmarks:
+  - '"at_mentioned_files", () =>'
+  - '#L(\d+)(?:-(\d+))?'
+  - The user @-mentioned
+---
 # `@` Mentions to Context
-
-Verified against: cli.prettier.js 2.1.317 (2026-11-03)
 
 How the `@` mentions in a submitted prompt become context for the model: which tokens count as
 mentions, what each kind is turned into, the limits and permission checks on the way, and how each

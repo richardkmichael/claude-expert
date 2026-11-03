@@ -1,6 +1,18 @@
+---
+verified: 2.1.317
+verified_on: 2026-11-03
+section: Sessions, context, and history
+style: landmark
+scope: >-
+  Diagrams: how /compact, Summarize, /clear, /branch, /fork and /rewind change the JSONL vs the
+  model view; what removes history
+landmarks:
+  - 'content: "Conversation compacted"'
+  - Old tool result content cleared
+  - Create a branch of the current conversation
+  - rewind persist-failure remote heal failed
+---
 # Context Operations in Diagrams: What Stays in the Transcript
-
-Verified against: cli.prettier.js 2.1.317 (2026-11-03)
 
 When you run `/compact`, `/clear`, `/branch`, `/fork` or `/rewind` in Claude Code, or select
 "Summarize from here" in the message selector, it can feel like you're throwing away conversation

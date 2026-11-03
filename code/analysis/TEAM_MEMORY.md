@@ -1,6 +1,14 @@
+---
+verified: 2.1.186
+verified_on: 2026-06-26
+section: Memory
+style: landmark
+scope: 'Shared memory-service memory: mounts, sync, prompt shape'
+landmarks:
+  - CLAUDE_MEMORY_STORES
+  - fetched from memory-service
+---
 # Team Memory
-
-Verified against: cli.prettier.js 2.1.186 (2026-06-26)
 
 Shared memory backed by a remote memory-service and synced to a local mirror, so memories written by
 one person are visible to everyone working in the project. It coexists with the local, private auto

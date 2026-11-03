@@ -1,6 +1,14 @@
+---
+verified: 2.1.316
+verified_on: 2026-11-02
+section: Config, settings, and frontmatter
+style: landmark
+scope: Frontmatter parsing, schema, per-file-type validation
+landmarks:
+  - tengu_frontmatter_shadow_unknown_key
+  - does not recognize or apply
+---
 # Markdown Front-matter: Parsing, Schema, and Validation
-
-Verified against: cli.prettier.js 2.1.316 (2026-11-02)
 
 This document is a specification for formatter and linter tooling that targets Claude Code's
 Markdown configuration files.  A machine-readable JSON Schema derived from it lives at

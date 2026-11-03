@@ -1,6 +1,15 @@
+---
+verified: 2.1.317
+verified_on: 2026-11-03
+section: Config, settings, and frontmatter
+style: landmark
+scope: Settings scopes/precedence, merge, local-settings location, writes, symlink refusal
+landmarks:
+  - onLegacyLocalSettingsRead
+  - Refusing to write through symlink
+  - 'Invalid setting source:'
+---
 # Claude Code Analysis - Settings & Configuration
-
-Verified against: cli.prettier.js 2.1.317 (2026-11-03)
 
 How Claude Code reads, merges, stores, and persists settings. Landmark style: anchor on the stable
 strings and relocate with the grep recipes; re-check version-specific specifics against the current

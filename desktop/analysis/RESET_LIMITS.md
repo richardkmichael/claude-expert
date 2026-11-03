@@ -1,3 +1,7 @@
+---
+verified: 4.4212.0
+scope: 'Usage-limit reset grants: the claude.ai endpoints that read and apply them'
+---
 # Limit Resets
 
 How Settings > Usage reads the usage-limit resets granted to an account, and the request the `Use`

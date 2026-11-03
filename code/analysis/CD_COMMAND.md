@@ -1,6 +1,15 @@
+---
+verified: 2.1.198
+verified_on: 2026-07-03
+section: Sessions, context, and history
+style: landmark
+scope: '`/cd`: moves transcript + cwd, leaves memory behind'
+landmarks:
+  - Move this session to a new working directory
+  - tengu_cd_command
+  - relocated
+---
 # The `/cd` command (move a session to a new directory)
-
-Verified against: cli.prettier.js 2.1.198 (2026-07-03)
 
 `/cd <path>` moves the running session to a new working directory. It changes the process cwd,
 relocates the session transcript into the target directory's project folder, re-loads `CLAUDE.md`

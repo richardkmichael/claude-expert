@@ -1,3 +1,7 @@
+---
+verified: 4.4212.0
+scope: MCP SDK/protocol, server hosting, transports, `.dxt`/`.mcpb`
+---
 # MCP Integration
 
 How Claude Desktop hosts MCP servers: the SDK and protocol version, the two server-hosting paths,

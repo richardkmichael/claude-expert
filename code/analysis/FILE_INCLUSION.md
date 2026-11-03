@@ -1,6 +1,18 @@
+---
+verified: 2.1.317
+verified_on: 2026-11-03
+section: Tools, skills, and execution
+style: landmark
+scope: >-
+  `@` completion: sources and order, path completion, git/ripgrep index, `.ignore` re-include,
+  `.claude/**`, `fileSuggestion` payload, caps
+landmarks:
+  - '[FileIndex]'
+  - generateFileSuggestionsWithBase
+  - keepDotPrefix
+  - 'mcp-template::'
+---
 # @ File Inclusion and Completion
-
-Verified against: cli.prettier.js 2.1.317 (2026-11-03)
 
 This document follows the landmark style in `GUIDELINES.md`: features are identified by
 version-stable anchors (literal strings, log messages, `tengu_*` telemetry names, config keys,

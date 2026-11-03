@@ -1,6 +1,18 @@
+---
+verified: 2.1.317
+verified_on: 2026-11-03
+section: Tools, skills, and execution
+style: landmark
+scope: >-
+  Built-in tool registry, the `getTools` filter and per-tool gates (embedded search, task list, tool
+  search, PowerShell, web-fetch swap)
+landmarks:
+  - assembleToolPool
+  - CLAUDE_CODE_ENABLE_TODO_TOOLS === !0
+  - isToolSearchForceOverride
+  - CLAUDE_CODE_ENABLE_TASKS
+---
 # Claude Code Tools and Execution Architecture
-
-Verified against: cli.prettier.js 2.1.317 (2026-11-03)
 
 TODO:
 

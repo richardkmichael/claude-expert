@@ -1,6 +1,10 @@
+---
+verified: 2.1.76
+section: Methodology (not findings)
+style: methodology
+scope: ast-grep structural search techniques
+---
 # Claude Code Analysis Improvements with ast-grep
-
-Source: `cli.prettier.js` 2.1.76 (`work/2.1.76/package/cli.prettier.js`)
 
 ## Overview
 

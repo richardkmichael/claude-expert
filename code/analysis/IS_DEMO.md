@@ -1,6 +1,15 @@
+---
+verified: 2.1.220
+verified_on: 2026-08-07
+section: Config, settings, and frontmatter
+style: landmark
+scope: 'Demo flag: startup gates, identity redaction, cmd swap'
+landmarks:
+  - IS_DEMO
+  - projectOnboardingSeenCount
+  - policy_update_modal
+---
 # Demo mode (`IS_DEMO`)
-
-Verified against: cli.prettier.js 2.1.220 (2026-08-07)
 
 `IS_DEMO` is an internal flag that prepares Claude Code for clean demos and screenshots. It can be
 set via a settings `env` block, so it applies to every session where that settings file is in scope.

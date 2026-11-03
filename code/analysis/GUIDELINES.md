@@ -1,3 +1,9 @@
+---
+verified: 2.1.154
+section: Methodology (not findings)
+style: methodology
+scope: How to write and update analysis docs (authoritative)
+---
 # Analysis Documentation Guidelines
 
 How to document findings from exploring the Claude Code bundle so the docs survive version bumps

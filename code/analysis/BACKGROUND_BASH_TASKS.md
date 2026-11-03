@@ -1,6 +1,18 @@
+---
+verified: 2.1.316
+verified_on: 2026-10-31
+section: Tools, skills, and execution
+style: landmark
+scope: >-
+  `run_in_background` prompt text, detached `-c` spawn, task end on shell exit, group kill, hook
+  visibility
+landmarks:
+  - runs the command detached
+  - Stops a running background task by its ID
+  - '"group_kill"'
+  - background_tasks
+---
 # Background Bash Tasks
-
-Verified against: cli.prettier.js 2.1.316 (2026-10-31)
 
 This doc covers `run_in_background` Bash commands: what the model is told, how the shell is spawned,
 how the harness decides a task has ended and how it stops one, and what hooks can see. The general

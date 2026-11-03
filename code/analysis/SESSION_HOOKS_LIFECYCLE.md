@@ -1,6 +1,18 @@
+---
+verified: 2.1.316
+verified_on: 2026-10-31
+section: Hooks
+style: landmark
+scope: >-
+  SessionStart/End order, shutdown signals and SessionEnd budget, hook spawn and `CLAUDE_PID`,
+  background-session hook env
+landmarks:
+  - 'hook_event_name: "SessionEnd", reason:'
+  - CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS
+  - '"shutdown_signal"'
+  - 'CLAUDE_CODE_SESSION_KIND: "bg"'
+---
 # SessionStart / SessionEnd Lifecycle and the Hook Process
-
-Verified against: cli.prettier.js 2.1.316 (2026-10-31)
 
 This doc covers when SessionStart and SessionEnd fire, how shutdown reaches SessionEnd, how a
 command hook process is spawned, and how background (agent-view) sessions change the process and

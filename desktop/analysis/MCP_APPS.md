@@ -1,3 +1,7 @@
+---
+verified: 4.4212.0
+scope: MCP Apps (MCP-UI) support, including `updateModelContext`
+---
 # MCP Apps (MCP-UI) Support
 
 MCP Apps (the ext-apps "MCP-UI" extension) lets an MCP server ship a GUI that renders in an iframe

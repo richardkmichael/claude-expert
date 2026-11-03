@@ -1,6 +1,17 @@
+---
+verified: 2.1.317
+verified_on: 2026-11-03
+section: Config, settings, and frontmatter
+style: landmark
+scope: >-
+  Files a session reads by walking directories, and the key each piece of per-project state uses
+  (start dir vs canonical root); worktrees
+landmarks:
+  - 'getProjectDirsUpToHome: stat'
+  - getProjectPathForConfig
+  - tengu_resume_worktree_fallback
+---
 # Project Files and State
-
-Verified against: cli.prettier.js 2.1.317 (2026-11-03)
 
 Two different mechanisms decide what "the project" is, and they use different roots:
 

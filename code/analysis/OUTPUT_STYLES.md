@@ -1,6 +1,15 @@
+---
+verified: 2.1.220
+verified_on: 2026-07-31
+section: System prompts and instructions
+style: landmark
+scope: Built-in output-style prompts, resolution, injection
+landmarks:
+  - Learning Style Active
+  - output_style_load
+  - '# Output Style: '
+---
 # Output styles
-
-Verified against: cli.prettier.js 2.1.220 (2026-07-31)
 
 An output style replaces the framing of the system prompt and appends a `# Output Style: <name>`
 section carrying the style's own instructions. Three built-in styles ship in the bundle —

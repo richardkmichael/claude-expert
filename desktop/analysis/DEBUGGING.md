@@ -1,3 +1,7 @@
+---
+verified: 4.4212.0
+scope: Main-process, renderer, and native debugging; CDP auth
+---
 # Debugging
 
 How to attach debuggers and raise log verbosity across the main process, renderer, and native

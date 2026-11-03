@@ -1,6 +1,14 @@
+---
+verified: 2.1.186
+verified_on: 2026-06-26
+section: Memory
+style: landmark
+scope: 'Per-subagent memory: `memory:` field, dirs, permissions'
+landmarks:
+  - Persistent Agent Memory
+  - tengu_agent_memory_loaded
+---
 # Agent Memory (Persistent Agent Memory)
-
-Verified against: cli.prettier.js 2.1.186 (2026-06-26)
 
 Per-subagent persistent memory. A subagent opts in with a `memory:` frontmatter field; from then on
 it reads and writes its own memory directory across conversations, separate from the main session's

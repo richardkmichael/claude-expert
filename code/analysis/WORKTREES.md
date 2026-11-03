@@ -1,6 +1,18 @@
+---
+verified: 2.1.317
+verified_on: 2026-11-03
+section: Hooks
+style: landmark
+scope: >-
+  WorktreeCreate/Remove payloads and hook output, hook `cwd`, `baseRef`, the `hookBased` removal
+  gate, exit dialog, agent/job removal, cleanup of kept subagent worktrees
+landmarks:
+  - 'hook_event_name: "WorktreeCreate"'
+  - 'Hook-based agent worktree kept at:'
+  - No WorktreeRemove hook configured; falling back
+  - worktree_resolved_to_main_repo
+---
 # Worktree hooks: WorktreeCreate / WorktreeRemove lifecycle
-
-Verified against: cli.prettier.js 2.1.317 (2026-11-03)
 
 How Claude Code builds the WorktreeCreate and WorktreeRemove hook payloads, which entry points fire
 them, what `cwd` the hook receives, how `worktree.baseRef` interacts with a hook, and when a

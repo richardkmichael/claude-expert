@@ -1,7 +1,19 @@
+---
+verified: 2.1.316
+verified_on: 2026-10-31
+section: Observability
+style: landmark
+scope: >-
+  Notification triggers, channels, idle and dialog timers, terminal write path, hook
+  `terminalSequence`
+landmarks:
+  - idle_prompt
+  - preferredNotifChannel
+  - tengu_idle_return_action
+  - CLAUDE_CODE_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS
+  - TerminalWriteProvider
+---
 # Notification System
-
-Source: `cli.prettier.js` (`work/<version>/package/cli.prettier.js`) Verified against:
-cli.prettier.js 2.1.316 (2026-10-31)
 
 Two independent notification paths fire on every notification event:
 

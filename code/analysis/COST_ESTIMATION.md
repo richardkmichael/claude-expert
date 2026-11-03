@@ -1,6 +1,22 @@
+---
+verified: 2.1.295
+verified_on: 2026-10-08
+section: Observability
+style: landmark
+scope: >-
+  Session cost estimate: baked-in rate cards, bootstrap-fetched costs, formula, unknown models, what
+  feeds the total
+landmarks:
+  - pricing_tiers
+  - additional_model_costs
+  - alder_ford
+  - modelPricing
+  - tengu_unknown_model_cost
+  - costs may be inaccurate due to usage of unknown models
+  - ephemeral_1h_input_tokens
+  - long_prompt
+---
 # How Claude Code Computes the Session Cost Figure
-
-    Verified against: cli.prettier.js 2.1.295 (2026-10-08)
 
 This doc covers how Claude Code arrives at `total_cost_usd`: the statusLine `cost.total_cost_usd`,
 the `Total cost:` line of `/cost` (`/usage` in print mode), the SDK result's `total_cost_usd` and

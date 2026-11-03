@@ -1,3 +1,7 @@
+---
+verified: 4.4212.0
+scope: First-party vs third-party (`Claude-3p`), enterprise sources, org policy
+---
 # Deployment Modes and Enterprise Config
 
 First-party vs third-party deployment, the `Claude-3p` data directory, where enterprise config comes

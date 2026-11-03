@@ -1,6 +1,14 @@
+---
+verified: 2.1.317
+verified_on: 2026-11-03
+section: Config, settings, and frontmatter
+style: landmark
+scope: External CLAUDE.md `@import` and symlinked `.claude/rules` approval dialog and flags
+landmarks:
+  - hasClaudeMdExternalIncludesApproved
+  - showExternalIncludesDialog
+---
 # External CLAUDE.md include approval
-
-Verified against: cli.prettier.js 2.1.317 (2026-11-03)
 
 A loaded `CLAUDE.md` / `CLAUDE.local.md` can pull in other files with `@path` imports, and a
 `.claude/rules` directory can be a symlink to rule files kept elsewhere. When either reaches outside

@@ -1,6 +1,15 @@
+---
+verified: 2.1.316
+verified_on: 2026-11-02
+section: System prompts and instructions
+style: landmark
+scope: 'System-prompt assembly: sections, gates, routing'
+landmarks:
+  - '# Harness'
+  - CLAUDE_CODE_SIMPLE_SYSTEM_PROMPT
+  - tengu_velvet_tide
+---
 # Claude Code System Prompts Analysis
-
-Verified against: cli.prettier.js 2.1.316 (2026-11-02)
 
 This document is a behavioral model and landmark index, not a code map. It anchors on stable strings
 (section headings, section ids, env vars, feature flags) and describes logic declaratively, so it

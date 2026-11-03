@@ -1,6 +1,19 @@
+---
+verified: 2.1.317
+verified_on: 2026-11-03
+section: Hooks
+style: landmark
+scope: >-
+  Hook event inventory, I/O schemas, matchers and tool-name families, `onFailure`, restricted
+  personal hooks, hook process env, relocation recipes
+landmarks:
+  - hook_event_name
+  - fieldToMatch
+  - What a failure of this hook does
+  - hook_additional_context
+  - CLAUDE_CODE_CHILD_SESSION
+---
 # Hooks
-
-Verified against: cli.prettier.js 2.1.317 (2026-11-03)
 
 This document follows the landmark style in `GUIDELINES.md`: it anchors on version-stable strings
 (hook event names, config keys, the Zod `.describe(...)` strings shipped in the schema, `tengu_*`

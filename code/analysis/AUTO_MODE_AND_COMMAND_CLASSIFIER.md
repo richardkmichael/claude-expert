@@ -1,6 +1,23 @@
+---
+verified: 2.1.316
+verified_on: 2026-11-02
+section: Permissions and safety
+style: landmark
+scope: >-
+  Regex destructive-command classifier + auto-mode LLM security classifier; embedded rules template;
+  `autoMode` rule-config surface; server-side review; why subagent `git commit --amend` is blocked
+landmarks:
+  - security monitor for autonomous
+  - git_commit_amend
+  - tengu_auto_mode_config
+  - isSubagentLoop
+  - <block>
+  - permissions_external-
+  - user_allow_rules_to_replace
+  - $defaults
+  - auto-mode defaults
+---
 # Auto Mode and the Bash Command Classifier
-
-Verified against: cli.prettier.js 2.1.316 (2026-11-02)
 
 Two independent "classifiers" gate what a Bash command is allowed to do. They are easy to conflate,
 so this doc separates them:

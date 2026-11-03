@@ -1,7 +1,15 @@
+---
+verified: 2.1.277
+verified_on: 2026-09-19
+section: API, networking, and MCP
+style: landmark
+scope: What the bundled Anthropic SDK adds to an outgoing request
+landmarks:
+  - /v1/messages
+  - calculateNonstreamingTimeout
+  - is deprecated
+---
 # Anthropic SDK Request Behavior
-
-Source: `cli.prettier.js` (`work/<version>/package/cli.prettier.js`)
-Verified against: cli.prettier.js 2.1.277 (2026-09-19)
 
 What the bundled Anthropic SDK does to a request on its way out, as distinct from what Claude Code
 puts into one. Claude Code's own request construction is in `ANTHROPIC_API_USAGE.md`.

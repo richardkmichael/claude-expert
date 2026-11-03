@@ -1,6 +1,18 @@
+---
+verified: 2.1.317
+verified_on: 2026-11-03
+section: Tools, skills, and execution
+style: landmark
+scope: >-
+  Skills: sources, filters and visibility, invocation (inline, fork, preload), `allowed-tools`
+  paths, read-only loads, bundled catalog
+landmarks:
+  - bundledSkillsInitialized
+  - 'allow_bundled_skills: {'
+  - 'survivesBundledKillSwitch: !0'
+  - No agent available for forked execution
+---
 # Skills
-
-Verified against: cli.prettier.js 2.1.317 (2026-11-03)
 
 The parent document for skills: where they come from, how they are registered and filtered, who can
 invoke them, how they run, and where a skill's `allowed-tools` grant applies. It then catalogs the

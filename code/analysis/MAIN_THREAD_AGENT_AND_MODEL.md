@@ -1,6 +1,15 @@
+---
+verified: 2.1.277
+verified_on: 2026-09-18
+section: Config, settings, and frontmatter
+style: landmark
+scope: Main-thread agent selection and model precedence
+landmarks:
+  - Overrides the 'agent' setting
+  - agent_frontmatter
+  - sdk-cli
+---
 # Main-thread agent and model selection
-
-Verified against: cli.prettier.js 2.1.277 (2026-09-18)
 
 How a top-level session decides which agent definition, if any, governs its main thread, and which
 model it runs on. Both resolutions are shared by interactive and headless (`-p`) sessions, which

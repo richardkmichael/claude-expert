@@ -1,6 +1,17 @@
+---
+verified: 2.1.316
+verified_on: 2026-10-31
+section: Architecture and dependencies
+style: landmark
+scope: >-
+  `githubRepoPaths` in ~/.claude.json: when it is written, teleport and deep-link readers, stale
+  entries
+landmarks:
+  - githubRepoPaths
+  - Teleport to Repo
+  - No local clone found for repo
+---
 # githubRepoPaths in ~/.claude.json
-
-Verified against: cli.prettier.js 2.1.316 (2026-10-31)
 
 `githubRepoPaths` is a key in the global config file (`~/.claude.json`). It maps a lowercase
 `owner/repo` to an ordered array of absolute local checkout paths, most recently used first. It

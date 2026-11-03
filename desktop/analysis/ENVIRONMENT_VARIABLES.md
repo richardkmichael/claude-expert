@@ -1,3 +1,7 @@
+---
+verified: 4.4212.0
+scope: Main-process env vars; the bundled Claude Code surface
+---
 # Environment Variables
 
 Variables read by the Claude Desktop main process. Generic Node.js, OS, networking, terminal, and
