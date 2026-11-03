@@ -107,7 +107,7 @@ function test_claude() {
   # Expected:
   #
   #   hook|has_schema_validation|has_input_validation|file_path|created_at_l
-  #   PreToolUse|1|1|/path/to/claude-code-analysis/does-not-exist-4.txt|2025-09-25 17:25:59
+  #   PreToolUse|1|1|/path/to/claude-expert/does-not-exist-4.txt|2025-09-25 17:25:59
 
 
   # Test 2: PostToolUse with Bash tool - `Bash` requires permission

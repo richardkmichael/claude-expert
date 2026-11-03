@@ -1,19 +1,21 @@
 # Claude Code JSON Schemas
 
 JSON Schema (Draft 2020-12) definitions derived from the `analysis/` documentation, for validating
-Claude Code's own files. Two schemas live here:
+Claude Code's own files. Two schemas live here. Repository paths in this file, such as `analysis/`
+and `bin/`, are relative to `code/`.
 
 | Schema file               | Validates                                         | Derived from                       |
 | ------------------------- | ------------------------------------------------- | ---------------------------------- |
 | `frontmatter.schema.json` | YAML frontmatter in Markdown config files         | `analysis/MARKDOWN_FRONTMATTER.md` |
 | `transcript.schema.json`  | One JSON object per session-transcript JSONL line | `analysis/SESSION_TRANSCRIPT.md`   |
 
-The frontmatter schema (covered first below) is verified against `cli.prettier.js` 2.1.296; the
+The frontmatter schema (covered first below) is verified against `cli.prettier.js` 2.1.316; the
 transcript schema is described under "Transcript schema" at the end.
 
-`frontmatter.schema.json` is a schema library, not a single-shot validator.  The
-four file types must be selected explicitly because Memory is intentionally permissive and
-would otherwise swallow every document.
+`frontmatter.schema.json` is a schema library, not a single-shot validator. Select the entry for
+each file type explicitly, as in the table below, because Memory is intentionally permissive and
+would otherwise swallow every document. Command files share the Skill definition, so the five rows
+use four `$defs` entries.
 
 | File type     | File pattern                                         | JSON Pointer entry    |
 | ------------- | ---------------------------------------------------- | --------------------- |
@@ -25,10 +27,10 @@ would otherwise swallow every document.
 
 ## Coverage and strictness
 
-- Agent, Skill, and OutputStyle schemas use `additionalProperties: false`, matching Claude
-  Code's Zod `.strict()` shadow validator (anchor: `tengu_frontmatter_shadow_unknown_key`).
-  Unknown keys are an error.  The Agent Skills field `compatibility` is not in that validator,
-  so the Skill schema rejects it.
+- Agent, Skill, and OutputStyle schemas use `additionalProperties: false`, matching Claude Code's
+  Zod `.strict()` shadow validator (anchor: `tengu_frontmatter_shadow_unknown_key`). Unknown keys
+  are an error. The Agent Skills field `compatibility` is not in that validator, so the Skill schema
+  rejects it.
 - Skill `@internal` keys (`mcpServers`, `lspServers`, `agents`, `outputStyles`, `themes`,
   `workflows`, `channels`, `monitors`, `settings`, `userConfig`, `defaultEnabled`,
   `experimental`, `dependencies`, `displayName`, `author`, `homepage`, `repository`, `license`,
@@ -36,13 +38,13 @@ would otherwise swallow every document.
 - Value sets (model aliases, effort, permission modes, colors, isolation, hook events) come from
   the runtime field parsers, not the shadow validator, which checks keys and loose scalar types
   only.
-- Hook matcher groups allow only `matcher` and `hooks`.  Claude Code strips any other key
-  silently, so an `if` on the group is an error here; `if` belongs on each hook entry.
+- Hook matcher groups allow only `matcher` and `hooks`. Claude Code strips any other key silently,
+  so an `if` on the group is an error here; `if` belongs on each hook entry.
 - Memory frontmatter is permissive (extra keys allowed) since Claude Code only reads `paths`.
   The schema still validates `paths` itself as a string or a list of strings.
-- Model values are validated against the documented aliases and the `claude-*` ID pattern.
-  Unknown strings fail.  Claude Code's runtime resolver is permissive (passes through to the
-  resolver, no warn); the schema is intentionally stricter for lint value.
+- Model values are validated against the documented aliases and the `claude-*` ID pattern. Unknown
+  strings fail. Claude Code's runtime resolver is permissive (passes through to the resolver, no
+  warn); the schema is intentionally stricter for lint value.
 
 ## Wiring up editors and CI
 
@@ -66,9 +68,9 @@ URL with a fragment pointer to the right `$defs` entry:
 }
 ```
 
-yaml-language-server resolves frontmatter inside Markdown files automatically — it strips
-the `---` fences and validates the YAML block.  No additional configuration is required to
-extract frontmatter from Markdown.
+yaml-language-server resolves frontmatter inside Markdown files automatically — it strips the `---`
+fences and validates the YAML block. No additional configuration is required to extract frontmatter
+from Markdown.
 
 ### Per-file modeline (yaml-language-server)
 
@@ -125,32 +127,27 @@ const { data } = matter(readFileSync(".claude/agents/foo.md", "utf8"));
 if (!validateAgent(data)) console.error(validateAgent.errors);
 ```
 
-## Known divergences from runtime behaviour
+## Known divergences from runtime behavior
 
-The schema is deliberately stricter than the runtime in places where the runtime silently
-coerces values that almost certainly indicate a typo.  See the validation-severity table in
-`analysis/MARKDOWN_FRONTMATTER.md` for the full list.  Highlights:
+The schema is deliberately stricter than the runtime in places where the runtime silently coerces
+values that almost certainly indicate a typo. See the validation-severity table in
+`analysis/MARKDOWN_FRONTMATTER.md` for the full list. Highlights:
 
 - Agent `model` and Skill `model`: schema errors on unknown aliases; runtime passes the
   string through to the model resolver.
 - Skill `description` non-string types: schema accepts string/number/boolean only; runtime
   also accepts these but warns on anything else.
-- Memory file with unknown key: schema accepts; runtime ignores.  (Memory is the one type
-  where the schema does not enforce strict keys.)
+- Memory file with unknown key: schema accepts; runtime ignores. (Memory is the one type where the
+  schema does not enforce strict keys.)
 
 ## Updating
 
-When `cli.prettier.js` changes, re-verify against the new version using the workflow in
-`analysis/MARKDOWN_FRONTMATTER.md`.  The relevant runtime functions are:
-
-- Agent loader: `s87`, agent strict shadow: `Fe1`
-- Skill loader: `hrH` (helper `LE8`), skill strict shadow: `ZT8`
-- Output-style loader: `k9K`, strict shadow: `ge1`
-- Frontmatter parser: `eY`, sanitizer: `BC1`, runtime dispatch: `KzH`
-- Hook event names: `mk` (currently 29 events)
-- Permission modes: `Tv`/`vjq`
-- Effort enum: `Yg`
-- Model aliases: `YqH`
+When `cli.prettier.js` changes, re-verify the frontmatter schema against the new version. The
+"Re-location recipes" table in `analysis/MARKDOWN_FRONTMATTER.md` gives a grep anchor and the
+expected shape for each piece the schema mirrors: the strict shadow validator and its key lists, the
+loaders and field parsers, hook schemas and event names, model aliases, effort presets, permission
+modes and agent colors. The transcript schema is refreshed with `bin/generate-transcript-schema.py`,
+described under "Transcript schema" below.
 
 ## Transcript schema
 
