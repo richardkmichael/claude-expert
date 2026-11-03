@@ -409,7 +409,7 @@ edges. The parent's Agent call is itself classified (the prompt's SUB-AGENT DELE
 the `prompt` field), and the subagent's final report gets a hand-back review
 (`<subagent_hand_back>`).
 
-## Why `git commit --amend` gets blocked in the git-wright subagent
+## Why `git commit --amend` gets blocked in a committing subagent
 
 The relevant SOFT BLOCK rule lives in the rules template (`rg -n 'Git Destructive \['` against the
 extracted asset). Its consent bar is
@@ -425,18 +425,18 @@ this rule." The amend clause then reads:
 
 Combine that with subagent transcript isolation and the failure is mechanical:
 
-- git-wright's classifier sees only the subagent transcript: the delegation prompt plus git-wright's
-  own tool calls. A commit the main agent made before delegating does not appear.
+- The subagent's classifier sees only the subagent transcript: the delegation prompt plus the
+  subagent's own tool calls. A commit the main agent made before delegating does not appear.
 - Asked to amend that pre-existing commit, "no prior `git commit` visible" holds from the
   classifier's vantage, so the rule reads the amend as rewriting the user's commit and blocks.
-- The clearing paths do not fire reliably. The delegation prompt (git-wright's only "user" message)
-  usually says "commit" or "clean up history", not "amend/reword/fixup", and principle 7 tells the
-  classifier that a sub-agent prompt is not user intent. There is no `git commit` by git-wright in
-  the transcript to satisfy "the agent visibly created HEAD this session".
+- The clearing paths do not fire reliably. The delegation prompt (the subagent's only "user"
+  message) usually says "commit" or "clean up history", not "amend/reword/fixup", and principle 7
+  tells the classifier that a sub-agent prompt is not user intent. There is no `git commit` by the
+  subagent in the transcript to satisfy "the agent visibly created HEAD this session".
 
-The block is absent when git-wright makes the commit itself and then amends it in the same run: that
-`git commit` is in its own transcript, so the amend counts as reshaping the agent's own work. The
-problem is amending a commit that predates the subagent.
+The block is absent when the subagent makes the commit itself and then amends it in the same run:
+that `git commit` is in its own transcript, so the amend counts as reshaping the agent's own work.
+The problem is amending a commit that predates the subagent.
 
 Ways to clear it, ranked by reliability:
 
@@ -454,12 +454,12 @@ Ways to clear it, ranked by reliability:
   so name force-push explicitly if needed and expect strict judgment on shared branches. For a
   deterministic removal instead of an LLM-judged exception, fork `autoMode.soft_deny` (omit
   `$defaults`, re-list the block without Git Destructive's amend clause). Two hard limits: the rule
-  applies to every agent in that settings scope, not git-wright alone, and it cannot name the agent,
-  because the classifier input carries no agent name or type (Session Context is user identity only,
-  entries are keyed by role and tool name, and the agent definition never reaches the classifier).
-  Put it in `~/.claude/settings.json`, `--settings`, or managed policy; `.claude/settings.json` and
-  `.claude/settings.local.json` are ignored for `autoMode`.
-- Let git-wright create the commit it will amend, so the `git commit` sits in its own transcript.
+  applies to every agent in that settings scope, not the committing subagent alone, and it cannot
+  name the agent, because the classifier input carries no agent name or type (Session Context is
+  user identity only, entries are keyed by role and tool name, and the agent definition never
+  reaches the classifier). Put it in `~/.claude/settings.json`, `--settings`, or managed policy;
+  `.claude/settings.json` and `.claude/settings.local.json` are ignored for `autoMode`.
+- Let the subagent create the commit it will amend, so the `git commit` sits in its own transcript.
   Reliable when the workflow allows it; no help when the job is to amend a pre-existing commit.
 - Make the delegation prompt name the action ("amend the last commit to fix X"). Weakest lever. The
   classifier sees the delegation prompt as a plain user entry, so an explicit, targeted request may
@@ -467,7 +467,7 @@ Ways to clear it, ranked by reliability:
   must-name bar" and the pass/fail is a non-deterministic LLM judgment. A standing grant ("you are
   permitted to amend previous commits") is weaker still.
 
-  Putting the grant in the git-wright agent definition does nothing: the definition becomes the
+  Putting the grant in the subagent's agent definition does nothing: the definition becomes the
   subagent's system prompt, separate from `messages`, and the classifier builds its transcript from
   `messages` only. A blanket grant in `CLAUDE.md` does reach the classifier through the CLAUDE.md
   message, but the wrapper counts it only when it names the specific operation and target, so a
