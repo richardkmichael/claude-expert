@@ -9,7 +9,8 @@ allowed-tools: Bash(bin/prepare-claude-desktop-source.sh:*)
 Installed Claude Desktop version:
 !`/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' /Applications/Claude.app/Contents/Info.plist`
 
-Prepared versions: !`ls desktop/work 2>/dev/null | sort -V | tr '\n' ' '`
+Prepared versions:
+!`ls "$(git rev-parse --show-toplevel)/desktop/work" 2>/dev/null | sort -V | tr '\n' ' '`
 
 # Instructions
 
