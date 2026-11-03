@@ -15,7 +15,9 @@ commit subjects and how to search a bundle, are in the root `CLAUDE.md`.
   Chart.js) and native-addon shims. From 2.1.242 it is split across a thousand-odd `chunk-<hash>.js`
   modules behind a small `cli` entry module, and cross-module references resolve through the
   `import`/`export` lists at each module's edges. Extracting only the entry module of a split binary
-  yields a stub of a few hundred lines, not the application.
+  yields a stub of a few hundred lines, not the application. In the split builds checked (2.1.300
+  onward), the vendor bundles are raw assets that are not extracted into `cli.prettier.js` (see
+  `analysis/DEPENDENCIES.md`).
 - It is self-contained: no `package.json`, lock file, or `node_modules` — all dependencies are
   bundled inline.
 - The original unminified source is not available.
