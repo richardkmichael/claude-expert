@@ -1,213 +1,449 @@
 # Inlined Third-Party Dependencies
 
-Source: `cli.prettier.js` 2.1.76 (`work/2.1.76/package/cli.prettier.js`)
+Verified against: cli.prettier.js 2.1.317 (2026-11-03)
 
-Libraries bundled (inlined) into `cli.prettier.js` by the build toolchain.
-Line numbers are approximate first-occurrence anchors for discovery, not precise boundary ranges.
-The file is an ES module (`import { createRequire }` at line 1).
+The third-party code Claude Code ships inside `cli.prettier.js`: for each library, the string that
+locates it, the string that pins its version where the bundle carries one, and what the app uses it
+for. Run every `rg` below from `work/<version>/package/` against `cli.prettier.js`.
 
----
+## How libraries sit in the bundle
 
-## Libraries
+- Libraries are inlined into the `chunk-<hash>.js` modules. A match belongs to the module named by
+  the nearest `// ==== bun module:` banner above it. The one library the app requires by name at run
+  time is `undici` (see Undici).
+- Packages published as CommonJS keep their wrapper: a factory over an `exports` object that opens
+  with `Object.defineProperty(<exports>, "__esModule", ...)`. ESM packages are flattened.
+- Some libraries are inlined twice, an ESM copy and a CommonJS or UMD copy pulled in by another
+  dependency or by a lazily imported module: Zod, AJV, ajv-formats and tslib. Expect two clusters of
+  hits.
+- Some packages embed their own `package.json` as an object literal. This lists every one, with its
+  version:
+
+      rg -n -U -o -r '$1 $2' \
+        'name: "(@?[a-z0-9][a-z0-9./_@-]*)",\n(?:.*\n){0,3}?\s*version: "(\d+\.\d+\.\d+[^"]*)"' \
+        cli.prettier.js
+
+  It prints gaxios, google-auth-library, five `@aws-sdk/*` clients, openid-client and
+  `@grpc/grpc-js`.
+- The browser libraries injected into HTML artifact pages (mermaid, Chart.js, a highlight.js build)
+  are embedded as raw files beside the modules. Only their loaders and file paths appear in
+  `cli.prettier.js` (see Embedded browser bundles).
+- Where Bun has a built-in, the app calls it and bundles no library (see Bun built-ins in place of
+  libraries).
+
+## Validation
 
 ### Zod
-Schema validation library (TypeScript-first).
-- Anchor: `$ZodError` near line 4815; i18n error message blocks in ~30 languages
-  from line ~1 through ~15,000 (Arabic, Vietnamese, etc.)
-- Used: settings/config schema validation throughout the application
+
+Schema validation, used for the app's schemas throughout.
+
+- Version: 4.6.2. Zod 4 embeds its version as an object literal:
+  `rg -n 'major: 4, minor: \d+, patch: \d+'` hits twice, the ESM copy and a CommonJS copy. The
+  CommonJS copy sits in the lazily imported module behind `claude gateway` (see openid-client).
+- Find: `rg -n -F '"$ZodError"'`.
+- A Zod 3-API copy is also present: `typeName` values such as `ZodEffects`, and the error
+  `rg -n 'in conjunction with custom error map'`. It carries no version constant.
+- Only English error messages are bundled (`rg -n -F 'Invalid input: expected'`); Zod's locale packs
+  are not.
 - https://github.com/colinhacks/zod
 
 ### AJV (Another JSON Schema Validator)
-JSON schema validation.
-- Anchor: `"ajv implementation error"` string literal (present ~9x).
-- Plugins: `ajv-formats` is fully inlined (not merely referenced by its codegen
-  `require("ajv-formats/dist/formats")` string) — its `dist/formats.js` (the `fullFormats` /
-  `fastFormats` tables and `formatNames = Object.keys(fullFormats)`), `dist/limit.js` (the
-  `formatMaximum` / `formatMinimum` / `formatExclusiveMaximum` / `formatExclusiveMinimum` keywords),
-  and the plugin function that selects `fastFormats` vs `fullFormats` by `mode === "fast"`. Grep the
-  format names it adds: `"iso-date-time"`, `"iso-time"`, `"uri-template"`, `"relative-json-pointer"`.
-  Version 3.0.x, not pinnable further from the bundle: the compiled runtime (`dist/*.js`) is
-  byte-identical across `3.0.0-rc.0` (2021), `3.0.0`, and `3.0.1` (2024) — only the `.d.ts` files and
-  the version field differ, and neither reaches the bundle. No SHA/version string is embedded and the
-  code matches the published npm tarballs verbatim, so it is a normal semver install (npm `latest` =
-  `3.0.1`, the most likely resolved version). Trust the npm dist-tag, not GitHub Releases here: the
-  repo's `/releases` page stops at the 2021 prerelease `v3.0.0-rc.0` and has no entry for `3.0.0` or
-  `3.0.1` (both exist as git tags, npm-published 2024-03-30), so GitHub alone makes the latest look
-  like a 2021 rc. `ajv-errors` is not bundled (the lone `ajvErrors` string is ajv core's own
-  deprecated-options map).
-- Version: 8.18.0 (confirmed against 2.1.207). AJV embeds no version constant, so pin it by source
-  fingerprint, not a string. Each step is a grep against `cli.prettier.js`:
-  - Major 8, not 6: the `require("ajv/dist/runtime/{equal,ucs2length,uri,validation}")` codegen
-    strings — the v8 `dist/runtime/*` layout. v6 has no `dist/runtime/`.
-  - URI resolver is `fast-uri`, so >= 8.17.1 (8.17.0 was never published; 8.16 and earlier use
+
+JSON Schema validation. Two copies, an ESM one and a CommonJS one, both 8.18.0; each fingerprint
+below hits in both copies.
+
+- Find: `rg -n -F '"ajv implementation error"'`.
+- Version: 8.18.0. AJV embeds no version constant, so it is pinned by source fingerprint:
+  - Major 8, not 6: `rg -n -F 'ajv/dist/runtime/'` finds the codegen strings
+    `require("ajv/dist/runtime/{equal,ucs2length,uri,validation_error}")`, the v8 `dist/runtime/*`
+    layout. v6 has no `dist/runtime/`.
+  - URI resolver is `fast-uri`, so at least 8.17.1 (8.17.0 was never published; 8.16 and earlier use
     `uri-js`). Module specifiers don't survive bundling, so fingerprint by absence: the punycode
-    error strings that `uri-js` inlines (`"not-basic"`, `"invalid-input"`) are gone.
-  - >= 8.18.0: the `pattern` vocabulary wraps the `$data` regexp in a try/catch — grep the codegen
-    literal `code === "new RegExp"` (introduced with `gen.let("valid")` + `gen.try(...)` in 8.18.0;
-    8.17.1 used a plain ternary and has neither).
-  - < 8.20.0: the `Ajv` constructor initializes `this.formats = {}` (8.20.0 switched it to
-    `Object.create(null)`).
-  - Only 8.17.1 / 8.18.0 / 8.20.0 exist in that window, so `>= 8.18.0` and `< 8.20.0` pins 8.18.0.
-- Used: likely MCP/tool schema validation
+    error strings `uri-js` inlines (`"not-basic"`, `"invalid-input"`) are absent.
+  - At least 8.18.0: the `pattern` keyword wraps the `$data` regexp in a try/catch. Grep the codegen
+    literal `rg -n -F 'code === "new RegExp"'` (8.17.1 used a plain ternary and lacks it).
+  - Below 8.20.0: the `Ajv` constructor initializes `this.formats = {}`
+    (`rg -n -F 'this.formats = {}'`); 8.20.0 switched to `Object.create(null)`.
+  - Only 8.17.1, 8.18.0 and 8.20.0 exist in that window, so at least 8.18.0 and below 8.20.0 pins
+    8.18.0.
+- The `Ajv2020` draft-2020-12 class is bundled alongside the default `Ajv`.
+- `ajv-formats` is fully inlined, in both copies: its `fullFormats` / `fastFormats` tables with
+  `formatNames`, the `formatMaximum` / `formatMinimum` / `formatExclusiveMaximum` /
+  `formatExclusiveMinimum` keywords, and the plugin that picks `fastFormats` when `mode === "fast"`.
+  Find it by the formats it adds: `"iso-date-time"`, `"iso-time"`, `"uri-template"`,
+  `"relative-json-pointer"`. Version 3.0.x, not pinnable further: the compiled runtime is
+  byte-identical across `3.0.0-rc.0`, `3.0.0` and `3.0.1`, and no version string is embedded. npm
+  `latest` is `3.0.1`, the likely resolved version.
+- `ajv-errors` is not bundled; the lone `ajvErrors` string is AJV's own deprecated-options map.
+- Used:
+  - The MCP SDK's JSON Schema validator: an `Ajv` instance with `ajv-formats` applied, caching
+    compiled validators by `$id`.
+  - MCP tool input schemas, compiled with `Ajv2020` before a call. On failure it logs
+    `rg -n 'Ajv could not compile it'`.
 - https://github.com/ajv-validator/ajv
 
-### tslib
-TypeScript runtime helpers emitted by the compiler (`__spreadArray`, `__awaiter`, etc.).
-- Anchor: `__spreadArray` near line 30984
-- Not a standalone library block — helpers are distributed through the bundle
-
-### RxJS
-Reactive programming library (Observables, Subjects, operators).
-- Anchor: `BehaviorSubject` near line 32262; `ReplaySubject` near line 32345
-- Used: reactive state management, stream processing
-- https://github.com/ReactiveX/rxjs
+## HTTP and networking
 
 ### Axios
+
 Promise-based HTTP client.
-- Anchor: `AxiosError` class definition near line 45061; `"axios@"` string near line 44990
-- Used: HTTP communication (likely for API calls or proxy handling)
+
+- Version: 1.15.2. `rg -n -F '"User-Agent", "axios/"'` finds the User-Agent built from a version
+  variable; that variable's declaration, earlier in the same module, holds the version string.
+- Find: `rg -n -F 'axios@${Math.random()}'`; `rg -n -F 'name = "AxiosError"'`.
+- Bundles `follow-redirects`: `rg -n 'The follow-redirects package should be excluded'`.
 - https://github.com/axios/axios
 
-### OpenTelemetry API
-Observability framework (tracing, metrics, logging).
-- Anchor: `setTracerProvider` export near line 1989; `"@opentelemetry/api: Attempted duplicate
-  registration"` string near line 62605
-- Used: internal telemetry and tracing
-- https://github.com/open-telemetry/opentelemetry-js
-
-### gRPC / Protocol Buffers
-gRPC core library and Protobuf schema support.
-- Anchor: `"rpc.grpc.status_code"` near line 64833; `opentelemetry.proto.common.v1` references
-  near line 355027
-- Used: OpenTelemetry OTLP export over gRPC
-- https://github.com/grpc/grpc-node
-
 ### Undici
-Modern Node.js HTTP/1.1 and HTTP/2 client (with WebSocket support).
-- Anchor: `UndiciError` class near line 70213; `debuglog("undici")` near line 71107
-- Used: HTTP communication (lower-level than Axios; likely the Anthropic API client)
+
+Not inlined: `UndiciError` and undici's `debuglog("undici")` are absent. The app requires `undici`
+by name through `import.meta.require` (Bun's `require`), so the runtime supplies the module.
+
+- Find: `rg -n 'EnvHttpProxyAgent'`; `rg -n 'setGlobalDispatcher'`.
+- Used: proxy support. The app builds an `EnvHttpProxyAgent` for the proxy URL, adding the mTLS
+  client certificate and CA when configured, and installs it with `setGlobalDispatcher` so `fetch`
+  goes through the proxy.
 - https://github.com/nodejs/undici
 
+### https-proxy-agent
+
+HTTPS-over-proxy agent for Node's `http`/`https` clients. No version string.
+
+- Find: `rg -n 'Creating new HttpsProxyAgent instance'`. It sits in the same module as the undici
+  proxy setup, where the app subclasses it. gaxios and MSAL use it too.
+- https://github.com/TooTallNate/proxy-agents
+
+## Anthropic and MCP SDKs
+
+### Anthropic TypeScript SDK (`@anthropic-ai/sdk`)
+
+The Messages API client.
+
+- Version: 0.128.0. `rg -n -F 'X-Stainless-Package-Version'` finds the request headers, whose value
+  is a version variable declared just above them. The same variable builds the User-Agent
+  `rg -n -F 'anthropic-sdk-typescript/'`.
+- Provider clients, each lazily imported: `AnthropicBedrock`, `AnthropicBedrockMantle`,
+  `AnthropicVertex`, `AnthropicFoundry`. They identify themselves with User-Agents such as
+  `AnthropicBedrock/JS` and `AnthropicVertex/JS`.
+- Find: `rg -n 'Streaming is required for operations that may take longer than 10 minutes'`.
+- https://github.com/anthropics/anthropic-sdk-typescript
+
+### MCP TypeScript SDK (`@modelcontextprotocol/sdk`)
+
+MCP client and transports. The package version is not embedded.
+
+- Protocol: `LATEST_PROTOCOL_VERSION` is `"2025-11-25"`; the supported list is 2025-11-25,
+  2025-06-18, 2025-03-26, 2024-11-05, 2024-10-07. Find it in the SDK's export list:
+  `rg -n ' as LATEST_PROTOCOL_VERSION'`; the declaration and the supported list are a few lines into
+  that module.
+- Find: `rg -n -F 'io.modelcontextprotocol/related-task'` (the tasks metadata key).
+- https://github.com/modelcontextprotocol/typescript-sdk
+
+## Cloud provider SDKs
+
 ### AWS SDK for JavaScript (v3)
-AWS service clients: Bedrock Runtime, STS, SSO, SSOOIDC; Signature V4 request signing.
-- Anchor: `SignatureV4` / `SignatureV4a` near line 93665
-- Used: AWS Bedrock model access, IAM credential resolution
+
+- Version: 3.936.0, from the embedded `package.json` of each client:
+  `rg -n 'name: "@aws-sdk/client-bedrock-runtime"'` (version two lines below).
+- Clients: `client-bedrock-runtime`, `client-bedrock`, `client-sts`, `client-sso` and
+  `nested-clients` (which carries SSO OIDC). Smithy's `SignatureV4` signs requests
+  (`rg -n -F 'AWS4-HMAC-SHA256'`); `SignatureV4a` is registered only as a `null` placeholder, so the
+  CRT signer is not bundled. `fast-xml-parser` (`XMLParser`) handles XML protocols.
+- Find: `rg -n 'BedrockRuntimeClient'`.
+- Used: Bedrock model access (`CountTokensCommand`, `ListInferenceProfiles`) and AWS credential
+  resolution.
 - https://github.com/aws/aws-sdk-js-v3
 
-### React + React DOM / Reconciler
-React core and reconciler (fiber architecture). Used as the rendering foundation for Ink.
-- Anchor: `__REACT_DEVTOOLS_GLOBAL_HOOK__` check near line 140287
-- Note: reconciler-specific names (`workInProgress`, `createFiber`) are minified; identify
-  by DevTools hook check and `P6()` / `K6(P6(), 1)` pattern used throughout app code
+### google-auth-library and gaxios
+
+- Version: google-auth-library 10.6.2, gaxios 7.1.4, from their embedded `package.json`:
+  `rg -n 'name: "google-auth-library"'`; `rg -n 'name: "gaxios"'`.
+- Used: Vertex AI authentication (`rg -n 'buildVertexGoogleAuth'`).
+- https://github.com/googleapis/google-auth-library-nodejs
+
+### Azure identity and MSAL
+
+- Version: `@azure/msal-node` 3.8.1 and `@azure/msal-common` 15.13.1, from their license banners
+  (`rg -n -F '/*! @azure/msal-node v'`). `@azure/identity` 4.10.1: `rg -n 'azsdk-js-identity/'`
+  finds the User-Agent built from a version constant declared earlier in the module.
+- Used: Microsoft Foundry. Without `ANTHROPIC_FOUNDRY_API_KEY` or `ANTHROPIC_FOUNDRY_AUTH_TOKEN`,
+  the app gets a bearer token from `DefaultAzureCredential` for the scope
+  `https://cognitiveservices.azure.com/.default`.
+- https://github.com/AzureAD/microsoft-authentication-library-for-js
+
+### openid-client and jose
+
+- Version: openid-client 5.7.1, from its embedded `package.json` (`rg -n 'panva/openid-client'`).
+  jose has no version string: `rg -n 'JWSSignatureVerificationFailed'`.
+- Used: `claude gateway` (`rg -n 'Run the enterprise auth/telemetry gateway'`), whose lazily
+  imported module also holds the CommonJS Zod copy.
+- https://github.com/panva/openid-client
+
+## Telemetry and feature flags
+
+### OpenTelemetry JS
+
+Tracing, metrics and logs, exported over OTLP or Prometheus.
+
+- Version: `rg -n '\.VERSION = "\d+\.\d+\.\d+"'` hits four times: `1.9.0` (`@opentelemetry/api`),
+  `2.7.1` (`@opentelemetry/core`, reported as `telemetry.sdk.version`), and `0.208.0` twice (the
+  OTLP exporter packages, which send `OTel-OTLP-Exporter-JavaScript/<version>`).
+- Find: `rg -n '@opentelemetry/api: Attempted duplicate registration'`.
+- Exporters: OTLP traces, metrics and logs over `http/json`, `http/protobuf` and `grpc`, plus
+  `PrometheusExporter`. Protobuf encoding is static generated code
+  (`rg -n -F 'opentelemetry.proto.collector'`); no protobufjs package string is present.
+- `rpc.grpc.status_code` is an OpenTelemetry semantic-convention constant, not gRPC code.
+- https://github.com/open-telemetry/opentelemetry-js
+
+### gRPC (`@grpc/grpc-js`)
+
+- Version: 1.14.4, from its embedded `package.json` (`rg -n 'name: "@grpc/grpc-js"'`). Its build
+  path also survives: `rg -n -F 'node_modules/@grpc/grpc-js/build/src'`.
+- Used: the OTLP gRPC exporters.
+- https://github.com/grpc/grpc-node
+
+### GrowthBook JS SDK
+
+Feature-flag client.
+
+- Version: 1.6.1. The SDK class sets `this.version` from a helper that returns the version literal
+  inside a `try` block; the helper sits just above the class.
+- Find: `rg -n 'Cannot use remoteEval on GrowthBook Cloud'`; the SDK's default host
+  `rg -n -F 'https://cdn.growthbook.io'`.
+- App configuration: client key `rg -n 'sdk-zAZezfDKGoZuXXKe'`, `apiHost`
+  `https://api.anthropic.com/`, `remoteEval: true`, so flags are evaluated server-side by a POST to
+  `${host}/api/eval/${clientKey}`. How flags are cached, read and switched off: `FEATURE_FLAGS.md`.
+- https://github.com/growthbook/growthbook
+
+## Terminal UI
+
+### React (reconciler)
+
+- Version: 19.2.0, from the DevTools registration: `rg -n 'reconcilerVersion: "'`. React's own
+  `version` export string is not present.
+- Find: `rg -n '__REACT_DEVTOOLS_GLOBAL_HOOK__'` (the reconciler's DevTools injection; no DevTools
+  bundle); the React 19 element symbol `rg -n -F 'react.transitional.element'`.
 - https://github.com/facebook/react
 
-### Ink
-React-based UI framework for terminal/CLI interfaces. Renders React component trees to the
-terminal using its own layout engine.
-- Anchor: named export block `{ useInput, render, useApp, useStdin, Text, ... }` near line 152068
-- Used: all interactive terminal UI (prompt, suggestions, output rendering)
-- Note: `yoga-layout` (Ink's flexbox engine) does not appear as a separate string —
-  it is either fully inlined or replaced by a wasm module
+### Ink (fork)
+
+The terminal renderer is built on Ink but extended well past upstream.
+
+- Find: the export list, `rg -n ' as useStdin,$'`. It exports Ink's `render`, `Box`, `Text`,
+  `useApp`, `useStdin` alongside components and hooks upstream Ink lacks: `Button`, `ClickEvent`,
+  `PointerEvent`, `ThemeProvider`, `useSelection`, `useTerminalViewport`.
+- Host element names: `ink-root`, `ink-box`, `ink-text`, `ink-virtual-text`, and the non-upstream
+  `ink-raw-ansi` (`rg -n -F '"ink-raw-ansi"'`).
+- Layout: no `yoga-layout` package or wasm is bundled. A pure-JS node class exposing Yoga's node API
+  (`setMeasureFunc`, `calculateLayout`, `getComputedHeight`) does the flexbox layout, and the
+  renderer records timing for it (`rg -n 'lastYogaCounters'`). The source does not show whether that
+  class is a third-party port or Anthropic's own.
 - https://github.com/vadimdemedes/ink
 
-### Sharp
-High-performance image processing library (resize, format conversion, EXIF, etc.).
-- Anchor: `@img/sharp-${platform}/versions` require near line 177867;
-  `@img/sharp-libvips-*/versions` fallback nearby
-- Used: image manipulation for vision/multimodal input processing
-- https://github.com/lovell/sharp
+### highlight.js
 
-### node-forge
-Cryptographic library (TLS, PKI, ASN.1, AES, RSA, SHA).
-- Anchor: `ByteStringBuffer` export near line 252046
-- Used: certificate handling, cryptographic operations (likely for TLS or OAuth flows)
-- https://github.com/digitalbazaar/forge
+Syntax highlighting of code blocks in terminal output.
 
-### Highlight.js
-Syntax highlighting library with language auto-detection.
-- Anchor: GitHub issue URLs `github.com/highlightjs/highlight.js/issues/...` near line 298817
-- Used: syntax highlighting in terminal output (code blocks in responses)
+- Version: 11.11.1. `rg -n 'versionString = '` finds the assignment; its source is a constant
+  declared near the top of the same module.
+- Find: `rg -n -F 'github.com/highlightjs/highlight.js/issues/'`.
+- A separate browser build is embedded for artifact pages (see Embedded browser bundles).
 - https://github.com/highlightjs/highlight.js
 
-### parse5 (HTML5 tokenizer/parser)
-HTML5-conformant tokenizer and tree builder.
-- Anchor: state-machine method pattern like `["DOCTYPE_STATE"](A)`,
-  `["COMMENT_END_DASH_STATE"](A)` near line 327900; error constants object `ZA` with fields
-  like `eofInComment`, `nestedComment` used in tokenizer state handlers
-- Used: parsing HTML in model responses or tool output
+### marked
+
+Markdown lexer and parser. No version string.
+
+- Find: `rg -n -F 'marked(): input parameter is undefined or null'`.
+- https://github.com/markedjs/marked
+
+## HTML and text processing
+
+### parse5
+
+HTML5 tokenizer and parser. No version string; the tokenizer states are a numeric enum, as in parse5
+7 and later, so state names do not appear as strings.
+
+- Find: the error codes `rg -n -F '"eof-in-comment"'`;
+  `rg -n 'non-void-html-element-start-tag-with-trailing-solidus'`. A small wrapper module re-exports
+  `Tokenizer`, `TokenizerMode` and `parse`.
+- Used: publishing HTML artifact pages. It finds where to insert runtime blocks before `</body>`
+  (`rg -n 'runtimeBlockInsertionIndex'`) and locates elements by `id`.
 - https://github.com/inikulin/parse5
 
+### Turndown and domino
+
+HTML-to-Markdown converter and the server-side DOM it parses into (`@mixmark-io/domino`). Both live
+in one lazily imported module.
+
+- Find: `rg -n 'Turndown failed, falling back to raw HTML'`; `rg -n '__domino_frozen__'`;
+  `rg -n 'turndown-root'`.
+- Used: WebFetch converts fetched HTML to Markdown, after removing `style`, `script`, `noscript` and
+  `iframe` elements. If conversion throws, it keeps the raw HTML.
+- https://github.com/mixmark-io/turndown
+
+### jsdiff
+
+Text diff and patch library. No version string.
+
+- Find: its patch-parser errors `rg -n -F 'Hunk at line'`; `rg -n -F '"Unknown line "'`.
+- https://github.com/kpdecker/jsdiff
+
+### jsonc-parser
+
+Microsoft's JSON-with-comments scanner and parser. No version string.
+
+- Find: `rg -n 'InvalidCommentToken'`.
+- https://github.com/microsoft/node-jsonc-parser
+
+## Utilities
+
 ### Commander.js
-CLI argument parsing framework.
-- Anchor: `"commander.invalidArgument"` error code near line 539710
-- Used: parsing `claude` command-line arguments and subcommands
+
+CLI argument parsing for `claude` and its subcommands. No version string.
+
+- Find: `rg -n 'commander.invalidArgument'`; `rg -n 'commander.excessArguments'`.
 - https://github.com/tj/commander.js
 
 ### Fuse.js
-Lightweight fuzzy-search library (bitap algorithm, scored results, weighted keys).
-- Anchor: class with constructor accepting `(collection, { includeScore, threshold, keys:[{name,weight}] })`
-  and `.search(query, {limit})` method, near line 454237
-- Used: fallback file-name fuzzy matching for `@` completion when Rust FileIndex is unavailable
-- Note: fully inlined; identified by characteristic option shape, not by name
-- https://github.com/krisk/Fuse  |  https://fusejs.io
+
+Fuzzy search.
+
+- Version: 7.0.0. The class's static `version` is assigned on the line before
+  `rg -n -F '.createIndex = '`.
+- Find: the defaults object `{ location: 0, threshold: 0.6, distance: 100 }` and option names
+  `includeScore`, `keys: [{ name, weight }]`.
+- Used: ranking slash-command typeahead (keys `commandName`, `displayName`, `partKey`, `aliasKey`,
+  `displayPartKey`; threshold 0.3) and `@`-mention suggestions for MCP resources and agents
+  (threshold 0.6).
+- https://github.com/krisk/Fuse
 
 ### Lodash
-General-purpose utility library.
-- Anchor: `"__lodash_hash_undefined__"` internal sentinel string near line 313
-- Used: deep clone, type checking, array/object utilities scattered through the bundle
+
+Utility functions, bundled as per-function modules with no `VERSION` string.
+
+- Find: `rg -n '__lodash_hash_undefined__'` (three hits).
 - https://github.com/lodash/lodash
 
-### GrowthBook
-Feature flag and A/B testing SDK. Replaces Statsig (see below).
-- Anchor: class `L81` near line 61726; client key string `"sdk-zAZezfDKGoZuXXKe"` near line 62394
-- Initialization: `new L81({ apiHost: "https://api.anthropic.com/", clientKey: OGA, remoteEval: true, ... })`
-  near line 534138; `remoteEval: true` means gate evaluation is server-side at the Anthropic API
-- Used: feature gate evaluation via `Ow(gateName)` (line 534007); result cached in
-  `cachedGrowthBookFeatures` in app state
-- `Ow()` checks `cachedGrowthBookFeatures[name]` first, then falls back to `cachedStatsigGates[name]`
-  (legacy property still present in app state at line 535744 but no longer populated by a live SDK)
-- Disabled entirely when `DISABLE_TELEMETRY` or `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` env vars are set
-- User attributes sent for targeting: `id` (deviceId), `sessionId`, `organizationUUID`, `accountUUID`,
-  `userType`, `subscriptionType`, `rateLimitTier`, `email`, `appVersion`
-- https://github.com/growthbook/growthbook
+### node-semver
 
----
+- Find: `rg -n 'SEMVER_SPEC_VERSION'` (the semver spec version `2.0.0`, not the package version).
+  App code also compares versions with `Bun.semver`.
+- https://github.com/npm/node-semver
 
-## Absent Libraries
+### lru-cache
 
-The following libraries are absent:
+- Find: `rg -n 'max option must be a nonnegative integer'`. No version string.
+- https://github.com/isaacs/node-lru-cache
 
-| Library            | Old role                     | Status         |
-|--------------------|------------------------------|----------------|
-| Sentry SDK         | Remote error tracking        | Removed, but replaced by two mechanisms: (1) Local file logging — `DXz()` appends error stack/message to `~/.claude/logs/{ts}.jsonl`; the `jXz()` call inside `DXz()` is a no-op. (2) Remote error telemetry via the `n()` telemetry pipeline — `uncaughtException` and `unhandledRejection` process handlers emit `tengu_uncaught_exception` / `tengu_unhandled_rejection` events (with error name and up to 2000 chars of message) plus 50+ other categorized `tengu_*_error` events at specific failure sites. Stack traces are NOT sent remotely. Telemetry likely goes to `https://api.anthropic.com/api/claude_code/metrics`. |
-| Statsig SDK        | Feature flags / A/B testing  | Replaced by GrowthBook (see above). `cachedStatsigGates` property still exists in app state (line 535744) as a legacy fallback in `Ow()`, but the Statsig SDK itself is absent. `statsig.com`, `StatsigUser`, `featureGates` strings — not found. |
-| MIME Database      | MIME type lookup             | Removed. `mime-db`, IANA source entries — not found. |
-| React DevTools     | React debug hook bundle      | Removed as a separate section. `__REACT_DEVTOOLS_GLOBAL_HOOK__` check remains (line 140287) but is a guard in the React bundle, not a DevTools bundle. |
-| DOM Implementation | DOM node/tree API            | Removed. `DOMImplementation`, `NodeFilter.SHOW` — not found. Likely replaced by a custom terminal renderer rewrite. |
+### chokidar
 
----
+File watcher.
 
-## How to Find Libraries in a New Version
+- Find: its license banner `rg -n -F '/*! chokidar - MIT License'`. No version string; the
+  `fsevents` backend is absent, as in chokidar 4 and later.
+- Used: watching skill files, among others (`rg -n 'tengu_skill_file_changed'` records
+  `source: "chokidar"`).
+- https://github.com/paulmillr/chokidar
 
-When the version changes and all names are re-minified, use these stable anchors in order:
+### node-forge
 
-| Library       | Stable search anchor |
-|---------------|----------------------|
-| Zod           | `$ZodError` or i18n error message strings (Arabic/Vietnamese/etc.) |
-| AJV           | `"ajv implementation error"` |
-| RxJS          | `BehaviorSubject`, `ReplaySubject`, `combineLatest` |
-| Axios         | `AxiosError`, `"axios@"` random string in Axios internals |
-| OpenTelemetry | `"@opentelemetry/api: Attempted duplicate registration"` |
-| gRPC          | `"rpc.grpc.status_code"` |
-| Undici        | `UndiciError`, `debuglog("undici")` |
-| AWS SDK       | `SignatureV4`, `SignatureV4a`, `BedrockRuntime` |
-| React         | `__REACT_DEVTOOLS_GLOBAL_HOOK__` |
-| Ink           | Named export block with `useInput`, `render`, `useApp`, `useStdin` together |
-| Sharp         | `@img/sharp-` require string |
-| node-forge    | `ByteStringBuffer` |
-| Highlight.js  | `github.com/highlightjs/highlight.js/issues/` in error strings |
-| parse5        | State method names: `"DOCTYPE_STATE"`, `"COMMENT_END_DASH_STATE"` as computed keys |
-| Commander.js  | `"commander.invalidArgument"` |
-| Fuse.js       | Constructor with `{ includeScore, threshold, keys: [{name, weight}] }` + `.search(q,{limit})` |
-| Lodash        | `"__lodash_hash_undefined__"` |
-| GrowthBook    | Client key string `"sdk-zAZezfDKGoZuXXKe"`; class `L81`; `remoteEval: true` in init options |
+Pure-JS cryptography, PKI and TLS. No version string.
+
+- Find: `rg -n 'ByteStringBuffer'` (one module).
+- Used: the sandbox runtime's TLS-terminating proxy. It loads a CA from `tlsTerminate.caCertPath` or
+  generates an ephemeral one (`rg -n 'sandbox-runtime ephemeral CA'`, log prefix `[mitm-ca]`), then
+  mints leaf certificates from it.
+- https://github.com/digitalbazaar/forge
+
+### tslib
+
+TypeScript runtime helpers. Two copies: a UMD build (`rg -n -F 'define("tslib"'`) and an ESM build
+exporting `__extends`, `__awaiter`, `__spreadArray`. No version string; the embedded AWS SDK
+`package.json` literals require `tslib: "^2.6.2"`.
+
+## Embedded browser bundles
+
+These files are embedded in the binary as raw assets and are not extracted into `cli.prettier.js`. A
+small module reads each one, and the HTML artifact publisher injects it into pages that need it.
+Failures log the `artifact_publish` events in the last column.
+
+| File                          | Version | Loader export         | Failure event               |
+| ----------------------------- | ------- | --------------------- | --------------------------- |
+| `mermaid.min.js`              | 11.16.1 | `loadMermaidBundleJs` | `mermaid_bundle_unreadable` |
+| `chart.umd.min.js` (Chart.js) | unknown | `loadChartBundleJs`   | `chart_bundle_unreadable`   |
+| `hljsBundle.generated.min.js` | unknown | `loadHljsBundleJs`    | `hljs_bundle_unreadable`    |
+
+Find: `rg -n 'loadMermaidBundleJs|loadChartBundleJs|loadHljsBundleJs'`. Mermaid's version comes from
+the banner its loader prepends: `rg -n -F '/*! mermaid v'`.
+
+## Bun built-ins in place of libraries
+
+| Built-in                                           | In place of                               |
+| -------------------------------------------------- | ----------------------------------------- |
+| `Bun.Image`                                        | sharp                                     |
+| `Bun.YAML`                                         | a YAML library (`yaml`, `js-yaml`)        |
+| `Bun.TOML`                                         | a TOML parser                             |
+| `Bun.stringWidth`, `Bun.wrapAnsi`, `Bun.stripANSI` | `string-width`, `wrap-ansi`, `strip-ansi` |
+| `Bun.Terminal`                                     | a PTY library such as `node-pty`          |
+| `Bun.semver`                                       | app-side version comparison               |
+
+`Bun.Image` is wrapped in an object exposing sharp's chain (`metadata`, `resize`, `rotate`, `jpeg`,
+`png`, `webp`, `toBuffer`). Find it with `rg -n 'This runtime has no Bun.Image'`. The others:
+`rg -n 'Bun\.(YAML|TOML|stringWidth|wrapAnsi|stripANSI|Terminal|semver)'`.
+
+## Not bundled
+
+| Library          | Evidence                                                                |
+| ---------------- | ----------------------------------------------------------------------- |
+| RxJS             | `BehaviorSubject`, `ReplaySubject`, `ObjectUnsubscribedError` absent    |
+| Sharp            | `@img/sharp-` absent; images go through `Bun.Image`                     |
+| Undici (code)    | `UndiciError` absent; `undici` is required at run time                  |
+| ws               | `WebSocket was closed before the connection was established` absent     |
+| yaml, js-yaml    | `YAMLParseError`, `YAMLException` absent; YAML goes through `Bun.YAML`  |
+| Sentry SDK       | `@sentry`, `sentry_key` absent                                          |
+| Statsig SDK      | `StatsigUser`, `statsig.com` absent                                     |
+| Datadog SDK      | `dd-trace` absent; the app posts logs to the Datadog HTTP intake itself |
+| MIME database    | `mime-db` absent                                                        |
+| Zod locale packs | non-English Zod messages absent                                         |
+
+- Errors reach telemetry without Sentry: process handlers emit `tengu_uncaught_exception` and
+  `tengu_unhandled_rejection` events. `SentryErrorBoundary` appears only as an app log string.
+- `statsig` survives only as the legacy `~/.claude/statsig` directory name, in cleanup lists and a
+  `Read(~/.claude/statsig/**)` permission rule.
+- Datadog logs go to `rg -n -F 'http-intake.logs.us5.datadoghq.com/api/v2/logs'`.
+
+## Quick reference
+
+| Library             | Version | Anchor (fixed string)                                   |
+| ------------------- | ------- | ------------------------------------------------------- |
+| Zod                 | 4.6.2   | `"$ZodError"`                                           |
+| AJV                 | 8.18.0  | `"ajv implementation error"`                            |
+| ajv-formats         | 3.0.x   | `"relative-json-pointer"`                               |
+| Axios               | 1.15.2  | `"User-Agent", "axios/"`                                |
+| https-proxy-agent   | unknown | `Creating new HttpsProxyAgent instance`                 |
+| Anthropic SDK       | 0.128.0 | `X-Stainless-Package-Version`                           |
+| MCP TypeScript SDK  | unknown | ` as LATEST_PROTOCOL_VERSION`                           |
+| AWS SDK v3          | 3.936.0 | `name: "@aws-sdk/client-bedrock-runtime"`               |
+| google-auth-library | 10.6.2  | `name: "google-auth-library"`                           |
+| @azure/msal-node    | 3.8.1   | `/*! @azure/msal-node v`                                |
+| @azure/identity     | 4.10.1  | `azsdk-js-identity/`                                    |
+| openid-client       | 5.7.1   | `panva/openid-client`                                   |
+| OpenTelemetry API   | 1.9.0   | `@opentelemetry/api: Attempted duplicate registration`  |
+| @grpc/grpc-js       | 1.14.4  | `name: "@grpc/grpc-js"`                                 |
+| GrowthBook SDK      | 1.6.1   | `Cannot use remoteEval on GrowthBook Cloud`             |
+| React reconciler    | 19.2.0  | `reconcilerVersion: "`                                  |
+| Ink (fork)          | n/a     | `"ink-raw-ansi"`                                        |
+| highlight.js        | 11.11.1 | `github.com/highlightjs/highlight.js/issues/`           |
+| marked              | unknown | `marked(): input parameter is undefined or null`        |
+| parse5              | 7+      | `non-void-html-element-start-tag-with-trailing-solidus` |
+| Turndown + domino   | unknown | `__domino_frozen__`                                     |
+| jsdiff              | unknown | `Hunk at line`                                          |
+| jsonc-parser        | unknown | `InvalidCommentToken`                                   |
+| Commander.js        | unknown | `commander.invalidArgument`                             |
+| Fuse.js             | 7.0.0   | `.createIndex = `                                       |
+| Lodash              | unknown | `__lodash_hash_undefined__`                             |
+| lru-cache           | unknown | `max option must be a nonnegative integer`              |
+| chokidar            | 4+      | `/*! chokidar - MIT License`                            |
+| node-forge          | unknown | `ByteStringBuffer`                                      |
+| tslib               | unknown | `define("tslib"`                                        |
