@@ -205,8 +205,8 @@ session-wide ledger as its response completes. This covers:
 - in-process subagents started through the Agent tool, since they share the session's ledger,
 - background helper calls that use the same query path. These include `generate_session_title`,
   `away_summary`, `tool_use_summary_generation` and other small-model helpers, each priced at its
-  own model's card. Since 2.1.293, Haiku 5.5 is the default Haiku model on the Anthropic API, so
-  these calls are priced at `haiku_55` there, versus $1/$5 for Haiku 4.5,
+  own model's card. Haiku 5.5 is the default Haiku model on the Anthropic API, so these calls are
+  priced at `haiku_55` there, versus $1/$5 for Haiku 4.5,
 - compaction calls,
 - advisor-tool iterations, as above,
 - remote (`isolation: remote`) agents, whose reported `modelUsage[].costUSD` is folded in when they
@@ -242,12 +242,3 @@ match the source on the points they cover: list-price estimate, `modelPricing`, 
 data-residency rate, and `costBasis`. They do not mention the baked-in catalog, the
 bootstrap-fetched `additional_model_costs`, the substitute rate for unknown models, the
 whole-request `long_prompt` switch, or the inclusion of background helper calls.
-
-## Per-release appendix
-
-- 2.1.295: new `haiku_55` tier and `claude-haiku-5-5` catalog entry (the changelog places the
-  model's addition at 2.1.293). Introduces the optional `long_prompt` tier block and the formula's
-  whole-request switch to it. Other tiers, the model mapping, the fast cards, the 1.1×
-  data-residency multiplier and the bootstrap cost schema are unchanged from 2.1.289. Sonnet 5.5
-  stays on `tier_2_10` (cache read $0.20).
-- 2.1.289: first written.

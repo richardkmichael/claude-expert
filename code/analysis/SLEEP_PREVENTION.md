@@ -151,10 +151,3 @@ The debug log records a skip as `memory-pressure reap skipped: <reason>` (rate-l
 and a kill as `reaped under critical memory pressure after <n>m idle`. The model-facing notification
 says `Claude Code stopped it because the system was critically low on memory while the session was
 idle`.
-
-## Version history
-
-- 2.1.277: first documented. The inhibitor class and status mapping are the same in 2.1.280.
-- 2.1.193: memory-pressure reaper added (CHANGELOG).
-- 2.1.274: reaper restricted to `critical` pressure, with skip reasons logged (CHANGELOG). The
-  2.1.280 source matches.

@@ -44,7 +44,7 @@ instructions block. Custom styles do not get that by default — see Custom styl
 
 The same set is enumerated for telemetry as
 `repl_main_thread:outputStyle:{custom,Proactive,Explanatory,Learning}`; grep that prefix to check
-whether the built-in set has changed. It is unchanged across 2.1.198, 2.1.207, and 2.1.220.
+whether the built-in set has changed.
 
 ## Shared `Insights` fragment
 
@@ -69,30 +69,23 @@ The body after the heading is a hoisted autonomy block, interpolated the same wa
 `Learning` interpolate the `Insights` fragment. Relocate it with
 `rg -nF 'The user chose continuous, autonomous execution'`.
 
-The block is hoisted because it once had a second consumer. At 2.1.139 auto mode's per-turn system
-reminder was `## Auto Mode Active` followed by `Auto mode is active. <block>`, interpolating the same
-literal.
-
-That reminder still exists, but it no longer uses the block. Its body was replaced with guidance about
-biasing toward working without stopping for clarifying questions, plus git-safety instructions, plus
-an optional consent-flow section gated on an `autoModeConsentFlow` flag. Relocate it by the reminder
-type `case "auto_mode"`, not by its heading — see below. Auto mode's autonomy text is distinct again
-from the system-prompt-level `autonomy_append` section (`You are operating autonomously. The user is
-not watching in real time…`, gated by `tengu_amber_sextant`); the two are separate injections.
-
-So `Proactive` is now the block's only consumer, and the block is a single literal appearing once in
-the bundle. Check with `rg -cF 'The user chose continuous, autonomous execution'` (expect 1) plus a
+`Proactive` is the block's only consumer, and the block is a single literal appearing once in the
+bundle. Check with `rg -cF 'The user chose continuous, autonomous execution'` (expect 1) plus a
 count of interpolations of the variable holding it (expect 1).
+
+Auto mode's per-turn system reminder, `## Auto Mode Active`, does not use the block. Its body is
+guidance about biasing toward working without stopping for clarifying questions, plus git-safety
+instructions, plus an optional consent-flow section gated on an `autoModeConsentFlow` flag. Relocate
+it by the reminder type `case "auto_mode"`, not by its heading — see below. Auto mode's autonomy
+text is also distinct from the system-prompt-level `autonomy_append` section
+(`You are operating autonomously. The user is not watching in real time…`, gated by
+`tengu_amber_sextant`); the two are separate injections.
 
 Grep trap: the auto-mode reminder's heading is assembled as `## ${CONST}` from a hoisted string
 constant, so `rg -F '## Auto Mode Active'` finds nothing even though the rendered reminder reads
 exactly that. Search for the bare `Auto Mode Active` and follow the constant to its use site. A
 literal-heading grep that comes back empty here means the heading is composed, not that the feature
 was removed.
-
-The consequence for anyone reading an extracted-prompt corpus: the autonomy block can legitimately
-appear filed as an auto-mode prompt rather than as part of `Proactive`, because that is what it was.
-Both readings are right for their respective versions.
 
 ```
 You are an interactive CLI tool that helps users with software engineering tasks. You should work proactively and autonomously, executing immediately and minimizing interruptions.
@@ -319,9 +312,6 @@ plugin output styles. Ignoring.` Field types and coercion rules: `MARKDOWN_FRONT
   is the `Output style` entry in `/config`.
 - The docs do not publish any of the built-in prompt bodies, only one-line summaries of what each
   style does.
-- Published changelog history (not verifiable from a single bundle): output styles were deprecated
-  in 2.0.30 and un-deprecated in 2.0.32; the `/output-style` command was deprecated around 2.1.73
-  and reduced to the `/config` redirect around 2.1.91.
 
 ## Tripwire
 

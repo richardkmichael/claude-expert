@@ -85,12 +85,3 @@ moot.
 
 `CLAUDE_CODE_RESUME_SOURCE_ALIVE` and `CLAUDE_CODE_RESUME_TOLERATES_CONTEXT_APPENDS` share the
 `CLAUDE_CODE_RESUME_` prefix but belong to SDK resume semantics, not to this overlay.
-
-## Version history
-
-- 2.1.87: the prompt does not exist.
-- 2.1.104: prompt, `resumeReturnDismissed`, and both threshold env vars present. Single gate,
-  `tengu_gleaming_fair`.
-- 2.1.277: second gate `tengu_gleaming_fair_reuse` added, with the `skipped_no_summary` and
-  `summary_gone` actions and the summary-reuse path. One-minute recency floor on the measured
-  message.

@@ -12,8 +12,7 @@ landmarks:
 
 This document follows the landmark style in `GUIDELINES.md`: it anchors on version-stable strings
 (env vars, log/telemetry names, literal shell tokens, behavioral logic) and gives grep re-location
-recipes instead of minified names or line numbers, which churn every release. Per-release specifics
-live in the appendix.
+recipes instead of minified names or line numbers, which churn every release.
 
 For the Bash tool's `description` field — the prompt text the model sees, including the Git Safety
 Protocol, commit instructions, and PR instructions — see `PROMPTS.md` (section "Tool-description
@@ -203,14 +202,3 @@ tool to confirm the wrapper carries no `--no-config`.
 □ rg/find/grep wrappers present (native build); grep excludes six VCS dirs; find uses bfs dfs
 □ rg fallback only when absent on PATH; find/grep shadowed unless Grep/Glob opted in via CLI
 □ embedded ripgrep gets `--no-config`; Bash-tool `rg` does not
-
-## Per-release notes
-
-- 2.1.207: behavioral model above verified. The `searchToolsOptIn` gate is present since at least
-  2.1.165; the alias-form rg fallback and the `~/.local/bin/claude` wrapper fallback since at
-  least 2.1.119 (earliest local version). The earlier revision of this doc predates documenting
-  them.
-- 2.1.165: behavioral model above verified.
-- ≤ 2.1.76: piped commands used a token-level `< /dev/null` insertion before the first pipe, which
-  mis-redirected the pipeline; superseded by the current eval-level redirect.
-- ≤ 2.1.116: the npm build did not bundle bfs/ugrep, so it did not shadow `find`/`grep`.

@@ -16,13 +16,13 @@ landmarks:
 This document follows the landmark style in `GUIDELINES.md`: it anchors on version-stable strings
 (record `type` discriminants, field names, the JSONL path patterns, env vars, `tengu_*` events,
 behavioral logic) with grep re-location recipes, not on minified symbol names or line numbers, which
-churn every release. The field and record names are themselves the durable contract. Per-release
-changes are in the appendix.
+churn every release. The field and record names are themselves the durable contract.
 
 Claude Code persists conversation state as JSONL (newline-delimited JSON): one self-contained JSON
-object per line, terminated by `\n`. There is no official schema. A companion JSON Schema
-(Draft 2020-12) lives at [`schemas/transcript.schema.json`](schemas/transcript.schema.json); it is
-cross-checked against a large corpus of real transcripts across many Claude Code versions
+object per line, terminated by `\n`. There is no official schema. A companion JSON Schema (Draft
+2020-12, `x-schema-version` 1.3.0) lives at
+[`schemas/transcript.schema.json`](schemas/transcript.schema.json); it is cross-checked against a
+large corpus of real transcripts across many Claude Code versions
 (`bin/generate-transcript-schema.py` regenerates that observed-coverage view), and is the
 machine-readable counterpart to this prose model. The schema carries the per-field and
 per-attachment-subtype detail; this doc gives the model. For token-usage attribution from these
@@ -122,7 +122,7 @@ file instead of the session file.
 `progress` is still listed as `dedup-transcript` and `boundary-cleared`, but the transcript
 persistence filter drops every `progress` record before it reaches the writer (the same predicate
 drops an empty `hook_success` attachment; `tengu_dead_probe_legacy_progress_bridge` sits beside the
-routing table). It is read only from old transcripts; last observed locally at 2.1.84.
+routing table). It is read only from old transcripts.
 
 ## Envelope fields
 
@@ -172,11 +172,11 @@ version}`.
   from /resume: sessionKind=`). Only `bg` is observed locally.
 - `session_id` (snake case) is not written by the envelope helper. The query engine wraps every
   message it yields in `{...msg, session_id, uuid}` (grep `[engine] sdkEventQueue push key`), and
-  records persisted from that stream keep the key inside the message spread. It therefore appears
-  on many, not all, `user` / `assistant` / `attachment` / `system` records, from about 2.1.199 on.
-  It usually equals `sessionId`. It differs when records were carried into another session file
-  (a branch, a fork, or a relocation): `sessionId` is rewritten to the new file's id, while
-  `session_id` keeps the session that first emitted the record.
+  records persisted from that stream keep the key inside the message spread. It therefore appears on
+  many, not all, `user` / `assistant` / `attachment` / `system` records. It usually equals
+  `sessionId`. It differs when records were carried into another session file (a branch, a fork, or
+  a relocation): `sessionId` is rewritten to the new file's id, while `session_id` keeps the session
+  that first emitted the record.
 
 ## Conversation record types
 
@@ -223,7 +223,7 @@ with tool-specific fields (commonly `stdout`, `stderr`, `interrupted`, `isImage`
 `numFiles`, `filenames`, `content`, `numLines`; nearly 200 distinct keys across tools), a plain
 string (error output), or an array of content blocks.
 
-Fields added since 2.1.165, by purpose (the schema carries the per-field detail and domains):
+Further fields, by purpose (the schema carries the per-field detail and domains):
 
 - Turn classification. `turnOrigin` is stamped on the turn's prompt record: `human`, `sdk`,
   `scheduled`, `task_notification`, `auto_continuation`, `peer`, `host_synthetic`, `system`,
@@ -294,7 +294,7 @@ assistant-error list (grep `"cloud_credential_error",`): `authentication_failed`
 `rate_limit`, `overloaded`, `invalid_request`, `model_not_found`, `server_error`, `unknown`,
 `max_output_tokens`, `cloud_credential_error`.
 
-Fields added since 2.1.165, by purpose:
+Further fields, by purpose:
 
 - Effort. `effort` is the request's `output_config.effort` (`low`, `medium`, `high`, `xhigh`,
   `max`); `perTurnEffort` is a per-turn override or null, and resume prefers it over `effort`.
@@ -323,8 +323,8 @@ Content block types in `message.content`:
 | server blocks | `redacted_thinking`, `server_tool_use`, `*_tool_result`, `compaction`, … (below) |
 
 The `fallback` block is normalized to `from` / `to` only (grep `type: "fallback", from: { model:`);
-the raw API block may also carry a `trigger`. It is observed from 2.1.176. The server-side block
-types (`redacted_thinking`, `server_tool_use`, `web_search_tool_result`, `web_fetch_tool_result`,
+the raw API block may also carry a `trigger`. It is observed locally. The server-side block types
+(`redacted_thinking`, `server_tool_use`, `web_search_tool_result`, `web_fetch_tool_result`,
 `advisor_tool_result`, `code_execution_tool_result`, `bash_code_execution_tool_result`,
 `text_editor_code_execution_tool_result`, `tool_search_tool_result`, `mcp_tool_use`,
 `mcp_tool_result`, `container_upload`, `compaction`) come from the same list that includes
@@ -359,9 +359,9 @@ block is persisted as its own record (`apiBlockIndex` says which), and the first
 
 ### `progress` — tool/hook progress (legacy)
 
-No longer written: the transcript persistence filter drops every `progress` record (see Record
-categories); last observed locally at 2.1.84. Old transcripts still carry it, and the loader keeps
-it as `boundary-cleared`. Re-locate by grepping `toolUseID` alongside `parentToolUseID`.
+Not written: the transcript persistence filter drops every `progress` record (see Record
+categories). Old transcripts carry it, and the loader keeps it as `boundary-cleared`. Re-locate by
+grepping `toolUseID` alongside `parentToolUseID`.
 
 | Field             | Type                | Description                  |
 |-------------------|---------------------|------------------------------|
@@ -411,12 +411,11 @@ unknown subtype logs "Unknown attachment type".
 
 #### Frozen rendering: `rendered` / `renderedInHumanTurn`
 
-From 2.1.261 the factory renders the payload at write time and, when every resulting message is a
-string or text-only, stores it as `rendered: [{content}]`, one entry per message. `queued_command`
-is rendered a second time with the in-human-turn framing and stored as `renderedInHumanTurn` only
-when it differs. Neither field is written when the payload renders to nothing, when any block is
-non-text (images), for `poll_events`, or when rendering throws; replacing a payload recomputes
-both.
+The factory renders the payload at write time and, when every resulting message is a string or
+text-only, stores it as `rendered: [{content}]`, one entry per message. `queued_command` is rendered
+a second time with the in-human-turn framing and stored as `renderedInHumanTurn` only when it
+differs. Neither field is written when the payload renders to nothing, when any block is non-text
+(images), for `poll_events`, or when rendering throws; replacing a payload recomputes both.
 
 When the conversation is rebuilt for the API, a valid stored `rendered` overlays the fresh render
 (metadata such as `isMeta`, `origin`, `uuid` still comes from current code); if the message count
@@ -427,24 +426,25 @@ the caller supplies a different surfaced-tool set, and `queued_command` records 
 transcript loaded for resume, which have both fields deleted and render fresh (landmark
 `subagent_resume_transcript_missing`).
 
-#### Context announcements: system-prompt context as attachments (2.1.251+)
+#### Context announcements: system-prompt context as attachments
 
-Context that used to be rebuilt in the system prompt on every request now travels as attachment
-records, so the system prompt bytes stay stable when the date, environment, or CLAUDE.md change.
+Session context (date, environment, CLAUDE.md, and the like) travels as attachment records instead
+of being rebuilt in the system prompt on every request, so the system prompt bytes stay stable when
+the date, environment, or CLAUDE.md change.
 
-1. Session start drains the old `userContext` / `systemContext` maps: `claudeMd` becomes per-file
-   `instructions` entries (`files[]` of path, `type`, trimmed content; `type` is `User`,
-   `Project`, `Local`, `Managed`, `AutoMem`, `AutoMemPinned`); `currentDate` becomes `date`;
-   `userEmail`, `attachedProject`, `gitStatus`, `perforceMode` become `session_context`;
-   `workerToolsContext` becomes `coordinator_context`; every other non-empty key becomes
-   `context_sections`. Only `cacheBreaker` stays in `systemContext`.
-2. Per-turn producers emit the rest: `environment` (the old "# Environment" section, "You have been
+1. Session start drains the `userContext` / `systemContext` maps: `claudeMd` becomes per-file
+   `instructions` entries (`files[]` of path, `type`, trimmed content; `type` is `User`, `Project`,
+   `Local`, `Managed`, `AutoMem`, `AutoMemPinned`); `currentDate` becomes `date`; `userEmail`,
+   `attachedProject`, `gitStatus`, `perforceMode` become `session_context`; `workerToolsContext`
+   becomes `coordinator_context`; every other non-empty key becomes `context_sections`. Only
+   `cacheBreaker` stays in `systemContext`.
+2. Per-turn producers emit the rest: `environment` (the "# Environment" section, "You have been
    invoked in the following environment: ", as `snapshot`), `model` (`identity`, `text`: "You are
    powered by the model named …"), and `output_style_instructions` / `language` from session
    settings.
-3. `prompt_snapshot` freezes whatever is still in the system prompt: the rendered prompt blocks,
-   the tool definitions, and the identity prefix (`cliPrefix`). Later requests and resumes reuse
-   the record until compaction. The SDK initialize option `systemPromptSnapshot` ("Record the
+3. `prompt_snapshot` freezes whatever remains in the system prompt: the rendered prompt blocks, the
+   tool definitions, and the identity prefix (`cliPrefix`). Later requests and resumes reuse the
+   record until compaction. The SDK initialize option `systemPromptSnapshot` ("Record the
    conversation's system prompt once and reuse it verbatim") controls it; recording is on unless
    `CLAUDE_CODE_SIMPLE` is set, and forced on for `CLAUDE_CODE_SESSION_KIND=bg` and
    `CLAUDE_CODE_REMOTE`.
@@ -452,21 +452,18 @@ records, so the system prompt bytes stay stable when the date, environment, or C
    questions, you can use the following context:", "Today's date is …", "# Environment", "# Output
    Style: <name>"), frozen into `rendered` at write time.
 
-Each announcement is diffed against the last matching record in the transcript and re-emitted
-only when something changed, with `changed: true` and, for `instructions` and `session_context`, a
-`reason` from `session_start`, `compaction`, `policy_refresh`, `directory_added`,
-`settings_sync`, `account_change`, `hooks_invalidate`, `policy_verdict` ("Instruction files were
-re-read", "The session context was re-read"). `environment` is re-sent in full when there is no
-earlier full copy or platform/shell/osVersion differ; otherwise it carries `changes` alongside the
-current `snapshot`, rendered under "# Environment update". Every emission fires
-`tengu_context_announcement` (`announcement_type`, `updates_copy`, `refresh_reason`). After
-compaction the announcer re-places these records behind the summary
-(`compact_kept_tail_announcements`). The family is skipped on resume, for bare forks, isolated
-contexts, most auxiliary query sources, and under `CLAUDE_CODE_SIMPLE`. The persisted transcript is
-therefore the record of what the model was told. First observed: `date`, `environment`,
-`session_context`, `model`, `output_style_instructions` at 2.1.251; `instructions` and
-`prompt_snapshot` at 2.1.261. `date_change` (last observed 2.1.263) is superseded by `date` with
-`changed`.
+Each announcement is diffed against the last matching record in the transcript and re-emitted only
+when something changed, with `changed: true` and, for `instructions` and `session_context`, a
+`reason` from `session_start`, `compaction`, `policy_refresh`, `directory_added`, `settings_sync`,
+`account_change`, `hooks_invalidate`, `policy_verdict` ("Instruction files were re-read", "The
+session context was re-read"). `environment` is re-sent in full when there is no earlier full copy
+or platform/shell/osVersion differ; otherwise it carries `changes` alongside the current `snapshot`,
+rendered under "# Environment update". Every emission fires `tengu_context_announcement`
+(`announcement_type`, `updates_copy`, `refresh_reason`). After compaction the announcer re-places
+these records behind the summary (`compact_kept_tail_announcements`). The family is skipped on
+resume, for bare forks, isolated contexts, most auxiliary query sources, and under
+`CLAUDE_CODE_SIMPLE`. The persisted transcript is therefore the record of what the model was told. A
+date change is announced by `date` with `changed`; `date_change` is legacy.
 
 #### Subtypes by purpose
 
@@ -641,8 +638,6 @@ the policy-table values (see Record categories). Status: `observed` in real tran
 
 Shapes (every record also carries `type`). Most carry `sessionId`; the exceptions say so.
 
-Long-standing types:
-
 - `custom-title` `{customTitle, sessionId}`: user-set title. `ai-title` `{aiTitle, sessionId}`:
   auto-generated title, distinct from `custom-title`.
 - `tag` `{tag, sessionId}`, `agent-name` `{agentName, sessionId}`, `agent-color`
@@ -675,9 +670,6 @@ Long-standing types:
   `originalCwd`, `worktreePath`, `worktreeName`, `worktreeBranch`, `originalBranch`.
 - `speculation-accept` `{timestamp, timeSavedMs}`, no `sessionId`: no writer and no string
   occurrence in 2.1.281; kept in the schema so older transcripts validate.
-
-Types added since 2.1.165:
-
 - `atis-latch` `{atis, sessionId}`: an opaque server pin from cached bootstrap client data, sent
   as request header `x-cc-atis` (a mismatch logs "Server ATIS pin differs from cached clientData;
   refetching"). It is latched per conversation on the first request when `tengu_kestrel_moor` is
@@ -746,9 +738,8 @@ A full read returns an object whose Map fields key the metadata-only records by 
 it.
 
 For very large files (size-gated), the read path scans for the last `compact_boundary` and loads
-only post-compaction content; `boundary-cleared` types are dropped with the skipped history.
-Setting `CLAUDE_CODE_DISABLE_PRECOMPACT_SKIP` disables that and forces a full load. (Earlier
-releases used a differently named, opposite-sense variable; see the appendix.)
+only post-compaction content; `boundary-cleared` types are dropped with the skipped history. Setting
+`CLAUDE_CODE_DISABLE_PRECOMPACT_SKIP` disables that and forces a full load.
 
 Lite mode reads only filesystem metadata; hydration does fast string-scanning of head/tail bytes for
 key fields without full JSON parsing. That is why the session-metadata re-append (below) keeps
@@ -776,10 +767,10 @@ When the conversation approaches context limits, a `compact_boundary` system rec
 `compactMetadata` (trigger, pre- and post-compaction token counts, messages summarized, preserved
 segment); its `parentUuid` is set to null, breaking the linked list, while `logicalParentUuid`
 preserves the logical chain. A user record with `isCompactSummary: true` follows, carrying the
-summary. `microcompact_boundary` was a lighter pass that trimmed specific tool results
-(`microcompactMetadata.compactedToolIds`) and attachments (`.clearedAttachmentUUIDs`); nothing
-constructs it any more (`microcompactMetadata` does not occur in the bundle, last observed 2.1.39),
-but readers still stop at it and render it. Full behavioral model: `CLEAR_COMPACT_FORK_CONTEXT.md`.
+summary. `microcompact_boundary` is a legacy record of a lighter pass that trimmed specific tool
+results (`microcompactMetadata.compactedToolIds`) and attachments (`.clearedAttachmentUUIDs`);
+nothing constructs it (`microcompactMetadata` does not occur in the bundle), but readers stop at it
+and render it. Full behavioral model: `CLEAR_COMPACT_FORK_CONTEXT.md`.
 
 ## history.jsonl
 
@@ -808,58 +799,3 @@ Separate file at `~/.claude/history.jsonl`, distinct from session transcripts. E
 
 MCP debug entry: `{ debug, timestamp, sessionId, cwd }`. MCP error entry:
 `{ error, timestamp, sessionId, cwd }`. General error entry: `{ error }`.
-
-## Per-release appendix
-
-- 2.1.281: verified, and the companion schema refreshed to `x-schema-version` 1.3.0 (validated
-  against roughly 984k real transcript records, observed range 2.0.27–2.1.281). The record-type set
-  is now read from the load-retention and write-routing tables beside the writer.
-- Since 2.1.165, metadata record types added (metadata lines carry no `version`, so first-seen
-  versions are unknown): `atis-latch`, `continued-in`, `cost-state`, `file-history-delta`,
-  `fork-context-ref`, `frame-link`, `history-suppression`, `relocated`,
-  `artifact-comment-monitor`, `artifact-autoreact-ledger`; in source but not observed locally:
-  `content-replacement`, `ended-by-model`, `isolation-latch`, `memory-mode`, `observer-ref`.
-- Since 2.1.165: `bridge-session` gained `declaredDialogKinds`, `sessionGroupingId`,
-  `noHistoryBackfill`, `ownerAccountUuid`, `ownerOrganizationUuid`; `last-prompt` gained
-  `explicit` / `rewound` and a nullable `leafUuid`; `queue-operation` gained `reason`;
-  `file-history-snapshot` backups gained `realParentDir`. `speculation-accept` no longer has a
-  writer. Correction to the 1.2.0 schema: `agentSetting` is a string (the agent type), not an
-  object.
-- Since 2.1.165: envelope gained `sessionKind`; `promptId` is set by the envelope writer (on `user`
-  only); `session_id` appears on engine-yielded records from about 2.1.199.
-- Since 2.1.165: `user` gained `turnOrigin`, `turnCompanion`, `toolDenialKind`, `userFeedback`,
-  `toolEndsTurn`, the classifier fields and the `queue*` fields; `promptSource` gained
-  `suggestion_accepted` and `sdk`. `assistant` gained `effort`, `perTurnEffort`, `advisorModel`,
-  `apiBlockIndex`, `attributionAgent`, `serverClassifierRequest`, `wireToolInputs`,
-  `wireIngestContext`, `isAbortedMidStream`, `truncatedAfterOutput`, `errorDetails`,
-  `quotaLimits`, `supersedesUuids`; `message` gained `stop_details`, `diagnostics`,
-  `input_transformations`; `stop_reason` gained `pause_turn`, `compaction`,
-  `model_context_window_exceeded`; `usage` gained `output_tokens_details`.
-- 2.1.176: `fallback` assistant content block first observed.
-- Since 2.1.165, `system` subtypes added: `agents_killed`, `permission_retry`,
-  `model_refusal_fallback`, `model_refusal_no_fallback`, `model_consent_fallback` (observed);
-  `model_fallback`, `memory_saved`, `cloud_session_status`, `file_snapshot`,
-  `upgrade_relay_marker` (source only). `level` gained `notice`. Correction: `isMeta` is `false` on
-  most subtypes, not always true as the 1.2.0 schema said.
-- 2.1.251: system-prompt context moved into attachments (`date`, `environment`, `session_context`,
-  `model`, `output_style_instructions` first observed), with `tengu_context_announcement`.
-- 2.1.261: `instructions` and `prompt_snapshot` first observed; attachment records gained
-  `rendered` / `renderedInHumanTurn`; `bash_output_audience_note`, `batching_reminder_sent`,
-  `deferred_tools_record`, `silent_turn_reminder` first observed. `date_change` last observed
-  2.1.263. `credential_org` first observed 2.1.281.
-- Write path correction: metadata-only records go through the same routed async write queue as
-  conversation records; the synchronous `appendFileSync` path is the session-metadata re-append at
-  exit.
-- `progress` records are no longer persisted (the transcript filter drops them; last observed
-  locally 2.1.84). `microcompact_boundary` is no longer written (last observed 2.1.39).
-- 2.1.165: verified, and the companion schema refreshed to `x-schema-version` 1.2.0 (validated with
-  zero failures against the local transcript corpus, observed range 2.0.27–2.1.167). Record types
-  added since the earlier inventory: `ai-title`, `last-prompt`, `permission-mode`, `bridge-session`,
-  `worktree-state`. System subtypes added: `away_summary`, `bridge_status`, `scheduled_task_fire`,
-  `informational`. Envelope gained `entrypoint` and `forkedFrom`. `assistant` `stop_reason` gained
-  `max_tokens` and `refusal`; `system` `level` gained `warning`; `user` content gained `document`
-  blocks.
-- The big-file partial-load env var is `CLAUDE_CODE_DISABLE_PRECOMPACT_SKIP` (default skips
-  pre-compaction content; the var forces a full load) — renamed and inverted from the earlier
-  `CLAUDE_CODE_SKIP_PRECOMPACT_LOAD`. The `hook_additional_context` attachment subtype persists, but
-  the prior `CLAUDE_CODE_SAVE_HOOK_ADDITIONAL_CONTEXT` gate is no longer present under that name.

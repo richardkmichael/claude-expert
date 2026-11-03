@@ -13,7 +13,7 @@ This document follows the landmark style in `GUIDELINES.md`: it anchors on versi
 (user-facing error messages, class names, `tengu_*` names, tool names, behavioral logic) with grep
 re-location recipes, not on minified symbol names or line numbers, which churn every release.
 Error-message strings are the durable anchors here; numeric `errorCode` values are a weaker contract
-and are shown as current 2.1.165 values. Per-release changes are in the appendix.
+and are shown as 2.1.165 values.
 
 ## Validation architecture
 
@@ -41,8 +41,8 @@ same messages — disambiguate by the parameter shape.
 
 ### Read
 
-Destructures `{ file_path, pages }`. Note: existence (`File does not exist.`) is enforced in the read
-path, not in `validateInput`; size and empty-image checks also live in the read path now, not here.
+Destructures `{ file_path, pages }`. Note: existence (`File does not exist.`) is enforced in the
+read path, not in `validateInput`; size and empty-image checks also live in the read path, not here.
 A UNC path (`\\` or `//` prefix) returns success before the binary/device checks.
 
 | Reason (message anchor)                                                      | code |
@@ -113,8 +113,8 @@ message `Shell command failed` and the class name `ShellError`. The error object
 - Bash tool: drives the bash generator, computes an is-error verdict from the command, exit code,
   stdout, and stderr, and throws the ShellError on failure (passing the sandbox-violation flag). See
   `BASH_TOOL_EXECUTION.md` for the execution model.
-- Grep/Search tool: ripgrep-backed. Description anchored on `A powerful search tool built on ripgrep`
-  (wording unchanged across recent versions; it interpolates the Grep / Bash / Agent tool names).
+- Grep/Search tool: ripgrep-backed. Description anchored on
+  `A powerful search tool built on ripgrep` (it interpolates the Grep / Bash / Agent tool names).
   Binary resolution is in `FILE_INCLUSION.md` ("Ripgrep Binary Selection").
 - MCP tools: flagged in telemetry via an `isMcp` field; grep `isMcp`.
 
@@ -135,9 +135,7 @@ Grep `characters truncated`.
 These are notes on a proposed local enhancement, not current Claude Code behavior.
 
 Core finding: validation failures and execution errors short-circuit before hooks get full context.
-File-tool validation failures never reach PostToolUse (no execution phase). For process-tool
-failures, the error catch historically preserved only the error message, discarding the ShellError's
-`stdout` / `stderr` / `code`.
+File-tool validation failures never reach PostToolUse (no execution phase).
 
 Proposed direction:
 - PreToolUse: pass a validation context (schema result + input-validation result with message and
@@ -178,14 +176,3 @@ dispatch catch (grep the `<tool_use_error>` emission), and the ShellError class 
 □ ShellError carries `stdout/stderr/code/interrupted/hadSandboxViolation`, message
   `Shell command failed`
 □ error formatter caps at 10 KB with first-5000 / last-5000 truncation
-
-## Per-release notes
-
-- 2.1.165: behavioral model above verified. Versus earlier builds: the "ignored directory" reason
-  (string `File is in a directory that is ignored by your project configuration.`) was replaced by a
-  permission-deny reason; Read's `validateInput` dropped the empty-image reason (string
-  `Empty image files cannot be processed.` is gone) and the in-validate size check, and added PDF
-  `pages` validation (codes 7/8) and a device-file reason (code 9); Edit added too-large (1 GiB
-  limit), Perforce read-only, worktree/background isolation, and content-guard reasons, and now marks
-  all failures `behavior: "ask"`; Write added a subagent report-file block, Perforce read-only,
-  isolation, and content-guard reasons; ShellError gained the `hadSandboxViolation` field.

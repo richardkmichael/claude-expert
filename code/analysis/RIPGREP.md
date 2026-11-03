@@ -12,7 +12,7 @@ landmarks:
 
 This document follows the landmark style in `GUIDELINES.md`: anchors are version-stable strings (env
 vars, log lines, `tengu_*` telemetry names, literal error text) with grep re-location recipes, never
-minified symbol names or line numbers. Per-release facts live in the appendix.
+minified symbol names or line numbers.
 
 Ripgrep powers all of Claude Code's internal file search: the Grep and Glob tools, the `@`-file
 suggestion fallback, markdown discovery scans, bounded directory listings, and file-count
@@ -165,13 +165,3 @@ see `BASH_TOOL_EXECUTION.md` ("Ripgrep config: Bash-tool rg vs the Search tool")
 □ EAGAIN retried once with `-j 1`
 □ `exec -a rg <native binary> --version` prints a ripgrep version string
 □ `argv[0]` of `grep`/`find` does not dispatch (keys are `rg`/`ugrep`/`bfs`)
-
-## Per-release notes
-
-- 2.1.207: behavioral model above verified. The embedded ripgrep on the contemporaneous macOS
-  binary (2.1.209) reports `ripgrep 14.1.1` with `+pcre2`; a homebrew rg on the same machine was
-  newer (15.1.0) — version skew between embedded and system rg is normal.
-- 2.1.154: the system-mode ENOENT install-hint error text added (absent in 2.1.143).
-- 2.1.119 (earliest local): health check, availability telemetry, and EAGAIN retry already present.
-- This doc consolidates and extends the former "Ripgrep Binary Selection" section of
-  `FILE_INCLUSION.md`.

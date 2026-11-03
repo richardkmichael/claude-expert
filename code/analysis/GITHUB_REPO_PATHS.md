@@ -82,7 +82,3 @@ Remote Control, `--resume` across worktrees, PR status and plain `--resume` do n
 
 No stale entry causes an error. Deleting the key, or any path in it, is safe: the next launch inside
 a GitHub checkout adds the current path back.
-
-## Version history
-
-- 2.1.316: first written.

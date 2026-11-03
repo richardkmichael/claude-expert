@@ -121,13 +121,12 @@ block.
 `elicitation_complete` and `elicitation_response` appear at call sites without being members of the
 enum, so treat the enum as the settings-facing list rather than the complete set.
 
-Tripwire: the enum held 5 members at 2.1.76 and 15 at 2.1.277. Re-read it rather than trusting this
-table.
+Tripwire: re-read the enum on a new version rather than trusting this table.
 
 ## The idle notifier
 
-At 2.1.277 the idle logic is a class, constructed with a named options object. The option names are
-the landmarks; grep `hasArmedQuotaAutoResume` or `hasSeededRemotePrompt` to land on the construction
+The idle logic is a class, constructed with a named options object. The option names are the
+landmarks; grep `hasArmedQuotaAutoResume` or `hasSeededRemotePrompt` to land on the construction
 site, and `setLocalOverlayShowing` for the class body.
 
 It subscribes to a turn snapshot exposing `isLoading`, `submitCount` and `lastQueryCompletionTime`,
@@ -152,7 +151,7 @@ The threshold is the `messageIdleNotifThresholdMs` setting, default 60000. The m
 
 The last-interaction check is the interesting one: the timer is armed from the moment the response
 ends, and any user activity after that point cancels the notification when the timer eventually
-fires, rather than re-arming it.
+fires, rather than re-arming it. The notifier sends at most once per completed query.
 
 ## The idle return hint
 
@@ -388,18 +387,3 @@ terminal when tmux 3.3+ has `allow-passthrough on`.
 
 From a hook, return the sequence in `terminalSequence` rather than writing `/dev/tty`. Claude Code
 wraps it for tmux itself.
-
-## Version history
-
-- 2.1.76: `ghostty` is offered in the settings enum but absent from the channel switch, so
-  configuring it silently sends nothing and OSC 777 is reachable only through `auto`. Reported as
-  https://github.com/anthropics/claude-code/issues/19979. Forcing `iterm2` was the workaround.
-- 2.1.277: fixed. The dispatch is split into resolver, auto-detector and emitter, and `ghostty` is
-  accepted on both the forced and auto paths. Idle logic extracted into a class with named
-  dependencies. Notification type enum grown to 15 members. Attacher-terminal detection and the
-  `attacher_term` telemetry field added. Idle return hint added.
-- 2.1.316: dispatch unchanged. Recorded the dialog 6000 ms interval and its interaction gate, the
-  SDK hook-only timer and its disable env var, the generic interactive permission message, the
-  shared terminal writer, tmux/screen DCS wrapping of every OSC (the earlier "tmux swallows OSC"
-  claim was incorrect for explicit channels), and `terminalSequence` validation. The idle notifier
-  also sends at most once per completed query.

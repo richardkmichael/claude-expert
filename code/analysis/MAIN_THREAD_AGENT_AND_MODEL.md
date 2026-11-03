@@ -94,7 +94,3 @@ path is the same for interactive and headless sessions.
 - □ `--model` still outranks agent frontmatter, which outranks `ANTHROPIC_MODEL`, which outranks the
   `model` setting.
 - □ `-p` still stamps the entrypoint `sdk-cli`.
-
-## Per-release notes
-
-- 2.1.277: verified as described.

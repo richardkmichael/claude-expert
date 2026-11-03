@@ -16,11 +16,11 @@ doc covers it in depth. This doc deliberately holds no detail that another doc o
 
 ## Finding app code at all
 
-App and library code are interleaved, and from 2.1.242 the application is split across a
-thousand-odd content-hashed chunk modules. Neither module boundaries nor ordering are stable, so
-orient by grepping app-specific strings rather than by position: `tengu_*` event names,
-`CLAUDE_CODE_*` env vars, config keys, tool names, and literal prompt or UI text. None of those
-appear inside bundled third-party libraries.
+App and library code are interleaved, and the application is split across a thousand-odd
+content-hashed chunk modules. Neither module boundaries nor ordering are stable, so orient by
+grepping app-specific strings rather than by position: `tengu_*` event names, `CLAUDE_CODE_*` env
+vars, config keys, tool names, and literal prompt or UI text. None of those appear inside bundled
+third-party libraries.
 
 Read the `// ==== bun module:` banner above a hit only to know which module you landed in. Chunk
 names are content hashes and change every release.
@@ -48,8 +48,8 @@ suffix list.
 
 Boolean env vars are parsed by shared helpers with fixed token sets rather than ad hoc per call
 site: truthy is `1`, `true`, `yes`, `on`; falsy is `0`, `false`, `no`, `off`; both trimmed and
-case-insensitive. At 2.1.277 most call sites reach these through a typed env-accessor layer that
-declares each variable as a boolean or tri-state boolean, so the parsing no longer appears inline.
+case-insensitive. Most call sites reach these through a typed env-accessor layer that declares each
+variable as a boolean or tri-state boolean, so the parsing does not appear inline at the call site.
 Grep `triBool` for the tri-state declarations.
 
 ## Agents and skills
@@ -92,11 +92,3 @@ model-facing description.
 Transcript layout is in `SESSION_TRANSCRIPT.md` with a JSON Schema under `schemas/`. Shell snapshot
 behavior is in `BASH_TOOL_EXECUTION.md`. `CLAUDE.md` discovery and includes are in
 `CLAUDE_MD_EXTERNAL_INCLUDES.md`.
-
-## Version history
-
-- 2.1.76: single `cli` module; app code locatable by line range.
-- 2.1.242: application split across content-hashed chunk modules. Line ranges and module positions
-  stop meaning anything across releases.
-- 2.1.277: config filename carries an auth-environment suffix; boolean env parsing consolidated
-  behind a typed env-accessor layer.

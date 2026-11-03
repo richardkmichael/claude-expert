@@ -14,8 +14,8 @@ landmarks:
 `IS_DEMO` is an internal flag that prepares Claude Code for clean demos and screenshots. It can be
 set via a settings `env` block, so it applies to every session where that settings file is in scope.
 It is not part of the public environment-variable documentation. Three themes: skip every
-interactive startup gate, redact account identity from the UI, and (since 2.1.220) swap the
-background-work slash commands for an older pair.
+interactive startup gate, redact account identity from the UI, and swap the background-work slash
+commands for an older pair.
 
 ## Relocation
 
@@ -56,9 +56,8 @@ source order:
 - the custom API key approval dialog
 - Claude-in-Chrome onboarding, and the Chrome extension offer that follows it
 
-Earlier revisions of this doc listed only the first four. The set grows as dialogs are added to the
-routine; treat the list as "every interactive gate in the startup routine" rather than a fixed four,
-and re-walk the routine on each release.
+Treat the list as "every interactive gate in the startup routine" rather than a fixed set, and
+re-walk the routine on each release.
 
 Because those dialogs never fire, a project's `.mcp.json` servers stay unapproved and its external
 CLAUDE.md `@imports` stay unloaded unless they were already approved or enabled in settings — the
@@ -87,7 +86,7 @@ when `hasCompletedProjectOnboarding`, `projectOnboardingSeenCount >= 4`, or `IS_
 
 Relocate via `rg -n 'IS_DEMO'` against the strings `Organization`, `Email`, and `Message from`.
 
-## Slash-command registry swap (2.1.220)
+## Slash-command registry swap
 
 The command registry branches on `IS_DEMO`, so demo mode changes which background-work commands
 exist. The gate also requires the agent view to be enabled (it is disabled by
@@ -99,10 +98,9 @@ branch as a disabled agent view:
 | `/fork`    | "Copy this conversation into a new background session and keep working here" | "Spawn a background agent that inherits the full conversation" |
 | `/subtask` | "Send a subagent off with your full context; its result comes back here"     | not registered                                                 |
 
-This is the first `IS_DEMO` effect that is neither a suppressed dialog nor a redacted field: it
-removes a command and substitutes an older implementation of another. Relocate by grepping the two
-`/fork` description strings — they are the durable anchors, since the registry entries are
-minified object literals.
+Unlike the suppressed dialogs and redacted fields, this effect removes a command and substitutes an
+older implementation of another. Relocate by grepping the two `/fork` description strings — they are
+the durable anchors, since the registry entries are minified object literals.
 
 ## Tripwire for a new version
 
@@ -112,13 +110,3 @@ minified object literals.
 □ `Organization`/`Email` rows, status-line org name, and org-message banner still suppressed
 □ command-registry swap still present; both `/fork` description strings still resolve
 □ still only one site using the truthy-parse helper; if that spreads, the `IS_DEMO=0` note is wrong
-
-## Per-release appendix
-
-- 2.1.220: verified. Site count 7 → 10. New: the `/fork` + `/subtask` command-registry swap, the
-  only site using the truthy-parse helper. Corrected two longstanding doc errors — the relocation
-  recipe `process\.env\.IS_DEMO` missed the five env-accessor sites, and the claim that the flag is
-  parsed with the `1`/`true`/`yes`/`on` test holds for exactly one of nine sites. The startup
-  routine's skipped-dialog list was four entries and is now nine; the earlier list was not wrong
-  when written but was never exhaustive of the routine.
-- 2.1.186: verified. Six sites, structurally identical to 2.1.169.
