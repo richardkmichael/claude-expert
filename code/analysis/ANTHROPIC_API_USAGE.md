@@ -913,14 +913,15 @@ These are **estimates, not exact**. Evidence:
 **How Known**: These are reasonable estimates based on:
 1. Typical token counting (roughly 1 token per 4 characters for English text)
 2. Code structure analysis
-3. Actual tests with token counting API (as shown in BLOG_CONTEXT.md)
+3. Actual tests with the token counting API (for how the categories fill a session, see
+   [Explore the context window](https://code.claude.com/docs/en/context-window))
 
 **Note**: Token counts are NOT coded as constants in the source - they're derived from analysis.
 
 ### 9. Core Instructions Text - Found!
 
-The "Core instructions" mentioned in BLOG_CONTEXT.md are **generated dynamically** from multiple
-sources rather than a single text constant. However, key sections are:
+The "Core instructions" category is generated dynamically from multiple sources rather than a single
+text constant. However, key sections are:
 
 **Base core instructions** are in the main system prompt assembly, and include:
 - "You are Claude Code, Anthropic's official CLI for Claude."
