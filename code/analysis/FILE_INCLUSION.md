@@ -1,24 +1,39 @@
 # @ File Inclusion and Completion
 
-Verified against: cli.prettier.js 2.1.316 (2026-11-02)
+Verified against: cli.prettier.js 2.1.317 (2026-11-03)
 
 This document follows the landmark style in `GUIDELINES.md`: features are identified by
 version-stable anchors (literal strings, log messages, `tengu_*` telemetry names, config keys,
 behavioral logic) with grep re-location recipes, not by minified symbol names or line numbers, which
 churn every release. Several log strings contain an em dash that the prettified bundle spells as the
-escape `\u2014`; the recipes below anchor on the text either side of it.
+escape `\u2014`; the recipes below anchor on the text either side of it. A literal `\u200C` in an
+`rg -F` pattern can be mangled by the shell, so the one recipe that needs it uses a regex.
+
+Scope: what typing `@` in the prompt offers, where each suggestion comes from, and what accepting
+one inserts. What a submitted `@` mention turns into (file contents, directory listings, MCP
+resource reads, agent and session mentions) is in `AT_MENTION_CONTEXT.md`.
 
 ## Feature Overview
 
-Typing `@` in the prompt triggers a file/resource completion mode. The suggestion list merges:
+Typing `@` at the start of the input or after whitespace (or after the CJK punctuation `。、？！`) opens
+completion. The prompt's input handler tries these sources in order, and the first that yields rows
+owns the list:
 
-1. File suggestions: fuzzy search of the workspace file tree, powered by git ls-files (with a
-   ripgrep fallback) and a custom in-process JavaScript index, or by the `fileSuggestion` hook.
-2. Agent suggestions (`<agentType> (agent)`), built from the loaded agent list.
-3. MCP resource and resource-template suggestions, drawn from connected MCP servers.
+1. Message targets: `@name` rows labelled `send message` for teammates, named background agents and
+   other live sessions (see "Message-target rows"). These pre-empt everything below, including for a
+   bare `@` when the session has named agents or teammates.
+2. Path completion: a token shaped like a path (`./`, `../`, `~/`, `/`, or exactly `~`, `.`, `..`)
+   lists one directory's entries (see "Path completion").
+3. MCP resource-template argument completion: a token `server:<uri-prefix>` that matches one of the
+   server's resource templates asks the server for argument values (see "MCP resources and resource
+   templates").
+4. The merged list: file suggestions (the in-process index, or the `fileSuggestion` hook), MCP
+   resources, MCP resource templates and agents (`<agentType> (agent)`), capped at 15.
 
-This document covers the file suggestion mechanism (1), how the sources merge, and the TAB
-completion behavior.
+Sources 1 and 2 run as you type; sources 3 and 4 run on a 50 ms debounce. `#` (Slack channels, when
+a connected MCP server's name contains `slack`) and `:` (emoji shortcodes) are sibling completion
+modes, not `@` sources. In shell mode (`!`) `@` tokens are not completed. Rows from mods'
+`prompt.autocomplete` hooks are appended below whichever list shows (see "Mod rows").
 
 ## Entry Point
 
@@ -29,28 +44,121 @@ The token extractor pulls the `@...` token from user input using a Unicode-prope
 Grep the character class, `rg -nF '\p{L}\p{N}\p{M}_\-./\\()[\]~:'`: expect 5 hits in one block of
 regex constants. The last of them matches the token at the cursor, with an alternative for the
 quoted form `@"..."`. The query passed on is the token minus its `@` (and minus the quotes for
-`@"..."`); a leading `./` is stripped and a leading `~` is expanded.
+`@"..."`). The file dispatcher then strips a leading `./` and expands a leading `~`.
 
-The completion entry dispatcher is the exported function the bundle also names
+A second, narrower regex, `@([\p{L}\p{N}\p{M}\u200C\u200D_-]*)$`, drives the message-target rows
+(grep `rg -n 'p\{M\}\\u200C\\u200D_-'`, 1 hit). It has no `/`, `.` or `:`, so typing any of those
+ends message-target completion and hands the token to the file sources.
+
+The completion entry dispatcher for files is the exported function the bundle also names
 `generateFileSuggestionsWithBase` (grep that string to find its export list). In order it:
 
 1. Returns nothing in a diskless session (a cloud-session mode with no local disk,
    `launchOptions.diskless()`).
-2. In remote mode, sends the query over the control channel (see "Remote file-suggestions").
+2. In remote mode returns nothing for an empty query without `showOnEmpty`, otherwise sends the
+   query over the control channel (see "Remote file-suggestions").
 3. Returns nothing for an empty query unless the token began with `@` (`showOnEmpty`).
 4. Runs the `fileSuggestion` hook when the setting resolves to `type === "command"`. Grep
    `fileSuggestion) : void 0)?.type === "command"`; the setting is read through a resolver that
    honors managed policy (see "`fileSuggestion` Hook").
-5. Answers an empty query, `.` or `./` with a plain `readdir` of the cwd (directories get a trailing
-   separator; failure logs `[FileSuggestions] readdir failed for cwd`).
+5. Answers an empty query, `.` or `./` with a plain `readdir` of the cwd, dotfiles included
+   (directories get a trailing separator; failure logs `[FileSuggestions] readdir failed for cwd`).
 6. Otherwise searches the in-process index, logging
    `[FileIndex] generateFileSuggestions: N results in Xms (partial|full index)` and emitting
    `tengu_file_suggestions_query`.
 
-The dispatcher takes a flag that allows the hook; it defaults on. The prompt's `@` completion and
-the host's answer to a remote `file_suggestions` control request run with it on. The host-side
-`FileSuggestions` call (grep `"FileSuggestions"`) passes it off, so it always uses the internal
-index.
+The dispatcher takes a flag that allows the hook; it defaults on. The prompt's `@` completion, the
+host's answer to a remote or SDK `file_suggestions` control request, and the Remote Control bridge's
+`onFileSuggestions` run with it on. The host-side `FileSuggestions` served tool (grep
+`"FileSuggestions"`) passes it off, so it always uses the internal index.
+
+## Message-target rows
+
+When the text before the cursor matches the `@name` regex above, the input handler builds rows with
+id prefix `dm-`, display `@<name>`, and replaces the token with `@<name> ` on accept. Matching is a
+prefix match on the name normalized (NFKC, lowercased, whitespace to `-`). Sources, in order:
+
+- Teammates of the current agent team (when agent teams are on), description `send message`.
+- Named background agents in the session's agent-name registry, description
+  `send message · <status>` (grep `send message \xB7`).
+- Other sessions (rows `dm-peer-…`, description `message session · <where> · active … ago`; grep
+  `message session`): sessions on this machine, cloud sessions and Remote Control sessions, up to
+  20, only for a non-empty partial, never in remote mode. The roster is refreshed at most every 5
+  seconds. Gated on `CLAUDE_CODE_HARBOR_KITE` when set, else the `tengu_harbor_kite` flag (default
+  on; on Windows also `tengu_harbor_kite_win`), and off when policy sets
+  `messagingBeyondOwnAgentsDisabled`.
+
+Because the teammate and named-agent matches use `startsWith` on the partial, an empty partial
+matches all of them: a bare `@` in a session with running named agents shows only their rows, and
+the file list appears once a typed character stops matching every name. What a submitted session
+mention does is in `AT_MENTION_CONTEXT.md`.
+
+## Path completion
+
+A token after `@` that starts `~/`, `/`, `./` or `../`, or is exactly `~`, `.` or `..`, goes first
+to the same path completer the shell mode uses (grep `keepDotPrefix`; the predicate is the function
+that checks `h.startsWith("~/") ||`). It resolves the token against the cwd (expanding `~`), splits
+it into a directory and a name prefix, and reads that one directory:
+
+- dotfiles and dot-directories are left out; directories sort first, then names alphabetically;
+- at most 5000 entries are read, then filtered by a case-insensitive name prefix and cut to 10;
+- each directory read is cached for 5 minutes (500 directories); a missing or unreadable directory
+  caches an empty result for 15 seconds (`Path completion: … is inaccessible`), other failures for
+  2.5 seconds (`Failed to scan directory for path completion`);
+- a leading `./` is dropped from the inserted text, other prefixes (`~/`, `../`, `/`) are kept.
+
+When it yields rows the list is in `directory` mode: accepting a directory inserts `@<path>/` and
+re-opens completion inside it; accepting a file inserts `@<path> `. The insertion never quotes, so a
+name containing a space produces an unquoted `@path with space`. When the directory read yields
+nothing (no match, or only dotfiles match), the token falls through to the merged list, where the
+dispatcher strips `./`, expands `~` and runs a fuzzy index search.
+
+This is the only `@` route into files outside the index: an absolute or `~/` path browses any
+readable directory, including additional working directories. The 5-minute cache means a file
+created in an already-listed directory can take up to 5 minutes to appear here.
+
+## MCP resources and resource templates
+
+MCP rows come from the app state of connected servers. Both lists drop MCP Apps UI resources (a
+`ui://` URI or the `text/html;profile=mcp-app` media type).
+
+- Resources render as `<server>:<uri>`, description from `description`, `name` or the URI.
+- Templates render as `<server>:<template up to its first {>` with typed
+  `{ replacement, partial: true }` metadata, so accepting one inserts `@server:prefix` (quoted when
+  it holds a space) and re-opens completion instead of closing. Grep `mcp-template::`.
+
+Opening `@` also refreshes resource templates for connected servers that have none cached yet.
+Before the merged list runs, a token `server:<rest>` whose server has templates is matched against
+them: the best match (most resolved variables, then longest literal prefix, then most variables)
+names the variable being typed. The server is then asked for values with MCP `completion/complete`
+(`ref/resource`, the variable's name and partial value, earlier variables as `context.arguments`),
+only when the server declares the `completions` capability; telemetry
+`mcp_complete_resource_template`. Up to 15 values come back as rows (`mcp-template-value::`), each
+partial when another variable follows. A server reached through a cached client is reconnected for
+this (`MCP template completion` is the connect context); repeated failures back off per server, and
+a failure logs `Template completion skipped for <server>`. If no template matches but some template
+starts with `<rest>`, those templates are offered instead.
+
+## Agents
+
+The agent source is the session's active agent definitions (built-in, plugin, user, project and
+managed agents). Each renders as `<agentType> (agent)` (grep `` (agent)`  ``) with the `whenToUse`
+text, cut to 60 characters, as its description. A non-empty query keeps agents whose type or display
+text contains the query, case-insensitively; the merged-list ranking below then orders them. Because
+the display text has a space, accepting one inserts `@"<agentType> (agent)" `.
+
+## Mod rows (`prompt.autocomplete`)
+
+Mods can add rows to any prompt completion, `@` included, through the `prompt.autocomplete` hook
+event (grep `"prompt.autocomplete"`). While the prompt input is open in prompt mode it is asked on
+every text or cursor change with `{ text, cursor, token, start }` and answers
+`{ suggestions: [{ text, label?, description? }] }`. Its rows are appended below Claude Code's own
+rows in one list that the arrow keys walk. TAB or ENTER on a selected mod row, TAB when Claude
+Code's own list is empty (the top mod row), or a click, replaces the text from the token start to
+the cursor with the row's text (telemetry `plugin_function_hooks_autocomplete`; a failure logs
+`the row was not taken`). ENTER with only mod rows showing and none selected submits the prompt.
+These rows bypass every gate above, including the `fileSuggestion` hook. Mods themselves are covered
+in `MODS.md`.
 
 ## File Index Build Pipeline
 
@@ -76,22 +184,27 @@ absolute cwd, and results are made relative to it. Which ripgrep binary runs, an
 it may carry, is decided by the resolver in `RIPGREP.md`.
 
 Layer 3: index assembly. Grep `[FileIndex] cache refresh completed`. The assembly awaits both the
-project-files lister (layers 1/2) and the `.claude/` scanner in a `Promise.all`, adds every parent
-directory of the merged paths, and loads the result into the in-process index via
-`loadFromFileListAsync`.
+project-files lister (layers 1/2) and the `.claude/` scanner in a `Promise.all` under a 10-second
+abort signal, adds every parent directory of the merged paths, and loads the result into the
+in-process index via `loadFromFileListAsync`.
 
 The `.claude/` scanner (separate from the file-tree scanner) iterates a module-level array of
 subdirectory names and calls a per-name reader for each. The array is
 `["commands", "agents", "output-styles", "skills", "workflows", "routines"]` (the prettifier puts
 one element per line; grep `"output-styles",` and look for the six-element array). Results are
 stored on the state object's `cachedConfigFiles` field and merged into the searchable index
-alongside the project files. They are absolute paths, so these config files (and their ancestor
-directories) are `@`-completable as absolute paths, not an internal-only list.
+alongside the project files. They are absolute paths, so these config files (and every ancestor
+directory short of `/`) are `@`-completable as absolute paths, not an internal-only list.
 
-The per-name reader lists `*.md` files recursively with an in-process directory walker that follows
-symlinks and skips circular ones, within a 3-second budget (grep `loadMarkdownFilesFromDir`). It
-scans several source roots, each tagged `policySettings` / `userSettings` / `projectSettings`, and
-emits `tengu_dir_search`:
+The per-name reader is the shared loader the command, agent, skill and output-style loaders use
+(grep `loadMarkdownFilesFromDir`). It lists `*.md` files recursively with an in-process directory
+walker that follows symlinks and skips circular ones, within a 3-second budget, then reads and
+parses each file: a file over 1 MiB, or not a regular file, is skipped (log
+`not a regular file or exceeds`), so it is not `@`-completable either. Results are memoized per
+subdirectory and cwd in the loaders' shared cache, so a `.claude/` file added or removed mid-session
+shows in `@` only once something clears that cache (the skill, agent and output-style reloads do).
+It scans several source roots, each tagged `policySettings` / `userSettings` / `projectSettings`,
+and emits `tengu_dir_search`:
 
 - `policySettings`: `<managed-dir>/.claude/<subdir>`, where the managed dir is OS-fixed
   (`/Library/Application Support/ClaudeCode` on macOS, `/etc/claude-code` on Linux,
@@ -100,7 +213,8 @@ emits `tengu_dir_search`:
   settings from its organization and the user's own account could have written the managed folder
   (grep `not read: this session takes its managed settings from its organization`).
 - `userSettings`: `CLAUDE_CONFIG_DIR ?? ~/.claude`, then the `<subdir>`. This is why global
-  `~/.claude` config files appear in `@` completion. Gated on the `userSettings` source being on.
+  `~/.claude` config files appear in `@` completion. Gated on the `userSettings` source being on;
+  absent in a diskless session.
 - `projectSettings`: every `.claude/<subdir>` on the ancestor chain from the cwd upward (grep
   `getProjectDirsUpToHome: stat`). The walk stops before the home directory, and inside a git repo
   it stops at the repository root, inclusive (for a cwd inside a repo nested in the project's repo,
@@ -153,21 +267,26 @@ Consequences:
 
 ### `.ignore` / `.rgignore` post-filter and re-include
 
-Independent of git, patterns from `.ignore` and `.rgignore` files in the repo root and the cwd are
+On the git path, patterns from `.ignore` and `.rgignore` files in the repo root and the cwd are
 parsed and applied as an exclusion filter to both the tracked and untracked lists (grep
-`[FileIndex] loaded ignore patterns from` and `applied ignore patterns`). This runs on the git path,
-not just the ripgrep fallback, so dropping a `.rgignore` in the repo trims `@` completion even when
-`respectGitignore` is false.
+`[FileIndex] loaded ignore patterns from` and `applied ignore patterns`). The filter runs whatever
+`respectGitignore` says, so dropping a `.rgignore` in the repo trims `@` completion even when
+`respectGitignore` is false. (The non-git ripgrep fallback has no post-filter; ripgrep honours those
+files itself.) The filter tests the cwd-relative paths the index holds, with the raw patterns of
+both files, so when the cwd is below the repo root an anchored pattern in the root's file is matched
+from the cwd, and paths outside the cwd (`../…`) are never filtered.
 
 Negated patterns (`!pattern`) in those files also re-include gitignored paths. When
 `respectGitignore` is true and any loaded `.ignore` / `.rgignore` has a negation, the background
 untracked fetch runs a ripgrep listing from the repo root alongside `git ls-files --others`:
-`--files --hidden`, one `--glob` per negated pattern (as a whitelist) and per plain pattern (as an
-exclusion), plus `--glob !<vcs-dir>` for the VCS directories. Ripgrep's `--glob` overrides beat
-`.gitignore`, so this lists the gitignored files the negations name; they are merged into the
-untracked list (grep `re-included by .ignore`; the log reads
-`background untracked fetch: N files (M re-included by .ignore)`). A failed listing logs
-`.ignore re-include listing failed`, reuses the previous result, and is retried after 5 minutes.
+`--files --hidden`, one `--glob` per negated pattern (as a whitelist, plus a `<dir>/**` companion
+glob for a negated directory) and per plain pattern (as an exclusion), plus `--glob !<vcs-dir>` for
+the VCS directories. A cwd-level file's patterns are prefixed with the cwd's path from the root.
+Ripgrep's `--glob` overrides beat `.gitignore`, so this lists the gitignored files the negations
+name; they are merged into the untracked list (grep `re-included by .ignore`; the log reads
+`background untracked fetch: N files (M re-included by .ignore)`). A failed or truncated listing
+logs `.ignore re-include listing failed`, reuses the previous result, and is retried after 5
+minutes.
 
 ## `respectGitignore` Setting
 
@@ -178,7 +297,13 @@ should respect .gitignore files (default: true). Note: .ignore files are always 
 read from merged settings first, then the global `~/.claude.json` config object, defaulting to
 `true` (grep `respectGitignore ??`; the file index's hit ends `?? !0`). Because the merged-settings
 layer wins, a project `.claude/settings.json` (or `settings.local.json`) can scope `false` to one
-repo even when the global config sets the opposite. Two effects when false:
+repo even when the global config sets the opposite.
+
+The `/config` row `Respect .gitignore in file picker` reads and writes only the global-config value
+(telemetry `tengu_respect_gitignore_setting_changed`). When any settings file sets the key, the row
+shows and changes a value the file index ignores.
+
+Two effects when false:
 
 - The background untracked fetch drops `--exclude-standard`, so gitignored files enter the index
   inside git repos (the practically significant effect).
@@ -192,25 +317,33 @@ ignored bulk stay out. The alternative is `respectGitignore: false` in that repo
 `.claude/settings.json` plus a `.rgignore` listing the bulk ignored dirs (`node_modules/`, build
 output) to exclude them again; the post-filter runs on both lists regardless of `respectGitignore`.
 A repo-local un-ignore (`!tmp/` in `.gitignore` or `.git/info/exclude`) also works, through
-`--exclude-standard`, but makes the files visible to `git status`.
+`--exclude-standard`, but makes the files visible to `git status`. For a one-off, typing a path
+(`@./tmp/`) uses path completion, which reads the directory directly and ignores every ignore file.
 
 ## Symlinked directories
 
 `git ls-files` never traverses a symlink: it records the link as a single entry and does not
 enumerate the target's files. Both git invocations behave this way, so git never lists a symlinked
 directory's contents inside a git repo, under any `respectGitignore` value (the untracked path is
-still `git ls-files --others`, equally symlink-blind). Verified against a worktree with an
-`s -> ../shared` link: `git ls-files` and `--others` yield zero `s/…` paths while
-`rg --files --follow` and `find -L` enumerate the target. The `.ignore` re-include listing runs
-ripgrep without `--follow`, so it does not descend links either.
+still `git ls-files --others`, equally symlink-blind). Verified against a symlinked directory inside
+a git repo: `git ls-files` and `--others` yield no paths under the link while `rg --files --follow`
+and `find -L` enumerate the target. The `.ignore` re-include listing runs ripgrep without
+`--follow`, so it does not descend links either.
 
-The non-git ripgrep fallback carries `--follow`, so outside a git repo `@` does descend symlinks
-(subject to the same ignore rules: a globally-ignored link name is skipped unless VCS-ignore is
-off). Inside a git repo the fallback never runs, so the only way to surface a symlinked directory's
-files as `<link>/…` paths is the `fileSuggestion` hook running a link-following lister
-(`rg --files --follow`, `find -L`); its output is shown directly, bypassing both git and the
-internal index. Adding the link target as a workspace directory does not help: regular files of
-additional directories are not indexed at all.
+The non-git ripgrep fallback carries `--follow`, so outside a git repo the index does descend
+symlinks (subject to the same ignore rules: a globally-ignored link name is skipped unless
+VCS-ignore is off). Inside a git repo the index never holds a link's contents; two routes reach
+them:
+
+- Path completion: typing `@./<link>/` reads the link's target directory like any other (its
+  `readdir` follows the link), one level at a time. In the parent's listing the link itself is typed
+  from its directory entry, so it shows as a file without a trailing `/` and accepting it closes the
+  list; type the `/` yourself.
+- The `fileSuggestion` hook running a link-following lister (`rg --files --follow`, `find -L`); its
+  output is shown directly, bypassing both git and the internal index.
+
+Adding the link target as a workspace directory does not help the index: regular files of additional
+directories are not indexed at all.
 
 ## Result Limit
 
@@ -220,12 +353,14 @@ assembler then caps the merged list (files, MCP resources, resource templates, a
 
 - Empty query (bare `@`): files first, then MCP resources, templates and agents, cut to 15, so a cwd
   with 15 or more entries fills every slot with files.
-- Non-empty query: the non-file candidates are fuzzy-matched (Fuse.js, `threshold: 0.6`, MCP
-  resources penalized `+0.15`) and sorted together with the files by score, lower first. File scores
-  are their rank divided by the result count, so the top file matches stay near the top.
+- Non-empty query: the non-file candidates are fuzzy-matched (Fuse.js, `threshold: 0.6`, weighted
+  keys `name` and `agentType` 3, `displayText` and `uriTemplate` 2, `server` and `description` 1;
+  MCP resources penalized `+0.15`) and sorted together with the files by score, lower first. File
+  scores are their rank divided by the result count, so the top file matches stay near the top.
 
-The 15-result limit documented for `fileSuggestion` is therefore not specific to that hook: it
-matches the cap on every source and on the merged list.
+The other `@` sources have their own caps: path completion 10, resource-template values 15,
+peer-session rows 20. The 15-result limit documented for `fileSuggestion` is therefore not specific
+to that hook: it matches the cap on the file source and on the merged list.
 
 ## `fileSuggestion` Hook
 
@@ -251,20 +386,21 @@ when:
 
 It yields only `policySettings.fileSuggestion`, ignoring user and project values, in managed-only
 hook mode: policy `allowManagedHooksOnly`, `--safe-mode` / `CLAUDE_CODE_SAFE_MODE`, a non-policy
-`disableAllHooks: true`, and a few other managed-only states. The runner itself (grep
-`Skipping FileSuggestion command execution - workspace trust not accepted`) re-checks
-`disableAllHooks`, its disable list (which turns `fileSuggestion` off only in a diskless session)
-and trust, then re-resolves the setting.
+`disableAllHooks: true`, and an organization managed-settings question still unanswered. The runner
+itself (grep `Skipping FileSuggestion command execution - workspace trust not accepted`) re-checks
+`disableAllHooks`, its disable list (which turns `fileSuggestion` off only in a diskless session;
+`--bare` leaves it on) and trust, then re-resolves the setting.
 
 Scope of the replacement: only the file source. The assembler runs the file source and the agent
 source concurrently and merges MCP resource / resource-template suggestions from connected servers,
-so the hook replaces only the files: agent (`… (agent)`) and MCP-resource completions are produced
-elsewhere and still appear. What the hook does remove is everything the internal file index
-contributed, which includes the `.claude/**` config files the dedicated scanner injects (project
-`.claude/`, the main repository's when in a linked worktree, additional directories'
-`.claude/agents`, global `~/.claude/`, and policy settings). A repo-rooted lister in the hook
-re-lists the project's `.claude/` files but not the global `~/.claude/` ones, so those drop out
-unless the hook emits them.
+so the hook replaces only the files: agent (`… (agent)`), MCP-resource, message-target and
+path-completion rows are produced elsewhere and still appear. What the hook does remove is
+everything the internal file index contributed, which includes the `.claude/**` config files the
+dedicated scanner injects (project `.claude/`, the main repository's when in a linked worktree,
+additional directories' `.claude/agents`, global `~/.claude/`, and policy settings). A repo-rooted
+lister in the hook re-lists the project's `.claude/` files but not the global `~/.claude/` ones, so
+those drop out unless the hook emits them. A path-shaped token (`@./`, `@~/`, `@/`) that the path
+completer can list never reaches the hook.
 
 Stdin payload: the dispatcher builds the object as the base hook payload plus `query`, and the
 runner writes it with `JSON.stringify`. The base builder (grep `scratchpad_dir: ` near
@@ -282,7 +418,8 @@ runner writes it with `JSON.stringify`. The base builder (grep `scratchpad_dir: 
 
 There is no `hook_event_name`, `permission_mode`, `agent_id` or `effort`: the builder produces the
 last three only from the permission-mode and context arguments the dispatcher does not pass, and
-`JSON.stringify` drops the `undefined` values.
+`JSON.stringify` drops the `undefined` values. The `query` is the raw token text: a leading `./` is
+not stripped and `~` is not expanded for the hook.
 
 Stdout: newline-separated file paths; each line is trimmed and blank lines dropped. Results are
 displayed directly as completion suggestions without passing through the internal index, ranked in
@@ -293,13 +430,32 @@ internal index. The timeout is a fixed 5 seconds.
 Hook environment: the command inherits the same environment as other hooks, including
 `CLAUDE_PROJECT_DIR`.
 
-Published-docs drift: the settings reference (`fileSuggestion`, "Command input and output") shows
-the stdin payload as only `{"query": "src/comp"}`. It documents the five-second timeout, the
-hook-style environment and the 15-result cap correctly, but not the base hook fields above.
-
 Use case: full control of `@` results. For merely including gitignored files, a `.rgignore` negation
 or `respectGitignore: false` suffices (see above); the hook is for anything beyond that, e.g. custom
 ranking, filtering, link-following, or non-file sources.
+
+## Published-docs drift
+
+Checked against the published docs on 2026-11-03:
+
+- Settings reference, `fileSuggestion`: shows the stdin payload as only `{"query": "src/comp"}`; the
+  command also gets `session_id`, `transcript_path`, `cwd` and the optional fields above. It calls
+  the built-in source "fast filesystem traversal"; inside a git repo it is `git ls-files`. Its link
+  to "status line and file suggestion gates" points at an anchor the page does not define. The
+  five-second timeout, hook-style environment and 15-result cap are correct.
+- Settings reference, `respectGitignore`: correct that a settings file wins and the `/config` toggle
+  writes `~/.claude.json`. It does not say that `.ignore` / `.rgignore` are always applied, or that
+  their negations re-include gitignored files.
+- Interactive mode, `@` row: says live sessions on this machine are suggested after one letter; the
+  roster also holds cloud and Remote Control sessions, and teammates and named agents are offered on
+  a bare `@`. No page describes path completion for `@./`, `@~/` or `@/` (only the shell-mode
+  equivalent), nor its 10-row cap, hidden-file exclusion and 5-minute directory cache.
+- MCP, "Use MCP resources": does not mention resource templates in `@` completion or the argument
+  completion through the server's `completions` capability. Its note that MCP Apps UI resources stay
+  out of `@` is correct.
+- Subagents: `@"code-reviewer (agent)"` matches the inserted form, and "Named background subagents
+  currently running in the session also appear in the typeahead, showing their status" matches the
+  message-target rows (accepting one inserts `@<name>`, a message target, not an agent mention).
 
 ## Ripgrep Binary Selection
 
@@ -310,7 +466,8 @@ fallback invokes the resolved binary with the resolver's args prepended, so on t
 build it runs the embedded ripgrep with `--no-config` (the user's `~/.ripgreprc` /
 `RIPGREP_CONFIG_PATH` is ignored), and with `USE_BUILTIN_RIPGREP=0` plus a system `rg` on PATH it
 runs that binary with the user's config honoured. The fallback also opts out of the macOS exclusion
-of other apps' data (the walk that logs `ripgrep: leaving other apps' data out of the walk of`).
+of other apps' data (the walk that logs `ripgrep: leaving other apps' data out of the walk of`); the
+`.ignore` re-include listing does not opt out.
 
 ## Workspace Directories
 
@@ -325,7 +482,8 @@ Two parallel stores hold additional workspace directories (added via the `--add-
   `replaceAdditionalDirectoriesForClaudeMd()` (grep either name). It is empty in a diskless session.
 
 The file index reads neither for file search. Only the `.claude/` scanner reads the
-`additionalDirectoriesForClaudeMd` list, and only for the `agents` subdir.
+`additionalDirectoriesForClaudeMd` list, and only for the `agents` subdir. Files in an additional
+directory are reachable from `@` only through path completion with an absolute or `~/` path.
 
 ## File Index Implementation
 
@@ -387,9 +545,11 @@ The keypress layer is Claude Code's own terminal UI with a keybinding registry, 
 autocomplete library. Its default bindings include an `Autocomplete` context (grep
 `context: "Autocomplete"`) mapping `tab` to `autocomplete:accept`, `escape` to
 `autocomplete:dismiss`, `up` to `autocomplete:previous` and `down` to `autocomplete:next`. The
-context is active while suggestions are showing. The prompt input's keydown handler receives an
-event with `name`, `ctrl`, `shift`, `meta` and `preventDefault()`; it handles ENTER
-(`name === "return"`), `ctrl+n` / `ctrl+p`, and TAB when no suggestions are showing.
+context is active while suggestions (or inline ghost text) are showing. The prompt input's keydown
+handler receives an event with `name`, `ctrl`, `shift`, `meta` and `preventDefault()`; it handles
+ENTER (`name === "return"`) and `ctrl+n` / `ctrl+p` while suggestions show, and TAB while none show
+(mid-line slash-command completion, accepting a prompt suggestion, or the thinking-toggle hint on an
+empty input). In fullscreen rendering a click on a row accepts it.
 
 ## TAB Completion Dispatch
 
@@ -400,7 +560,9 @@ registration and the four callbacks.
 suggestion mode (`"command"`, `"mid-command"`, `"custom-title"`, `"directory"`, `"shell"`,
 `"agent"`, `"slack-channel"`, `"emoji"`, `"file"`). A separate accept-selection callback, invoked by
 ENTER from the keydown handler and by clicking a suggestion, carries its own copy of the same mode
-switch. Both contain the `"file"` mode branch with the directory-completion gap.
+switch. Both contain the `"file"` mode branch with the directory-completion gap. In `@` completion
+the merged list and template rows use `"file"` mode, path completion uses `"directory"` mode, and
+message-target rows use `"agent"` mode.
 
 ### Two return paths: `fileSuggestion` hook vs. internal index
 
@@ -427,13 +589,14 @@ called just before the input-replacement function in both the TAB and ENTER hand
 The `"file"` mode branch first checks the selected suggestion's metadata for a typed
 `{ replacement, partial }` pair (grep `"replacement" in` for the extractor); a `partial: true`
 replacement is inserted with the cursor repositioned and suggestions re-requested. In `@` completion
-only MCP resource templates emit that metadata; file entries do not. For them the branch inserts the
-formatted text with `isComplete: true` (trailing space) and closes the suggestions, with no check
-whether the selected item is a directory. The correct check is whether
+only MCP resource templates and their argument values emit that metadata; file entries do not. For
+them the branch inserts the formatted text with `isComplete: true` (trailing space) and closes the
+suggestions, with no check whether the selected item is a directory. The correct check is whether
 `displayText.endsWith(path.sep)`; directory entries from the internal index always carry a trailing
-separator. The `"directory"` mode handler (slash-command argument and bash-path completion) already
-does the analogous check via `metadata.type === "directory"` and re-requests suggestions for a
-directory.
+separator. The `"directory"` mode handler (path completion, slash-command argument and bash-path
+completion) already does the analogous check via `metadata.type === "directory"` and re-requests
+suggestions for a directory, which is why `@./src` then TAB drills into `src/` while `@src` then TAB
+on the same directory closes the list with `@src/ `.
 
 ### Common-prefix path (partial completion)
 
@@ -449,15 +612,17 @@ The file index is cached in a module-level state object (not React state), expor
 `globalFileIndexCache`. A `cacheGeneration` counter is incremented on reset, and async refreshes
 compare the generation they started with to discard stale results
 (`[FileIndex] discarding refresh results` followed by `cache was reset mid-refresh`). The cache is
-reset when the conversation is cleared (`/clear`). The prompt input pre-warms the index on mount
-(local mode only) and re-runs the open query when a build completes (`indexBuildComplete`).
+reset with the other session caches when the conversation is cleared (`/clear`) and when a session
+is continued or resumed at startup. The prompt input pre-warms the index on mount (local mode only)
+and re-runs the open query when a build completes (`indexBuildComplete`).
 
 Refresh is lazy: each suggestion generation calls a refresh gate. It does nothing while a refresh is
 in flight or in a diskless session. Otherwise it re-scans when the `.git/index` mtime changed or
 more than 5 seconds passed since the last refresh, and skips when the previous scan was slow (>1s)
 and no git mtime is available. There is no filesystem watcher feeding the index. The mtime is read
 from `<git root>/.git/index`; in a linked worktree or a submodule `.git` is a file, so there is no
-mtime signal and only the 5-second window (or, after a slow scan, nothing) triggers a refresh.
+mtime signal and only the 5-second window (or, after a slow scan, nothing until the next reset)
+triggers a refresh.
 
 New-file latency (why `@` does not see a just-created file immediately): the mtime trigger reads
 `.git/index`, which only moves on git operations (stage/commit/checkout), not on creating an
@@ -466,7 +631,8 @@ staleness window elapses and `@` is reopened. Two further delays stack on top: t
 comes from the background `git ls-files --others` fetch that fires after the tracked scan (see the
 untracked-fetch section), and the signature skip suppresses a rebuild until the merged path set
 actually changes. A git operation that rewrites `.git/index`, or waiting out the 5-second window,
-forces the refresh sooner.
+forces the refresh sooner. Path completion has its own 5-minute per-directory cache, and the
+`.claude/` listing its own loader cache (see above).
 
 ### Signature-based rebuild skip
 
@@ -485,14 +651,18 @@ rebuild is skipped until something else changes. A successful rebuild logs
 
 ### Remote file-suggestions
 
-In remote mode (the dispatcher checks the remote predicate right after the diskless check, before
-the `fileSuggestion` short-circuit) the entire local file-index pipeline is bypassed and suggestions
-come from a control-channel RPC. The remote helper sends a `{ subtype: "file_suggestions", query }`
-request and returns the resulting `suggestions` array, falling back to `[]` on RPC failure
-(`[FileIndex] remote file_suggestions RPC failed`) or when the remote has no control channel. The
-viewing side never runs a hook. The host answering the `file_suggestions` request runs the same
-dispatcher locally with the hook allowed, so the host's `fileSuggestion` setting applies. Agents and
-MCP resources are left out of the merged list in remote mode.
+In remote mode (a session attached to a remote host, or a surface whose workspace is remote; the
+dispatcher checks this right after the diskless check, before the `fileSuggestion` short-circuit)
+the entire local file-index pipeline is bypassed and suggestions come from a control-channel RPC.
+The remote helper sends a `{ subtype: "file_suggestions", query }` request and returns the resulting
+`suggestions` array, falling back to `[]` on RPC failure
+(`[FileIndex] remote file_suggestions RPC failed`) or when the remote has no control channel or the
+client is view-only. The viewing side never runs a hook. The host answering the `file_suggestions`
+request runs the same dispatcher locally with the hook allowed, so the host's `fileSuggestion`
+setting applies. The same request is part of the SDK control protocol (schema description "Requests
+at-mention file autocomplete suggestions for a partial path prefix"); a host that has not registered
+a handler answers `onFileSuggestions callback not registered`. In remote mode agents, MCP resources,
+resource-template completion, path completion and peer-session rows are left out.
 
 ## Search Strategy for a New Version
 
@@ -511,21 +681,32 @@ Recommended grep order:
 7. `additionalDirectoriesForClaudeMd`: anchors the extra-dirs getter.
 8. `generateFileSuggestionsWithBase`, then `fileSuggestion) : void 0)?.type === "command"`: anchor
    the completion entry dispatcher and its hook branch.
-9. `\p{L}\p{N}\p{M}_\-./\\()[\]~:` (fixed string): anchors the token extractor.
+9. `\p{L}\p{N}\p{M}_\-./\\()[\]~:` (fixed string): anchors the token extractor; the input handler
+   that runs every `@` source is the function using its cursor regex, next to the
+   `p\{M\}\\u200C\\u200D_-` (regex) message-target pattern.
 10. `"output-styles",` with the six-element subdir array, and `loadMarkdownFilesFromDir`: anchor the
     `.claude/` subdirectory scanner.
 11. `Skipping FileSuggestion command execution - workspace trust not accepted`: anchors the hook
     runner; `scratchpad_dir: ` near `prompt_id: ` anchors the payload builder.
+12. `keepDotPrefix` and `Failed to scan directory for path completion`: anchor path completion.
+13. `mcp-template::`, `mcp_complete_resource_template` and `Template completion skipped for`: anchor
+    MCP resource and template rows.
+14. `send message \xB7` and `message session`: anchor the message-target rows; `tengu_harbor_kite`
+    their peer-session gate.
 
 Tripwires (each should hold against a new bundle):
 
 - [ ] git argv is `-c core.quotepath=false ls-files --recurse-submodules`; untracked adds
   `--others`, plus `--exclude-standard` only when `respectGitignore` is true
 - [ ] ripgrep fallback args `--files --follow --hidden` plus `--no-ignore-vcs` when false
-- [ ] result cap constant is 15 for the file source and for the merged list
+- [ ] result cap constant is 15 for the file source and for the merged list; path completion 10
 - [ ] refresh gate: 5000 ms staleness, 1000 ms slow-scan threshold, `.git/index` mtime
 - [ ] `.claude/` subdirs are exactly `commands`, `agents`, `output-styles`, `skills`, `workflows`,
-  `routines`
+  `routines`; files over 1048576 bytes skipped
 - [ ] the dispatcher calls the payload builder with two arguments, then adds `query`
 - [ ] hook timeout 5000 ms; non-zero exit yields no suggestions
 - [ ] the TAB and ENTER `"file"` branches still lack a trailing-separator directory check
+- [ ] message-target rows are tried before path and file completion; teammate and named-agent rows
+  match an empty partial
+- [ ] path completion skips dotfiles, caches a directory for 300000 ms, and inserts without quoting
+- [ ] the `/config` gitignore row writes only the global config
