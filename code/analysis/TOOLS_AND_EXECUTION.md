@@ -1,4 +1,8 @@
-# TODO:
+# Claude Code Tools and Execution Architecture
+
+Verified against: cli.prettier.js 2.1.317 (2026-11-03)
+
+TODO:
 
 - Document ALL tool descriptions (the text Claude sees in the API) for ALL tools, since this
   influences:
@@ -6,242 +10,319 @@
   - HOW Claude uses it (what parameter values it generates)
   - Example: Agent tool description tells Claude to write "highly detailed task description"
 
-# Claude Code Tools and Execution Architecture
-
-Verified against: cli.prettier.js 2.1.296 (2026-10-14)
-
-Scope note: the Built-in Tools section below is verified against 2.1.207, except the task list
-gating under "Condition gates", which was re-checked at 2.1.296. Sections from
-"Example Tool Description: Read" onward still carry 2.1.76-era line numbers and pasted code and
-have not been re-checked — treat their specifics as suspect until retrofitted.
-
 ## Overview
 
-Claude Code provides tools to the LLM via the Anthropic API's `tools` parameter. Each tool is a
-function that can be called by the AI to perform specific actions. Tools are defined with JSON
-schemas and implemented as JavaScript async generator functions.
+Claude Code provides tools to the model through the Anthropic API's `tools` parameter. Each built-in
+tool is an object built by one shared tool builder, carrying a name, a `searchHint`, input and
+output schemas, an `isEnabled()` predicate, and a `create()` that returns the call implementation.
 
-## Official Documentation
+Published reference: https://code.claude.com/docs/en/tools-reference
 
-https://code.claude.com/docs/en/settings.md#tools-available-to-claude
+## How a session's tool list is built
 
+A tool catalog object exposes three functions, under these literal keys:
 
-## Built-in Tools
+- `getAllBaseTools` returns the registry: every built-in tool this build can offer.
+- `getTools` filters the registry for one session or subagent.
+- `assembleToolPool` merges the result with MCP tools, built-ins first, each group sorted, and
+  dedupes by name.
 
-A single registry function returns the built-in tool array. Entries fall into three shapes:
+Relocate: `rg -n 'getAllBaseTools: [\w$]+, getTools: [\w$]+, assembleToolPool'` lands on the
+catalog; the first identifier is the registry function, the second the filter.
 
-- Unconditional — listed in the array literal directly.
-- Additive-gated — spread behind a predicate, e.g. the task tools.
-- Subtractive — built unconditionally, then filtered out by an omit-set. Only `Glob` and `Grep`
-  work this way, and only embedded search populates that set.
+### The registry
 
-Registry membership is necessary but not sufficient. A second layer filters the constructed array
-by each tool's own `isEnabled()`, so a tool can be in the registry and still absent from a session.
-MCP tools (`mcp__<server>__<tool>`) and skill tools (`skill__…`) are added by separate paths,
-not by this function.
+The registry function returns one array literal. Entries take four shapes:
 
-Re-location: start from a tool-name literal, which survives minification, and walk outward to the
-registry.
+- Unconditional: a bare tool object.
+- Additive-gated: `...(pred() ? [tool] : [])`, e.g. the task tools.
+- Nullable slot: `...(x ? [x] : [])`, where `x` is a lazily required tool export. Several slots are
+  permanently `null` in shipped builds and contribute nothing.
+- Subtractive: `Glob` and `Grep` are listed unconditionally, then filtered through the omit-set (see
+  "Embedded search"). A second omit-set filter covers a list of batched tool variants keyed by
+  `underlyingV1ToolName`; that list's slot is `null` in shipped builds.
 
-    rg -n 'var [A-Za-z_$0-9]+ = "Glob"[;,]'   # -> the name const for Glob
-    rg -n '\b<that const>\b'                  # -> the registry (the array with the omit-set filter)
+Relocate the subtractive filter with `rg -n '\]\.filter\(\(\w\) => !\w+\(\)\.has\(\w\.name\)\)'`
+(one hit, inside the registry).
 
-Expected shape: an array literal mixing bare identifiers, `...(pred() ? [x] : [])` spreads, and one
-`...[glob, grep].filter((t) => !omitSet().has(t.name))`.
+□ exactly one name-based omit-set filter, over Glob and Grep □ task tools behind one additive gate □
+`TodoWrite` listed bare.
 
-□ the array contains a subtractive filter for exactly Glob and Grep □ every other conditional
-entry is an additive spread.
+### The `getTools` filter
 
-### File Operations
+In order:
 
-| Tool           | Condition                              |
-| -------------- | -------------------------------------- |
-| `Read`         | Always                                 |
-| `Write`        | Always                                 |
-| `Edit`         | Always                                 |
-| `NotebookEdit` | Always                                 |
-| `Glob`         | Omitted under embedded search          |
-| `Grep`         | Omitted under embedded search          |
+1. Bare mode (`CLAUDE_CODE_SIMPLE`, set by `--bare`) returns a fixed set instead of the registry:
+   `Bash` when the shell is bash-capable, `PowerShell` when its gate passes, `Read`, `Edit`, plus
+   `Agent`, `TaskStop`, `SendMessage` and `Workflow` in coordinator mode. Anchor:
+   `skipSimpleModeFilter`.
+2. `ListMcpResourcesTool`, `ReadMcpResourceTool`, `ReadMcpResourceDirTool` and `StructuredOutput`
+   are removed by name (see "MCP tools" and "StructuredOutput").
+3. Blanket deny rules (`--disallowedTools`, `permissions.deny`) remove the tools they name.
+4. The `WebFetch`-to-subagent swap (see "Web") removes `WebFetch`.
+5. Each remaining tool's `isEnabled()` runs; tools returning false drop out. Registry membership is
+   necessary but not sufficient: most registry-unconditional tools carry their own `isEnabled()`
+   gate.
+6. When embedded search is on and `Bash` did not survive steps 3 and 5, `Glob` and `Grep` are added
+   back (still subject to deny rules).
+7. `WaitForMcpServers` is re-appended when MCP servers are still pending and no `ToolSearch` is in
+   the list.
+
+The tool builder's default `isEnabled()` returns true, so a tool without its own predicate passes
+step 5.
+
+## Built-in tools
+
+"Registry" is the condition for the tool to be in the registry array. "Notes" gives aliases and,
+where checked, the tool's own `isEnabled()` gate. Gates in the Registry column are described under
+"Condition gates".
+
+### Files and search
+
+| Tool           | Registry | Notes                                                 |
+| -------------- | -------- | ----------------------------------------------------- |
+| `Read`         | Always   |                                                       |
+| `Write`        | Always   |                                                       |
+| `Edit`         | Always   |                                                       |
+| `NotebookEdit` | Always   |                                                       |
+| `Glob`         | Omit-set | Restored when `Bash` is denied; see "Embedded search" |
+| `Grep`         | Omit-set | Restored when `Bash` is denied; see "Embedded search" |
+| `LSP`          | LSP gate | Own `isEnabled()`; absent from a plain `-p` session   |
 
 ### Execution
 
-| Tool         | Condition                                                      |
-| ------------ | -------------------------------------------------------------- |
-| `Bash`       | Shell is bash-capable                                          |
-| `PowerShell` | `CLAUDE_CODE_USE_POWERSHELL_TOOL`, or Windows without git-bash |
+| Tool         | Registry           | Notes                             |
+| ------------ | ------------------ | --------------------------------- |
+| `Bash`       | Bash-capable shell |                                   |
+| `PowerShell` | PowerShell gate    | Nullable slot; `isEnabled()` true |
 
 ### Web
 
-| Tool        | Condition |
-| ----------- | --------- |
-| `WebFetch`  | Always    |
-| `WebSearch` | Always    |
+| Tool        | Registry | Notes                                                              |
+| ----------- | -------- | ------------------------------------------------------------------ |
+| `WebFetch`  | Always   | Off under `CLAUDE_CODE_DISABLE_WEB_FETCH` or `allow_web_fetch` off |
+| `WebSearch` | Always   | Needs the `allow_web_search` policy and a supporting provider      |
 
-### Agent and Task Management
+`WebSearch` is on for the first-party API and Foundry, off behind a gateway, and on Vertex only for
+supported models.
 
-| Tool         | Condition          | Aliases                 |
-| ------------ | ------------------ | ----------------------- |
-| `Agent`      | Always             | `Task`                  |
-| `Skill`      | Always             |                         |
-| `TaskCreate` | Task list tools    |                         |
-| `TaskGet`    | Task list tools    |                         |
-| `TaskUpdate` | Task list tools    |                         |
-| `TaskList`   | Task list tools    |                         |
-| `TaskStop`   | Always             | `KillShell`, `KillBash` |
-| `TaskOutput` | Removed at 2.1.277 | see below               |
+`WebFetch` is moved to a subagent when `CLAUDE_CODE_WEB_FETCH_AGENT` or the flag
+`tengu_clever_orbit` is on, `CLAUDE_CODE_SIMPLE` and `CLAUDE_CODE_DISABLE_WEB_FETCH` are unset, the
+`allow_web_fetch` policy allows it, the session is not in coordinator mode, the `Agent` tool is
+present and not denied, and the `web-fetch` agent type is allowed at this depth. The session then
+has no `WebFetch` tool, and a call to it is answered with
+`is not available directly in this context` and a pointer to `subagent_type: "web-fetch"`. See
+`SUBAGENTS.md` for the `web-fetch` agent.
 
-`Agent` is the primary name; `Task` is retained as an alias. `TaskStop` replaces the former
-`KillShell` tool, keeping `KillShell` and `KillBash` as aliases. `TaskStop` has no flavor or model
-gate and its definition has no `isEnabled` check.
+### Agents, tasks and background work
 
-`TaskOutput` (aliases `AgentOutputTool`, `BashOutputTool`, `AgentOutput`, `BashOutput`) existed up
-to 2.1.263 and is gone by 2.1.277. In 2.1.296 the four alias names and `TaskOutput` survive only in
-a set of tool names for which a missing loaded tool is not logged as an inconsistency. Anchors:
-`"AgentOutputTool"`, `"BashOutputTool"`. The published tools reference states "Removed in v2.1.277"
-and that the background task's output file is read with `Read` instead. The init event of a 2.1.299
-headless session lists no `TaskOutput`.
+| Tool         | Registry      | Notes                                             |
+| ------------ | ------------- | ------------------------------------------------- |
+| `Agent`      | Always        | Alias `Task`; the `init` event lists it as `Task` |
+| `Skill`      | Always        | Off when the host disables slash commands         |
+| `TaskCreate` | Task flavor   | Plus the todo-tools gate                          |
+| `TaskGet`    | Task flavor   | Plus the todo-tools gate                          |
+| `TaskUpdate` | Task flavor   | Plus the todo-tools gate                          |
+| `TaskList`   | Task flavor   | Plus the todo-tools gate                          |
+| `TodoWrite`  | Always        | Flavor off, plus the todo-tools gate              |
+| `TaskStop`   | Always        | Aliases `KillShell`, `KillBash`; no `isEnabled()` |
+| `GetTask`    | Always        | `isEnabled()` is always false                     |
+| `Monitor`    | Nullable slot |                                                   |
+| `Workflow`   | Always        | Alias `RunWorkflow`                               |
+| `Poll`       | Nullable slot | "wait for and receive queued harness events"      |
 
-### Planning
+`GetTask` is never offered. A call to it is answered with "GetTask is not a tool you can call. A
+background command's result reaches you by itself when it finishes".
 
-| Tool            | Condition |
-| --------------- | --------- |
-| `EnterPlanMode` | Always    |
-| `ExitPlanMode`  | Always    |
+`TaskOutput` and its aliases `AgentOutputTool`, `BashOutputTool`, `AgentOutput`, `BashOutput` are
+gone. They survive only in a set of removed tool names, together with `Frame`, `FrameRead`,
+`TeamCreate`, `TeamDelete`, `SuggestBackgroundPR` and `AutofixPr`. A name in that set is skipped
+with a debug log when it appears in a `--tools` exclusion (`--tools exclusion names a removed tool`)
+or a deny or ask rule (`Permission ... rule names a removed tool`), and is not logged as a missing
+loaded tool. Anchors: `"AgentOutputTool"`, `"SuggestBackgroundPR"`.
 
-### Worktree
+### Planning and worktrees
 
-| Tool            | Condition                    |
-| --------------- | ---------------------------- |
-| `EnterWorktree` | Worktree mode (always true)  |
-| `ExitWorktree`  | Worktree mode (always true)  |
+| Tool            | Registry      | Notes                                 |
+| --------------- | ------------- | ------------------------------------- |
+| `EnterPlanMode` | Always        | Shares `ExitPlanMode`'s `isEnabled()` |
+| `ExitPlanMode`  | Always        | Absent from a plain `-p` session      |
+| `EnterWorktree` | Worktree mode |                                       |
+| `ExitWorktree`  | Worktree mode |                                       |
 
-### Collaboration
+### Messaging and collaboration
 
-| Tool              | Condition | Aliases |
-| ----------------- | --------- | ------- |
-| `SendMessage`     | Always    |         |
-| `SendUserMessage` | Always    | `Brief` |
-| `SendUserFile`    | Always    |         |
-| `EndConversation` | Always    |         |
-
-`SendMessage` is no longer gated on a teams/swarm flag.
+| Tool                   | Registry      | Notes                                         |
+| ---------------------- | ------------- | --------------------------------------------- |
+| `SendMessage`          | Always        | No team or swarm gate                         |
+| `ListAgents`           | Nullable slot | Alias `ListPeers`                             |
+| `SendUserMessage`      | Always        | Alias `Brief`; own `isEnabled()`              |
+| `SendUserFile`         | Always        | `allow_send_file` policy and a feature flag   |
+| `SendFile`             | Always        | "send files to another Claude Code session"   |
+| `FetchInboxMessage`    | Nullable slot |                                               |
+| `SendToProject`        | Nullable slot | Shares a gate with `SendToProjectContext`     |
+| `SendToProjectContext` | Nullable slot |                                               |
+| `EndConversation`      | Nullable slot | Enabled only for some main-loop models        |
+| `WrapUp`               | Always        | "offer the user a next step when a turn ends" |
+| `ReadNotifications`    | Always        | Queued external notifications                 |
 
 ### Scheduling
 
-| Tool             | Condition |
-| ---------------- | --------- |
-| `CronCreate`     | Always    |
-| `CronDelete`     | Always    |
-| `CronList`       | Always    |
-| `ScheduleWakeup` | Always    |
+| Tool             | Registry | Notes                                                         |
+| ---------------- | -------- | ------------------------------------------------------------- |
+| `CronCreate`     | Always   |                                                               |
+| `CronDelete`     | Always   |                                                               |
+| `CronList`       | Always   |                                                               |
+| `ScheduleWakeup` | Always   | Dynamic `/loop` pacing                                        |
+| `RemoteTrigger`  | Nullable | `allow_remote_sessions` and `allow_routines`; off when remote |
 
-### User Interaction
+### User interaction and onboarding
 
-| Tool              | Condition |
-| ----------------- | --------- |
-| `AskUserQuestion` | Always    |
+| Tool                       | Registry | Notes                                       |
+| -------------------------- | -------- | ------------------------------------------- |
+| `AskUserQuestion`          | Always   | Off when nobody can answer (e.g. `-p`)      |
+| `OfferChromeSetup`         | Always   |                                             |
+| `ShareOnboardingGuide`     | Always   |                                             |
+| `ShowOnboardingRolePicker` | Always   |                                             |
+| `ProposeGoal`              | Always   | Off in background sessions                  |
+| `propose_skills`           | Always   | Gated by `CLAUDE_CODE_SKILL_PROPOSALS` etc. |
+| `SendFeedback`             | Always   | Own `isEnabled()`                           |
+| `ReportFindings`           | Always   | Structured code-review findings             |
 
-### MCP Integration
+### MCP
 
-| Tool                      | Condition | Aliases                |
-| ------------------------- | --------- | ---------------------- |
-| `ListMcpResourcesTool`    | Always    | `ListMcpResources`     |
-| `ReadMcpResourceTool`     | Always    | `ReadMcpResource`      |
-| `ReadMcpResourceDirTool`  | Always    | `ReadMcpResourceDir`   |
-| `WaitForMcpServers`       | Always    |                        |
-| `SearchMcpRegistry`       | Always    |                        |
-| `SuggestConnectors`       | Always    |                        |
-| `ListConnectors`          | Always    |                        |
+| Tool                     | Registry         | Notes                                  |
+| ------------------------ | ---------------- | -------------------------------------- |
+| `ListMcpResourcesTool`   | Stripped         | Alias `ListMcpResources`               |
+| `ReadMcpResourceTool`    | Stripped         | Alias `ReadMcpResource`                |
+| `ReadMcpResourceDirTool` | Stripped         | Alias `ReadMcpResourceDir`             |
+| `WaitForMcpServers`      | Always           | Re-appended while servers are pending  |
+| `RefreshMcpTools`        | Env var          | `CLAUDE_CODE_ENABLE_REFRESH_MCP_TOOLS` |
+| `SearchMcpRegistry`      | Nullable slot    |                                        |
+| `SuggestConnectors`      | Nullable slot    |                                        |
+| `ListConnectors`         | Nullable slot    |                                        |
+| `ReadWidgetContext`      | Always           | State an MCP App view shared           |
+| `ToolSearch`             | Tool search gate | Loads deferred tools                   |
 
-MCP servers also provide tools dynamically, named `mcp__<servername>__<toolname>`.
+"Stripped" means listed in the registry but removed by `getTools`. The three resource tools reach a
+session through the MCP client instead: the first time a connected server advertises the `resources`
+capability, they are appended to that server's tool list.
 
-### Special Purpose
+### claude.ai and Claude Design
 
-| Tool                       | Condition                                        |
-| -------------------------- | ------------------------------------------------ |
-| `TodoWrite`                | Legacy todo tool (see Condition gates)           |
-| `LSP`                      | Always (gate is a literal — see Condition gates) |
-| `ReportFindings`           | Always                                           |
-| `REPL`                     | Always                                           |
-| `Workflow`                 | Always (alias `RunWorkflow`)                     |
-| `Monitor`                  | Always                                           |
-| `Artifact`                 | Always                                           |
-| `Projects`                 | Always                                           |
-| `DesignSync`               | Always                                           |
-| `ClaudeDesign`             | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` unset |
-| `PushNotification`         | Always                                           |
-| `RemoteTrigger`            | Always                                           |
-| `ShareOnboardingGuide`     | Always                                           |
-| `ShowOnboardingRolePicker` | Always                                           |
-| `ToolSearch`               | Tool search enabled                              |
+| Tool               | Registry              | Notes                                      |
+| ------------------ | --------------------- | ------------------------------------------ |
+| `Artifact`         | Nullable slot         |                                            |
+| `ArtifactComments` | Artifact add-on group |                                            |
+| `ArtifactData`     | Artifact add-on group |                                            |
+| `ArtifactCheck`    | Artifact add-on group |                                            |
+| `AppifactRepl`     | Nullable slot         |                                            |
+| `Projects`         | Always                | `allow_projects_tool` and a linked project |
+| `DesignSync`       | Always                | Own `isEnabled()`                          |
+| `ClaudeDesign`     | Traffic mode          | Null under essential-traffic mode          |
+| `PublishPlugin`    | Always                | Own `isEnabled()`                          |
+| `PushNotification` | Nullable slot         | Flag `tengu_kairos_push_notifications`     |
 
-Plugin and skill tools (`SearchPlugins`, `SearchSkills`, `SuggestPluginInstall`, `SuggestSkills`,
-`ListPlugins`, `ListSkills`) are spread in as a group from a plugin-skill tool list.
+### Groups
 
-`StructuredOutput` is not a registry entry. It is attached per-request when a caller forces
-schema-constrained output, which is why the tool-lookup path treats it as expected-absent alongside
-`mcp__`-prefixed names.
+- Plugins and skills, spread in from one list: `SearchPlugins`, `SearchSkills`,
+  `SuggestPluginInstall`, `SuggestSkills`, `ListPlugins`, `ListSkills`.
+- Memory stores, spread in from one list: `memory_list`, `memory_read`, `memory_write`, sharing one
+  `isEnabled()` predicate. Anchor: `"list the memory stores and the documents in them"`.
+- Device stubs, spread in from one list: `enable__mcp__claude-in-chrome`,
+  `enable__mcp__remote-devices__Claude_Browser`, `enable__mcp__remote-devices__computer`,
+  `request_computer`. They answer that the device tools are unavailable, and are enabled under a
+  host condition or behind the flag `tengu_merry_tide`. Anchor: `"enable__mcp__claude-in-chrome"`.
+- Self-hosted runner tools, behind a one-way launch latch (`setWizardOperatorToolsEnabled`): nine
+  tools named `self_hosted_runner_<action>`, e.g. `self_hosted_runner_get_pool`.
 
-The registry array carries several permanently-`null` slots, each referenced only by its own `null`
-assignment and its guarded spread. They contribute nothing in shipped builds.
+### Not registry entries
 
-### Condition gates
+- `StructuredOutput` is built per request when a caller forces schema-constrained output, and
+  `getTools` strips the name if it ever appears. The tool-lookup path treats it, like MCP tool
+  names, as expected to be absent from the built-in list.
+- `SubagentHandback` is defined outside the registry and does not appear in it.
+- MCP tools (`mcp__<server>__<tool>`) come from the MCP client and join in `assembleToolPool`.
+
+### Observed tool lists
+
+A 2.1.317 `claude -p` session with `--setting-sources project` on `claude-haiku-4-5`, signed in to
+claude.ai, listed these built-ins in its `system` `init` event: `Bash`, `CronCreate`, `CronDelete`,
+`CronList`, `DesignSync`, `Edit`, `EnterWorktree`, `ExitWorktree`, `ListAgents`,
+`ListMcpResourcesTool`, `Monitor`, `NotebookEdit`, `PushNotification`, `Read`,
+`ReadMcpResourceDirTool`, `ReadMcpResourceTool`, `RemoteTrigger`, `ReportFindings`,
+`ScheduleWakeup`, `SendMessage`, `Skill`, `Task`, the four Task tools, `TaskStop`, `ToolSearch`,
+`WebSearch`, `Workflow`, `Write`. `WebFetch` was absent because the web-fetch subagent swap was on
+for that account. The account-flag-gated entries differ between accounts.
+
+## Condition gates
 
 Gates are described by what drives them. Minified predicate names churn every release, so each gate
-below names the env-var literal or behavioral string to relocate it by.
+names the literal to relocate it by.
 
-Embedded search — on unless the session opts out via the CLI, and the entrypoint is not
-`local-agent` (the SDK carve-out). Anchor: `CLAUDE_CODE_ENTRYPOINT !== "local-agent"`.
+Embedded search: on unless the search-tools opt-in is set, or `CLAUDE_CODE_ENTRYPOINT` is
+`local-agent`. Its first check parses the literal `"true"` and always passes. Relocate:
+`rg -n '^\s+return \w+\.CLAUDE_CODE_ENTRYPOINT !== "local-agent";$'` (one hit, the gate's last
+line).
 
-Search-tools opt-in — true when `Glob` or `Grep` is named in `--tools` or `--allowedTools`. Turning
-it on turns embedded search off. Anchor: `setSearchToolsOptIn`.
+Search-tools opt-in: true when `Glob` or `Grep` is named in `--tools` or `--allowedTools`. The same
+statement records the todo-tools opt-in from the five checklist tool names. The single writer sits
+in the CLI tool-list parser just after `Ignoring --allowedTools rule`. The setter is exported as
+`setSearchToolsOptIn`; the state lives behind `replaceSearchToolsOptIn`.
 
-Bash-capable shell — true on any non-Windows platform; on Windows, only if git-bash is found, via
-`CLAUDE_CODE_GIT_BASH_PATH` or the standard install locations. Anchor: `CLAUDE_CODE_GIT_BASH_PATH`.
+Bash-capable shell: true on any non-Windows platform; on Windows, only if git-bash is found, via
+`CLAUDE_CODE_GIT_BASH_PATH` or the standard install locations. Relocate:
+`rg -n 'return [\w$]+\(\) \? "bash" : "powershell"'` sits next to it.
 
-Task list flavor — default on. Only `CLAUDE_CODE_ENABLE_TASKS` set to a false-y value turns it off.
-When on, the session checklist is `TaskCreate` / `TaskGet` / `TaskUpdate` / `TaskList`. When off,
-it is the single legacy `TodoWrite` tool. Anchor: `CLAUDE_CODE_ENABLE_TASKS`.
+PowerShell gate: off the Windows platform, true only when `CLAUDE_CODE_USE_POWERSHELL_TOOL` is
+true-y. On Windows, an explicit `CLAUDE_CODE_USE_POWERSHELL_TOOL` value wins; otherwise true when
+git-bash is missing, else the flag `tengu_cobalt_ridge` decides (default off). On Windows a blanket
+deny of `Bash` also denies `PowerShell` unless the PowerShell tool is named or enabled explicitly,
+with the warning `Denying Bash also turns off the PowerShell tool, so Claude has neither.` Anchors:
+`tengu_cobalt_ridge`, `also turns off the`.
 
-Todo tools available — a second gate, independent of the flavor. Neither `TodoWrite` nor the Task
-tools are registered unless it passes. `TaskCreate` and its siblings require flavor on and this
-gate; `TodoWrite` requires flavor off and this gate. It passes when any of these holds:
+LSP gate: parses the literal `"true"`, so it always passes. `LSP` then has its own `isEnabled()`.
 
-- The session is a background (`bg`) or job session.
+Worktree mode: returns true unconditionally. Anchor: `isWorktreeModeEnabled` (an export name).
+
+ClaudeDesign: the registry slot is `null` when the traffic mode is `essential-traffic`, which
+`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` selects.
+
+Task list flavor: default on. Only `CLAUDE_CODE_ENABLE_TASKS` set to a false-y value turns it off.
+When on, the session checklist is `TaskCreate` / `TaskGet` / `TaskUpdate` / `TaskList`. When off, it
+is the single legacy `TodoWrite` tool. Relocate: `rg -n 'CLAUDE_CODE_ENABLE_TASKS === !1'`.
+
+Todo tools available: a second gate, independent of the flavor and applied through `isEnabled()`.
+`TaskCreate` and its siblings require flavor on and this gate; `TodoWrite` requires flavor off and
+this gate. It passes when any of these holds:
+
+- The session is a background session (`CLAUDE_CODE_SESSION_KIND=bg`) or a background takeover.
 - `--tools` or `--allowedTools` names any of `TodoWrite`, `TaskCreate`, `TaskGet`, `TaskUpdate`,
-  `TaskList` (launch-time opt-in).
+  `TaskList` (the todo-tools opt-in).
 - The main-loop model is not resolved yet, or is a Bedrock `application-inference-profile` ID.
-- The main-loop model is in a fixed list of older families: the Claude 3 and 3.5/3.7 models, Opus
-  4.0 through 4.7, Sonnet 4.0 through 4.6, and Haiku 4.5. Later model families, such as the
-  Claude 5 models, are not in the list.
-- `CLAUDE_CODE_ENABLE_TODO_TOOLS` is set to a true-y value.
+- The main-loop model is in a fixed list of older families: `claude-3-opus`, `claude-3-sonnet`,
+  `claude-3-haiku`, `claude-3-5-sonnet`, `claude-3-5-haiku`, `claude-3-7-sonnet`, Opus 4.0 through
+  4.7, Sonnet 4.0 through 4.6, and `claude-haiku-4-5`. Later families are not in the list.
+- `CLAUDE_CODE_ENABLE_TODO_TOOLS` is true-y.
 
-On a model outside the list, with no opt-in, the session has no checklist tool at all, and the
-model has no task list to show. Anchors: `CLAUDE_CODE_ENABLE_TODO_TOOLS`, `"claude-haiku-4-5"`
-(end of the model list), and the tool search hints `"manage the session task checklist"`
-(`TodoWrite`) and `"create a task in the task list"` (`TaskCreate`). All five tools set
-`shouldDefer`, so under tool search they appear by name until loaded. The `todoFeatureEnabled`
-setting ("Enable the todo / task tracking panel") defaults to true.
+On a model outside the list, with no opt-in, the session has no checklist tool at all. Relocate:
+`rg -n 'CLAUDE_CODE_ENABLE_TODO_TOOLS === !0'` lands on the gate's last line; the model set sits
+just above it and ends with `"claude-haiku-4-5"`. The tool search hints are
+`"manage the session task checklist"` (`TodoWrite`) and `"create a task in the task list"`
+(`TaskCreate`). All five tools set `shouldDefer`, so under tool search they appear by name until
+loaded.
 
-The source carries no comment giving the reason for the model list. The published docs do: the
-Agent SDK todo-tracking page (`/en/agent-sdk/todo-tracking`, "Model availability") says newer
-models keep track of multi-step work without a written checklist, and the tool definitions and
-reminders cost context. The same page says the default set applies from 2.1.268 and that a model ID
-Claude Code does not recognize, such as a custom name behind an LLM gateway, is treated as outside
-the list. Its opt-ins match the source: name a tool in `allowedTools` or `tools`, or set
-`CLAUDE_CODE_ENABLE_TODO_TOOLS=1`. The opt-in variable first appears in the local bundles at 2.1.263.
+□ flavor off only on explicit false-y □ model set has 15 entries □ five opt-in names.
 
-The published tools reference ("Task tool availability") and env-vars page match the source on the
-model list, the opt-in routes, and `CLAUDE_CODE_ENABLE_TASKS=0` selecting `TodoWrite`. They state
-that background and cloud sessions provide the tools on every model, and that
-`CLAUDE_CODE_ENABLE_TODO_TOOLS` requires 2.1.233 or later. No local bundle falls between 2.1.220 and
-2.1.263, so the first local appearance lags the documented one. The tools reference lists
-`TodoWrite` as "Disabled by default in favor of" the Task tools with no model qualifier, which is
-incomplete against the source.
+The published docs match the source: the tools reference ("Task tool availability"), the Agent SDK
+todo-tracking page ("Model availability") and the env-vars page give the same model cut-off, the
+opt-in routes, and `CLAUDE_CODE_ENABLE_TASKS=0` selecting `TodoWrite`. The docs say background and
+cloud sessions get the tools on every model; the source's background clause is
+`CLAUDE_CODE_SESSION_KIND=bg` or a background takeover.
 
-Verified by running 2.1.299 headless (`claude -p`, `--setting-sources project`, the opt-in variable
-unset, tool list read from the `system` `init` event). The task set is `TaskCreate`, `TaskGet`,
-`TaskList` and `TaskUpdate`. `Task` and `TaskStop` are listed in every row:
+Observed by running 2.1.317 headless (`claude -p`, `--setting-sources project`, the variables unset
+unless listed, tool list read from the `system` `init` event). The task set is `TaskCreate`,
+`TaskGet`, `TaskList` and `TaskUpdate`. `Task` and `TaskStop` are listed in every row:
 
 | Model and options                                            | Listed                        |
 | ------------------------------------------------------------ | ----------------------------- |
@@ -253,223 +334,140 @@ unset, tool list read from the `system` `init` event). The task set is `TaskCrea
 | `claude-haiku-5-5`, allow and `--disallowedTools TaskCreate` | task set without `TaskCreate` |
 | `TODO_TOOLS=1`, `--disallowedTools TaskCreate`               | task set without `TaskCreate` |
 
-Subagents (verified 2.1.300). Both gates are process-wide, so a subagent's pool contains whichever
-set the session registered. A sync subagent keeps the Task tools. A background subagent loses them
-to the async built-in filter unless it is an Agent Teams teammate, and `TodoWrite`, which that
-filter allows, is not registered under the Task flavor. A background subagent in a Task-flavor
-session therefore has no checklist tool. Details in `SUBAGENTS.md`, "Background placement and the
-async built-in filter".
-
 A settings file that sets `CLAUDE_CODE_ENABLE_TODO_TOOLS` in `env` is applied to the process, so it
 overrides the inherited environment and has to be excluded when testing the default. A deny rule
 removes the named tool after the opt-in has been recorded, so naming a tool in both leaves the other
-four enabled. The published docs do not state this interaction.
+three enabled. The published docs do not state this interaction.
+
+Subagents: both gates are process-wide, so a subagent's pool contains whichever set the session
+registered. A sync subagent keeps the Task tools. A background subagent loses them to the async
+built-in filter unless it is an Agent Teams teammate, and `TodoWrite`, which that filter allows, is
+not registered under the Task flavor. A background subagent in a Task-flavor session therefore has
+no checklist tool. Details in `SUBAGENTS.md`, "Background placement and the async built-in filter".
 
 Related controls:
 
 - `CLAUDE_CODE_TASK_LIST_ID` selects the task list directory. Without it, the list comes from the
-  team name, else the session ID. Documented in the env-vars page.
-- `CLAUDE_CODE_SESSION_KIND=bg` is read by the second gate. It is not documented.
-- `todoFeatureEnabled` is a global-config key (default true) listed with the other `/config` panel
-  keys. Nothing in the gating path reads it. It does not appear in the published docs.
+  team name, else the session ID.
+- `todoFeatureEnabled` is a global-config key ("Enable the todo / task tracking panel"), listed with
+  the other `/config` panel keys. Nothing in the gating path reads it.
 
+Tool search gate: the registry includes `ToolSearch` unless the tool search mode resolves to
+`standard`. The mode resolves in this order:
 
-Worktree mode — hardcoded true. Anchor: `isWorktreeModeEnabled`.
+1. `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS` or the account's `hipaa` compliance setting forces
+   `standard`, unless the force override applies.
+2. The force override: first-party provider, no `hipaa`, and `ENABLE_TOOL_SEARCH=force` from managed
+   settings or the host's policy. It turns tool search on even under
+   `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS`. Anchor: `isToolSearchForceOverride`.
+3. `ENABLE_TOOL_SEARCH`: `auto:0` on, `auto:100` off, `auto` or `auto:N` threshold mode, true-y on,
+   false-y off, unset on.
 
-Tool search enabled — driven by `ENABLE_TOOL_SEARCH`, default on for first-party
-`api.anthropic.com`. Vetoed by a non-first-party provider (Bedrock, Vertex, Foundry), by
-`CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS`, or by a `hipaa` compliance taint delivered in the server
-policy response — the last is org-side and not user-settable. Anchor: `ENABLE_TOOL_SEARCH`.
-
-PowerShell tool — `CLAUDE_CODE_USE_POWERSHELL_TOOL` on non-Windows; on Windows, true unless
-explicitly disabled or git-bash is present, with a Statsig gate as the fallback. Anchors:
-`CLAUDE_CODE_USE_POWERSHELL_TOOL`, `tengu_cobalt_ridge`.
-
-Two gates read as conditional but are not. The `LSP` gate and the first check of the embedded-search
-gate both parse the literal string `"true"` through the env-truthiness helper, so they always pass.
-Worktree mode returns true unconditionally. Treat all three as always-on until the literal changes.
+Per request, tool search is still turned off for a model without `tool_reference` support (Sonnet
+and Opus before 4, Haiku before 4.5), for a pre-4.5 model on Vertex, for a Foundry deployment that
+lacks it, for a conversation that has already run without `ToolSearch` until it is compacted or
+cleared, and after the endpoint refused it. Each decision logs `tengu_tool_search_mode_decision`
+with a `reason`. Anchor: `Tool search disabled for model`.
 
 The env-truthiness helper accepts `1`/`true`/`yes`/`on`; its false-y twin accepts `0`/`false`/`no`/
-`off`. Both return false for unset, so they are not complements — that is how tri-state defaults are
+`off`. Both return false for unset, so they are not complements; that is how tri-state defaults are
 expressed.
 
-### Embedded search (Glob and Grep removal)
+## Embedded search (Glob and Grep removal)
 
-On a native build, Claude Code drops the `Glob` and `Grep` tools from the registry and routes file
-search through the Bash tool instead. The shell snapshot injects `find`, `grep`, and `rg` functions
-that re-exec the `claude` binary with a forced `argv[0]`, so one multi-call binary acts as bfs,
-ugrep, or ripgrep. See `BASH_TOOL_EXECUTION.md` ("Search-tool wrappers") for the wrapper mechanics
-and the pinned flag sets.
+On a native build, Claude Code drops the `Glob` and `Grep` tools and routes file search through the
+Bash tool instead. The shell snapshot injects `find`, `grep`, and `rg` functions that re-exec the
+`claude` binary with a forced `argv[0]`, so one multi-call binary acts as bfs, ugrep, or ripgrep.
+See `BASH_TOOL_EXECUTION.md` ("Search-tool wrappers") for the wrapper mechanics and flag sets.
 
 The omit-set is `{Glob, Grep}` when embedded search is on and the shell is bash-capable; otherwise
-it is empty. Consequences worth knowing:
+it is empty. The way back:
 
-- The gate is consulted wherever tool lists are built, including subagent tool lists. A subagent
-  whose definition names `Grep` or `Glob` still does not receive them — the frontmatter is not
-  consulted for this. Built-in agent prompts branch on the same gate, telling the agent to use
-  `` `find` ``/`` `grep` `` via Bash rather than the tools.
-- The only way back is naming `Glob` or `Grep` in `--tools` or `--allowedTools` on the CLI. That
-  sets the opt-in flag as a side effect, which turns embedded search off and restores both tools.
-  There is no dedicated switch, no settings.json key, and no env var that reaches it — the sole
-  writer is the CLI-flag parser.
-- `EMBEDDED_SEARCH_TOOLS` does not control this. The name survives as an env-schema entry and is
-  still parsed off `process.env`, but nothing reads the parsed value; the gate's own check is the
-  folded literal `"true"`. Setting it has no effect.
-- Windows without git-bash keeps `Glob` and `Grep`, because the omit-set also requires a
-  bash-capable shell.
+- Naming `Glob` or `Grep` in `--tools` or `--allowedTools`. That sets the opt-in, which turns
+  embedded search off and restores both tools. A settings-file allow rule does not, and no env var
+  or settings key reaches the opt-in.
+- Removing `Bash`. When `Bash` is denied (blanket deny rule, `--disallowedTools Bash`) or disabled,
+  `getTools` adds `Glob` and `Grep` back.
+- A subagent whose resolved tools have no `Bash`: its `tools` entries naming `Glob` or `Grep`
+  resolve to the real tools. With `Bash` available, those entries resolve to nothing.
+- Windows without git-bash keeps `Glob` and `Grep`, because the omit-set requires a bash-capable
+  shell.
 
-Re-location: `rg -n 'CLAUDE_CODE_ENTRYPOINT !== "local-agent"'` lands in the embedded-search gate;
-`rg -n 'setSearchToolsOptIn'` lands on the opt-in setter, whose single call site is the
-`--allowedTools` / `--tools` parser.
+Observed at 2.1.317 (`claude -p`): the default session lists neither; `--disallowedTools Bash` lists
+`Glob` and `Grep` and no `Bash`; `--allowedTools Grep` lists `Bash`, `Glob` and `Grep`.
 
-□ omit-set is exactly `{Glob, Grep}` □ opt-in has exactly one writer □ `EMBEDDED_SEARCH_TOOLS` has
-exactly one occurrence (its schema declaration).
+Built-in agent prompts branch on the same gate, telling the agent to use `` `find` `` and
+`` `grep` `` via Bash instead of the tools. A call to an omitted tool is answered with
+`is not available in this session` and the matching Bash command.
 
-### Build-artifact caveat
+`EMBEDDED_SEARCH_TOOLS` does not control this. It is declared in the env schema and nothing reads
+it. Setting it has no effect.
+
+□ omit-set is exactly `{Glob, Grep}` □ the opt-in has one writer □ `EMBEDDED_SEARCH_TOOLS` occurs
+once.
+
+## Build-artifact caveat
 
 The prettified bundle is extracted from a platform-specific native binary, and the build
-constant-folds the platform accessor — in the darwin-arm64 artifact it returns the literal
-`"macos"`. Every `=== "windows"` and `=== "wsl"` branch is therefore dead code in that artifact,
-including the Windows halves of the bash-capable and PowerShell gates. Read those branches for
-source semantics, but do not conclude from one artifact that a platform check is live or dead in
-general; per-platform bundles differ.
-
+constant-folds `process.platform` into the platform singleton: in the darwin-arm64 artifact its
+source reads `platform: "darwin"`, so the accessor always returns `"macos"`. Every `=== "windows"`
+and `=== "wsl"` branch is therefore dead in that artifact, including the Windows halves of the
+bash-capable and PowerShell gates. Read those branches for source semantics, but do not conclude
+from one artifact that a platform check is live or dead in general; per-platform bundles differ.
+Relocate: `rg -n 'this.platform = "macos"'`.
 
 ## Tool descriptions
 
-Tool descriptions are template literals assembled at module scope, with interpolations for
-runtime-varying values. The Read tool's description is representative: it interpolates the default
-line cap and the per-line truncation width, names the Bash tool through a variable rather than a
-literal, and conditionally includes its PDF sentence behind a capability check.
+Tool descriptions are template literals with interpolations for runtime-varying values, and several
+tools pick between a full and a lean variant per model. The Read tool's description is
+representative: it interpolates the default line cap, includes its PDF sentence only when the model
+supports PDFs, and has a lean variant beginning `Reads a file from the local filesystem.` alongside
+the full one.
 
-Relocate any tool's description by grepping a distinctive sentence from it that cannot span an
-interpolation boundary, for example `Results are returned using cat -n format`. The verbatim text of
-every description is in `PROMPTS_RENDERED.md`; this doc does not duplicate it.
+Relocate any tool's description by a distinctive sentence that cannot span an interpolation
+boundary, for example `Results are returned using cat -n format`. The verbatim text of every
+description is in `PROMPTS_RENDERED.md`; this doc does not duplicate it.
 
 Tripwire: a description sentence that stops matching is either reworded or newly interpolated. Check
 for the latter before recording the former as a change.
 
-## Tool Execution
+## Tool execution
 
-### How Tools Are Sent to Claude
+### How tools are sent to Claude
 
-Tools are sent as part of the Anthropic API request, in the `tools` array alongside `model`,
-`messages`, `system` as an array of content blocks, `tool_choice` and `max_tokens`. See
-`ANTHROPIC_API_USAGE.md` for the full request shape and how each field is built.
+Tools are sent in the `tools` array of the Messages API request. See `ANTHROPIC_API_USAGE.md` for
+the full request shape and how each field is built.
 
-### Tool Approval System
+### Permissions
 
-Tools can be categorized as:
-- No approval required — execute automatically
-- Requires permission — user must approve each use
-- Wildcard rules — pattern-based approval (e.g., `Bash(git:)`)
+Every tool call is checked against the tool permission context. The tool-use context exposes it
+through `getToolPermissionContext`, which reads `toolPermissionContext` off the current app state
+each time it is called, so a permission change made mid-session applies to the next tool call.
 
-Example tools without approval requirement:
-```
-mcp__code-intel__, Bash(cat:), Bash(git restore:), Read, Edit, Grep, Glob
-```
+Permission modes: `default`, `acceptEdits`, `plan`, `auto`, `dontAsk`, `bypassPermissions`. See
+`AUTO_MODE_AND_COMMAND_CLASSIFIER.md` for `auto`.
 
-## The Agent/Task Tool and Subagents
+Rules have the form `Tool` or `Tool(specifier)`, with `*` as the wildcard, e.g. `Bash(npm *)`. A
+Bash rule ending in `:*` is still read as a prefix rule; an empty prefix is rejected with
+`Prefix cannot be empty before :*`. A blanket deny rule removes the tool from the session's tool
+list (step 3 of `getTools`); a scoped rule leaves the tool listed and denies matching calls.
 
-Extracted to [SUBAGENTS.md](SUBAGENTS.md).
+## The Agent tool and subagents
 
-Covers: built-in agents (general-purpose, statusline-setup, Explore, Plan, claude-code-guide),
-the team/swarm system (teammates, SendMessageTool, TeammateTool), task management tools
-(TaskCreate/Update/Get/List), magic-docs agent, agent loading pipeline, system prompts, and
-the Agent tool implementation.
+See [SUBAGENTS.md](SUBAGENTS.md): built-in agents, agent teams and `SendMessage`, background
+placement, the async built-in filter, agent loading and the Agent tool implementation.
 
-## MCP Tools
+## MCP tools
 
-MCP (Model Context Protocol) servers can provide additional tools dynamically.
+MCP servers provide tools named `mcp__<server>__<tool>`. They are fetched from each connected server
+by the MCP client, converted to Claude Code's tool shape, and merged with the built-ins in
+`assembleToolPool`. Subagents receive them unless a filter removes them. See `MCP.md`.
 
-### MCP Tool Naming
+## Bash tool
 
-MCP tools are prefixed with `mcp__servername__`:
-- `mcp__code-intel__find_symbol_by_name`
-- `mcp__code-intel__get_code_context`
-- `mcp__toolbox__find`
-
-### MCP Tool Loading
-
-MCP tools are:
-1. Discovered from connected MCP servers
-2. Transformed to Claude Code's tool format
-3. Added to the tools array sent to the API
-4. Available in both main session and subagents (unless filtered)
-
-## Tool Permission Context
-
-Every tool execution checks permissions. The context is not held separately: an accessor on the
-tool-use context reads `toolPermissionContext` off the current app state each time it is called, so
-a permission change made mid-session applies to the next tool call without re-plumbing.
-
-Permission modes:
-- `ask` — ask user for each tool use
-- `auto` — execute approved tools automatically
-- `plan` — planning mode (different prompts)
-
-## Bash Tool
-
-The Bash tool has special capabilities:
-- Can run in foreground or background (`run_in_background: true`)
-- Background processes get an ID
-- Use `TaskOutput` (alias: `BashOutputTool`) to read output from background processes
-- Use `TaskStop` (alias: `KillShell`) to terminate background processes
-
-### Bash Tool Pattern Matching
-
-Bash commands can be approved with patterns:
-- `Bash(git:)` — all git commands
-- `Bash(cat:)` — all cat commands
-- `Bash(npm --silent pack:)` — specific npm commands
-
-## Per-release facts
-
-Verified against the local bundle named on each line.
-
-- 2.1.207: `EMBEDDED_SEARCH_TOOLS` is vestigial. It remains an env-schema entry and is still parsed
-  off `process.env`, but no code reads the parsed value; the gate's own flag check is the folded
-  literal `"true"`. Setting the variable has no effect.
-- 2.1.207: the only opt-out from embedded search is naming `Glob` or `Grep` in `--tools` or
-  `--allowedTools`; the opt-in flag has exactly one writer, the CLI-flag parser.
-- 2.1.207: `SendMessage` is unconditional — no longer gated on a teams/swarm flag. `TeamCreate` and
-  `TeamDelete` name consts still exist but the registry does not return them.
-- 2.1.207: `StructuredOutput` is not a registry entry; it is attached per-request for
-  schema-constrained output.
-- 2.1.207: registry additions since the 2.1.76 pass — `ReportFindings`, `REPL`, `Workflow`,
-  `Monitor`, `Artifact`, `Projects`, `DesignSync`, `ClaudeDesign`, `PushNotification`,
-  `RemoteTrigger`, `ScheduleWakeup`, `SendUserMessage`, `SendUserFile`, `EndConversation`,
-  `WaitForMcpServers`, `ReadMcpResourceDirTool`, `SearchMcpRegistry`, `SuggestConnectors`,
-  `ListConnectors`, `ShareOnboardingGuide`, `ShowOnboardingRolePicker`, `PowerShell`, and the
-  plugin/skill tool group.
-
-Attributed to release notes, not verified against a local bundle (earliest local version is 2.1.168,
-which already has the behavior, so these introduction points cannot be bisected locally):
-
-- 2.1.117: native builds moved file search into the Bash tool and dropped `Glob`/`Grep` from the
-  registry.
-- 2.1.162: naming `Glob`/`Grep` in `--tools` / `--allowedTools` restores the dedicated tools.
-
-## Version history
-
-- 2.1.296: the task-list gating in "Condition gates" matches this bundle. The polarity of
-  `CLAUDE_CODE_ENABLE_TASKS` changed over time, so advice for older versions differs:
-  - Up to 2.1.138: a true-y value enabled the Task tools, and an unset variable enabled them only in
-    interactive sessions. Non-interactive (`-p`) and SDK sessions defaulted to `TodoWrite`.
-  - 2.1.154 to 2.1.207: a true-y value selected `TodoWrite`. Unset enabled the Task tools in every
-    mode.
-  - 2.1.220 onward: only an explicit false-y value (`0`, `false`, `no`, `off`) selects `TodoWrite`.
-    `CLAUDE_CODE_ENABLE_TASKS=1` therefore means the Task tools again.
-  - The model gate first appears at 2.1.263, as a table of newer families plus a remote flag
-    (`tengu_rosy_wren`). By 2.1.277 it is the fixed list of older models, with no remote flag.
-  - `TaskStop` has no flavor or model gate. `TaskOutput` was removed at 2.1.277.
-  - `CLAUDE_CODE_SESSION_KIND=bg` is one of the "background or job session" conditions that
-    passes the second gate, and `CLAUDE_CODE_TASK_LIST_ID` selects which task list the tools use.
-- 2.1.283: the task-list gating in "Condition gates" was re-checked against this bundle, and the
-  gate and model list were spot-checked in the 2.1.285 binary. Earlier text in this doc listed
-  `TodoWrite` as always registered and the task tools as gated only by `CLAUDE_CODE_ENABLE_TASKS`.
-  Both were incomplete: a model-family list and `CLAUDE_CODE_ENABLE_TODO_TOOLS` gate the whole
-  group, so sessions on newer model families have no checklist tool unless opted in.
-- 2.1.300: added the effect of the task-list gates on subagents. A background non-teammate subagent
-  loses the Task tools to the async built-in filter and has no checklist tool in a Task-flavor
-  session.
+The Bash tool runs a command in the foreground or, with `run_in_background: true`, as a background
+task with an ID. A background command's result reaches the model by itself when it finishes; its
+output file can be read with `Read`, and `TaskStop` stops it. There is no tool to poll it: `GetTask`
+is disabled, and the `taskOutputMaxChars` setting is described as "Deprecated: no longer has any
+effect (the TaskOutput tool was removed)". See `BASH_TOOL_EXECUTION.md` and
+`BACKGROUND_BASH_TASKS.md`.
