@@ -1,68 +1,75 @@
 # Hooks
 
-Verified against: cli.prettier.js 2.1.280 (2026-09-22)
+Verified against: cli.prettier.js 2.1.317 (2026-11-03)
 
 This document follows the landmark style in `GUIDELINES.md`: it anchors on version-stable strings
 (hook event names, config keys, the Zod `.describe(...)` strings shipped in the schema, `tengu_*`
 names, env vars, behavioral logic) with grep re-location recipes, not on minified symbol names or
 line numbers, which churn every release. The `.describe(...)` strings are the durable anchors here:
-they are product-authored documentation embedded in the bundle. Per-release changes are in the
-appendix.
+they are product-authored documentation embedded in the bundle.
 
-Since 2.1.242 the bundle is split into a thousand-odd `chunk-<hash>.js` modules; the hook schema,
-the hook runner, the `/hooks` UI metadata and the query loop live in different chunks, so follow a
-landmark rather than expecting neighbors to sit in the same module.
+The bundle is split into a thousand-odd `chunk-<hash>.js` modules; the hook schema, the hook runner,
+the `/hooks` UI metadata and the query loop live in different chunks, so follow a landmark rather
+than expecting neighbors to sit in the same module.
+
+Adjacent docs: `SESSION_HOOKS_LIFECYCLE.md` (SessionStart/SessionEnd order, the SessionEnd time
+budget, background-session hook env), `WORKTREES.md` (WorktreeCreate/WorktreeRemove), `MODS.md`
+(in-process plugin hooks), `MONITORING_USAGE.md` (per-subagent token accounting).
 
 ## Re-location recipes
 
-| Target                       | Grep anchor                                                        |
-|------------------------------|--------------------------------------------------------------------|
-| All event input schemas      | `hook_event_name: ` (Zod alias before `(` is minified and churns)  |
-| Runtime input builders       | `hook_event_name: "` (object literals, one per event)              |
-| Base/common input fields     | `Subagent identifier. Present only when the hook fires`            |
-| Hook type config schemas     | `MCP tool hook type`                                               |
-| Output schema                | `terminalSequence` and `hookSpecificOutput`                        |
-| `/hooks` UI event metadata   | `fieldToMatch` (per-event summary, exit-code text, matcher field)  |
-| Matcher field per event      | `case "PreModelSwitch": {` inside the switch returning `tool_name` |
-| Exit-code logic              | `Failed with non-blocking status code:`                            |
-| Missing-script downgrade     | `Hook script appears to be missing`                                |
-| Hook process env             | `CLAUDE_CODE_CHILD_SESSION` (env builder) and `CLAUDE_ENV_FILE`    |
-| Command hook spawn           | `has both "args" and whitespace in "command"` (runner prologue)    |
-| Pipeline dispatch            | `[Stall] tool_dispatch_start`                                      |
-| Stop→SubagentStop conversion | `Converting Stop hook to SubagentStop`                             |
-| Stop block cap               | `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP`                                  |
-| Non-blockable Stop firings   | `Stop hook block discarded`                                        |
-| additionalContext delivery   | `hook_additional_context` (the message type Pre and Post build)    |
-| Model-switch hooks           | `Model switch blocked by a PreModelSwitch hook`                    |
-| background_tasks type labels | `auto-mode scan` (the task-type → label map)                       |
+| Target                       | Grep anchor                                                       |
+| ---------------------------- | ----------------------------------------------------------------- |
+| All event input schemas      | `hook_event_name: ` (the Zod alias before `(` churns)             |
+| Runtime input builders       | `hook_event_name: "` (object literals, one per event)             |
+| Base/common input fields     | `Subagent identifier. Present only when the hook fires`           |
+| Hook type config schemas     | `MCP tool hook type`                                              |
+| `onFailure` option           | `What a failure of this hook does`                                |
+| Output schema                | `terminalSequence` and `hookSpecificOutput`                       |
+| `/hooks` UI event metadata   | `fieldToMatch` (per-event summary, exit-code text, matcher field) |
+| Matcher field per event      | `return e.command_name;` (the switch over `hook_event_name`)      |
+| Tool-name families           | `ArtifactComments: "Artifact"`, `KillShell: "TaskStop"`           |
+| Monitor matched as Bash      | `names Monitor, and its matcher met the call only through Bash`   |
+| Exit-code logic              | `Failed with non-blocking status code:`                           |
+| Missing-script downgrade     | `Hook script appears to be missing`                               |
+| Failure turned into a block  | `blocking because onFailure is "block"`                           |
+| Restricted personal hooks    | `hook from your own files: ignored`                               |
+| Hook process env             | `CLAUDE_CODE_CHILD_SESSION: "1"` (env builder), `CLAUDE_ENV_FILE` |
+| Command hook spawn           | `has both "args" and whitespace in "command"` (runner prologue)   |
+| Pipeline dispatch            | `[Stall] tool_dispatch_start`                                     |
+| Stop→SubagentStop conversion | `Converting Stop hook to SubagentStop`                            |
+| Stop block cap               | `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP`                                 |
+| Non-blockable Stop firings   | `Stop hook block discarded`                                       |
+| additionalContext delivery   | `hook_additional_context` (the message type Pre and Post build)   |
+| Model-switch hooks           | `Model switch blocked by a PreModelSwitch hook`                   |
+| background_tasks type labels | `auto_mode_scan: "auto-mode scan"` (the task-type → label map)    |
+| `/goal` Stop hook            | `Set a goal Claude checks before stopping`                        |
 
 ## Event inventory
 
-33 events. The canonical list is an array literal that starts `"PreToolUse", "PostToolUse",
-"PostToolUseFailure", "PostToolBatch", "Notification"` and appears twice (hook config and SDK
-schema); `rg -o 'hook_event_name: "[A-Za-z]+"'` over the bundle yields the same 33 names from the
-runtime input builders (UserPromptSubmit has two builders). Each input schema is a shared base
-schema `.and(...object({ hook_event_name: ...literal("X"), ... }))`. Grouped by purpose:
+33 events. The canonical list is an array literal that starts
+`"PreToolUse", "PostToolUse", "PostToolUseFailure", "PostToolBatch", "Notification"` and appears
+twice (hook config and SDK schema); `rg -o 'hook_event_name: "[A-Za-z]+"'` over the bundle yields
+the same 33 names from the runtime input builders (PreToolUse, PostToolUse and UserPromptSubmit have
+two each). Each input schema is a shared base schema
+`.and(...object({ hook_event_name: ...("X"), ... }))`. Grouped by purpose:
 
-| Group             | Events                                                                                          |
-|-------------------|-------------------------------------------------------------------------------------------------|
-| Tool lifecycle    | PreToolUse, PostToolUse, PostToolUseFailure, PostToolBatch, PermissionRequest, PermissionDenied |
-| Prompt            | UserPromptSubmit, UserPromptExpansion                                                           |
-| Session lifecycle | SessionStart, SessionEnd, Setup                                                                 |
-| Stop / subagent   | Stop, StopFailure, SubagentStart, SubagentStop                                                  |
-| Compaction        | PreCompact, PostCompact                                                                         |
-| Model             | PreModelSwitch, PostModelSwitch                                                                 |
-| Teams / tasks     | TeammateIdle, TaskCreated, TaskCompleted                                                        |
-| MCP elicitation   | Elicitation, ElicitationResult                                                                  |
-| Config / memory   | ConfigChange, InstructionsLoaded                                                                |
-| Filesystem / cwd  | CwdChanged, FileChanged, DirectoryAdded                                                         |
-| Worktree          | WorktreeCreate, WorktreeRemove                                                                  |
-| Display           | MessageDisplay                                                                                  |
-| Notification      | Notification                                                                                    |
-
-Net new since the 21-event era: PostToolBatch, PermissionDenied, MessageDisplay,
-UserPromptExpansion, StopFailure, PostCompact, TaskCreated, CwdChanged, FileChanged,
-DirectoryAdded, PreModelSwitch, PostModelSwitch.
+| Group             | Events                                                      |
+| ----------------- | ----------------------------------------------------------- |
+| Tool lifecycle    | PreToolUse, PostToolUse, PostToolUseFailure, PostToolBatch, |
+|                   | PermissionRequest, PermissionDenied                         |
+| Prompt            | UserPromptSubmit, UserPromptExpansion                       |
+| Session lifecycle | SessionStart, SessionEnd, Setup                             |
+| Stop / subagent   | Stop, StopFailure, SubagentStart, SubagentStop              |
+| Compaction        | PreCompact, PostCompact                                     |
+| Model             | PreModelSwitch, PostModelSwitch                             |
+| Teams / tasks     | TeammateIdle, TaskCreated, TaskCompleted                    |
+| MCP elicitation   | Elicitation, ElicitationResult                              |
+| Config / memory   | ConfigChange, InstructionsLoaded                            |
+| Filesystem / cwd  | CwdChanged, FileChanged, DirectoryAdded                     |
+| Worktree          | WorktreeCreate, WorktreeRemove                              |
+| Display           | MessageDisplay                                              |
+| Notification      | Notification                                                |
 
 There is no event for a background task (a `run_in_background` Bash shell, a Monitor, a background
 subagent, a workflow) starting or finishing. None of the 33 names covers it; the only hook-visible
@@ -77,24 +84,28 @@ and is quoted below where it adds information.
 
 Every event extends a shared schema. Re-locate by the `agent_id` describe string above. Fields:
 
-| Field             | Type                      | Notes                                                               |
-|-------------------|---------------------------|---------------------------------------------------------------------|
-| `session_id`      | string                    | always present                                                      |
-| `transcript_path` | string                    | the main session transcript                                         |
-| `cwd`             | string                    | working directory                                                   |
-| `prompt_id`       | string, optional          | UUID of the current user prompt (see below)                         |
-| `scratchpad_dir`  | string, optional          | session scratchpad path; runtime only, not in SDK schema            |
-| `permission_mode` | string, optional          | `default`/`acceptEdits`/`bypassPermissions`/`plan`/`dontAsk`/`auto` |
-| `agent_id`        | string, optional          | subagent identity (see below)                                       |
-| `agent_type`      | string, optional          | agent type name (see below)                                         |
-| `effort`          | `{ level: string }`, opt. | reasoning effort for the turn (see below)                           |
+| Field             | Type             | Notes                                                    |
+| ----------------- | ---------------- | -------------------------------------------------------- |
+| `session_id`      | string           | always present                                           |
+| `transcript_path` | string           | the main session transcript                              |
+| `cwd`             | string           | working directory                                        |
+| `prompt_id`       | string, optional | UUID of the current user prompt (see below)              |
+| `scratchpad_dir`  | string, optional | session scratchpad path; runtime only, not in SDK schema |
+| `permission_mode` | string, optional | the session's permission mode name (see below)           |
+| `agent_id`        | string, optional | subagent identity (see below)                            |
+| `agent_type`      | string, optional | agent type name (see below)                              |
+| `effort`          | object, optional | `{ level }`, reasoning effort for the turn (see below)   |
+
+`permission_mode` carries the session's mode name (`default`, `acceptEdits`, `bypassPermissions`,
+`plan`, `dontAsk`, `auto`).
 
 `prompt_id`: "UUID correlating a user prompt with all subsequent events until the next prompt. Same
 value emitted on OpenTelemetry events as the `prompt.id` attribute, so hook output can be joined to
 OTel events at prompt grain. Absent until the first user input of the process lifetime."
 
 `scratchpad_dir` is set by the runtime input builder only when the scratchpad feature is on; it is
-not declared in the SDK Zod schema.
+not declared in the SDK Zod schema. In a diskless session (no transcript on disk) the builder sends
+`transcript_path` as the empty string.
 
 Served calls. When a hook fires for a tool call served to a cloud session from this machine, the
 base object is different: `session_id` is `served:<callerSessionId>` (or `served:unknown`),
@@ -155,9 +166,8 @@ enterprise | claudeai | agent — an open set"), not on the name or the `mcp__*`
 UserPromptSubmit — `prompt`, optional `session_title`. The SDK schema also declares an optional
 `source` enum (`user` | `sdk` | `system` | `loop_wakeup` | `schedule_wakeup` | `poll_event`, "Who
 authored/injected the prompt … `system` = other machine-injected turns (peer/channel messages, task
-notifications, auto-continuation) … Payloads may omit it while the field rolls out"). In 2.1.280
-both runtime builders spread a constant-false in the slot where `source` would go, so the CLI never
-sends it.
+notifications, auto-continuation) … Payloads may omit it while the field rolls out"). Both runtime
+builders spread a constant-false in the slot where `source` would go, so the CLI never sends it.
 
 UserPromptExpansion — `expansion_type` (`slash_command` | `mcp_prompt`), `command_name`,
 `command_args`, optional `command_source`, `prompt`. Fires when a user-typed slash command or MCP
@@ -171,7 +181,6 @@ SessionStart — `source` (`startup` | `resume` | `clear` | `compact` | `fork`),
 `estimated_cache_write_usd` (describes all start "resume/fork:").
 
 SessionEnd — `reason` (`clear` | `resume` | `logout` | `prompt_input_exit` | `other`).
-`bypass_permissions_disabled` is gone from the enum.
 
 Setup — `trigger` (`init` | `maintenance`).
 
@@ -224,9 +233,9 @@ switch hooks".
 TeammateIdle — `teammate_name`, `team_name`.
 
 TaskCreated / TaskCompleted — `task_id`, `task_subject`, optional `task_description`,
-`teammate_name`, `team_name`. On all three events `team_name` is now described "@deprecated
-Sessions have a single implicit team; this carries the session-derived team name and will be
-removed in a future release." What "task" means here is under "Background work and hooks".
+`teammate_name`, `team_name`. On all three events `team_name` is described "@deprecated Sessions
+have a single implicit team; this carries the session-derived team name and will be removed in a
+future release." What "task" means here is under "Background work and hooks".
 
 ### Notification
 
@@ -234,9 +243,15 @@ Notification — `message`, optional `title`, `notification_type`. Matcher value
 `permission_prompt`, `idle_prompt`, `auth_success`, `elicitation_dialog`, `agent_needs_input`,
 `agent_completed`, `elicitation_url_dialog`, `worker_permission_prompt`, `push_notification`,
 `computer_use_enter`, `computer_use_exit`, `quota_auto_resume_fired`, `quota_auto_resume_stale`,
-`quota_auto_resume_disabled`, `model_refusal_fallback`, plus `elicitation_complete` and
-`elicitation_response`. `agent_completed` / `agent_needs_input` come from the agent-view session
-list (entries keyed by a session id), not from in-session background tasks.
+`quota_auto_resume_disabled`, `model_refusal_fallback`, `auth_storage_failure`,
+`plugin_notification`, plus `elicitation_complete` and `elicitation_response`.
+
+- `agent_completed` / `agent_needs_input` come from the agent-view session list (entries keyed by a
+  session id), not from in-session background tasks.
+- `auth_storage_failure` fires when login credentials could not be (or may not have been) saved
+  ("Claude Code login needs attention: credentials …").
+- `plugin_notification` fires when a mod calls `$.ui.notify`; `title` defaults to the plugin's name
+  (see `MODS.md`).
 
 ### MCP elicitation
 
@@ -267,48 +282,83 @@ matcher lists filenames to watch in the current directory (e.g. `.envrc|.env`).
 DirectoryAdded — `directory` ("Absolute path of the directory that was added.") and `source`, an
 enum of `slash_command` / `register_repo_root` — 'How the directory was added: "slash_command" for
 /add-dir, "register_repo_root" for the SDK control_request.' It fires after the sandbox config is
-refreshed. A directory already registered (including a duplicate request) is denied, and the
-DirectoryAdded hooks do not re-run.
+refreshed, so sandboxed tools already see the directory (the hook commands themselves run
+unsandboxed). Output handling differs by source, per the `/hooks` text: for `/add-dir` a failure
+count is summarized to Claude and a hook's `systemMessage` reaches Claude as bounded context; for
+`register_repo_root` everything is debug-logged only. A `register_repo_root` request for a directory
+already registered fails with `is already a registered working directory`, before any hook runs.
 
 ### Worktree
 
-WorktreeCreate — `name`. WorktreeRemove — `worktree_path`.
+WorktreeCreate — `name`. WorktreeRemove — `worktree_path`. Details in `WORKTREES.md`.
 
 ### Display
 
 MessageDisplay — `turn_id`, `message_id` ("UUID of the assistant message being displayed. Stable
-across every flush of the same message. Not the API msg_… id."), `index` (zero-based delta index),
-`final` (true on the last flush), `delta` ("The newly completed lines since the prior flush. Always
-whole lines, except on the final flush which may end mid-line."). Display-only: it does not change
-the stored message or what the model sees. Output `displayContent` replaces the on-screen delta.
+across every flush of the same message. Not the API msg\_… id."), `index` (zero-based delta index),
+`final` (true on the last flush; "Exactly one flush per message has it"), `delta` ("The newly
+completed lines since the prior flush. Always whole lines, except on the final flush which may end
+mid-line. The delta of the final flush is empty when the message ends on a newline; treat final as
+the end-of-message signal regardless."). Display-only: it does not change the stored message or what
+the model sees. Output `displayContent` replaces the on-screen delta.
 
 ## Matchers
 
-A matcher is tested against one input field per event (grep the switch that returns `tool_name`
-for the tool events). `*` or empty matches everything. A matcher made only of name characters and
-`|` (plus `,`, space and `-` on the events that have a matcher field) is an exact-name list, with
-no regex fallback; anything else is compiled as a regex. Events with no matcher field run every
-configured hook.
+A matcher is tested against one input field per event (table below; grep `return e.command_name;`
+for the switch). `*` or empty matches everything. A matcher made only of name characters and `|` is
+an exact-name list split on `|`, with no regex fallback. On events with a matcher field, except
+StopFailure and FileChanged, the list may also contain `,`, space and `-`, and `,` separates too.
+Anything else is compiled as a regex; an invalid one logs `Invalid regex pattern in hook matcher`
+and matches nothing. Events with no matcher field run every configured hook.
 
-| Matcher field              | Events                                                                                                                                      |
-|----------------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
-| `tool_name`                | PreToolUse, PostToolUse, PostToolUseFailure, PermissionRequest, PermissionDenied                                                            |
-| `command_name`             | UserPromptExpansion                                                                                                                         |
-| `source`                   | SessionStart, ConfigChange, DirectoryAdded                                                                                                  |
-| `trigger`                  | Setup, PreCompact, PostCompact                                                                                                              |
-| canonical id of `to_model` | PreModelSwitch, PostModelSwitch                                                                                                             |
-| `notification_type`        | Notification                                                                                                                                |
-| `reason`                   | SessionEnd                                                                                                                                  |
-| `error`                    | StopFailure                                                                                                                                 |
-| `agent_type`               | SubagentStart, SubagentStop                                                                                                                 |
-| `mcp_server_name`          | Elicitation, ElicitationResult                                                                                                              |
-| `load_reason`              | InstructionsLoaded                                                                                                                          |
-| basename of `file_path`    | FileChanged                                                                                                                                 |
-| none                       | UserPromptSubmit, Stop, PostToolBatch, TeammateIdle, TaskCreated, TaskCompleted, CwdChanged, WorktreeCreate, WorktreeRemove, MessageDisplay |
+| Matcher field              | Events                                              |
+| -------------------------- | --------------------------------------------------- |
+| `tool_name`                | PreToolUse, PostToolUse, PostToolUseFailure         |
+| `tool_name`                | PermissionRequest, PermissionDenied                 |
+| `command_name`             | UserPromptExpansion                                 |
+| `source`                   | SessionStart, ConfigChange, DirectoryAdded          |
+| `trigger`                  | Setup, PreCompact, PostCompact                      |
+| canonical id of `to_model` | PreModelSwitch, PostModelSwitch                     |
+| `notification_type`        | Notification                                        |
+| `reason`                   | SessionEnd                                          |
+| `error`                    | StopFailure                                         |
+| `agent_type`               | SubagentStart, SubagentStop                         |
+| `mcp_server_name`          | Elicitation, ElicitationResult                      |
+| `load_reason`              | InstructionsLoaded                                  |
+| basename of `file_path`    | FileChanged                                         |
+| none                       | UserPromptSubmit, Stop, PostToolBatch, TeammateIdle |
+| none                       | TaskCreated, TaskCompleted, CwdChanged              |
+| none                       | WorktreeCreate, WorktreeRemove, MessageDisplay      |
 
 For the model events the matcher is compared to the canonical model id derived from `to_model`
 (through the model-overrides map), and a `[1m]` / `[2m]` suffix in the matcher is stripped before
 comparison. When no canonical id can be derived, every hook runs regardless of matcher.
+
+### Tool names a matcher also accepts
+
+On the five tool events a matcher is tested against the tool's other names as well as `tool_name`:
+
+- Legacy names. Each exact-list entry is first mapped through the legacy tool-name table (grep
+  `KillShell: "TaskStop"`: `Task` → `Agent`, `KillShell` / `KillBash` → `TaskStop`, `ListPeers` →
+  `ListAgents`, `Brief` → `SendUserMessage`, and the `ListMcpResources` / `ReadMcpResource` /
+  `ReadMcpResourceDir` → `…Tool` names), and a regex is also tested against a tool's legacy names. A
+  matcher of `Task` still catches Agent calls.
+- SDK tool aliases. Keys of the SDK `toolAliases` option ("Map of tool-name aliases applied before
+  name resolution") are honored the same way.
+- Tool families. `ArtifactComments`, `ArtifactData` and `ArtifactCheck` belong to the `Artifact`
+  family (grep `ArtifactComments: "Artifact"`): a matcher naming `Artifact` also catches them, and
+  an `Artifact` call whose `action` routes to a member (`comments`, `reply`, `resolve`, `watch`,
+  `unwatch`, `status`, `resume_replies` → ArtifactComments; `read_db`, `write_db` → ArtifactData;
+  `verify`, `preview` → ArtifactCheck) also matches that member's name. Artifacts MCP server tools
+  that stand in for the built-in tool answer to the family names too.
+- Monitor as Bash. A Monitor call that carries a `command` also matches a `Bash` matcher. When a
+  hook's matcher met the call only through `Bash`, the hook receives `tool_name: "Bash"` and a
+  `tool_input` reduced to `{ command, description? }`; if that hook's `if` condition names Monitor,
+  the hook is skipped (`names Monitor, and its matcher met the call only through Bash`).
+
+A tool-event matcher that names a bare `mcp__<server>` (no tool part) matches nothing and logs "Hook
+matcher `…` matches no tool (it is compared as an exact string). To match all tools from this
+server, use `mcp__<server>__.*`."
 
 ## Model switch hooks
 
@@ -352,11 +402,15 @@ is removed after execution"), optional positive `timeout` (seconds).
 
 command — `command` (string). Optional `args` (exec form: when present, `command` is spawned
 directly with these args and no shell, so quotes/`$`/backticks never reach a shell parser; absent →
-runs through the shell). Optional `shell` (`bash` | `powershell`). Optional `async` ("runs in
-background without blocking"). Optional `asyncRewake` ("runs in background and wakes the model on
-exit code 2 (blocking error). Implies async."), with `@internal` `rewakeMessage` / `rewakeSummary`.
-`@internal` `cloud` (`device` | `skip`) controls whether the hook is offered to a cloud session
-driven from this machine. Spawn mechanics for `args` are under "Exec form and shell form".
+runs through a shell, "bash on POSIX, PowerShell on Windows without Git Bash"). Optional `shell`
+(`bash` | `powershell`; "Defaults to bash (powershell on Windows without Git Bash)"). Optional
+`onFailure` (`continue` | `block`, see "Failures that block"). Optional `async` ("runs in background
+without blocking"). Optional `asyncRewake` ("runs in background and wakes the model on exit code 2
+(blocking error). Implies async."), with `@internal` `rewakeMessage` / `rewakeSummary`. `@internal`
+`cloud` (`device` | `skip`; an unrecognized value reads as `skip`) controls whether the hook is
+offered to a cloud session driven from this machine: by default a command hook is offered only when
+its script could be read and pinned and lies outside everything the cloud session can write here.
+Spawn mechanics for `args` are under "Exec form and shell form".
 
 prompt — `prompt` (use `$ARGUMENTS` for the hook input JSON), optional `model` (default: the small
 fast model), optional `continueOnBlock` ("Sets the continue value for the decision:"block" produced
@@ -367,44 +421,48 @@ mcp_tool — `server` (an already-configured MCP server), `tool` (a tool on that
 hook input JSON").
 
 http — `url`, optional `headers` (values may reference env vars via `$VAR` / `${VAR}`, but only
-names listed in `allowedEnvVars` are interpolated), optional `allowedEnvVars`, `@internal` `cloud`.
+names listed in `allowedEnvVars` are interpolated), optional `allowedEnvVars`, optional `onFailure`,
+`@internal` `cloud` (`device` or omitted: offered to cloud sessions; `skip`: never).
 
 agent — `prompt` ("Prompt describing what to verify…", `$ARGUMENTS` for hook input), optional
 `model` (default Haiku), default timeout 60 s. An agentic verifier.
 
-The executor also knows non-settings types: `callback` / `function` (in-process SDK and
-session-registered hooks) and an internal `script` type from the hook-modules system (gated by
-`tengu_plugin_hooks_modules` / `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS`).
+The executor also knows non-settings types:
 
-Default timeouts: 600 s for command / http / mcp_tool; 30 s for UserPromptSubmit, PreModelSwitch
-and PostModelSwitch; SessionEnd hooks share a 1.5 s budget raised to the largest configured
-per-hook `timeout` (capped), or set by `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS`.
+- `callback` — hooks an SDK host registers in its `initialize` request: per event, matchers with
+  `hookCallbackIds`, an optional `timeout` and an optional `onFailure`. The CLI answers with
+  `hook_on_failure_supported` when it honors `onFailure` on these matchers.
+- `function` — in-process hooks registered on the session. `/goal <condition>` ("Set a goal Claude
+  checks before stopping") is one: it registers a session Stop hook that checks the condition,
+  replacing any earlier goal, and `/goal clear` removes it (`tengu_stop_hook_added` /
+  `tengu_stop_hook_removed` with `via: "goal"`).
+- `script` — an internal type; this build stubs it out ("script hooks are not available in this
+  build").
+
+Default timeouts: 600 s for command / http / mcp_tool; 30 s for UserPromptSubmit, PreModelSwitch and
+PostModelSwitch. SessionEnd hooks share one short budget, described in `SESSION_HOOKS_LIFECYCLE.md`.
 
 ## Exec form and shell form
 
-Section verified against cli.prettier.js 2.1.296 (2026-10-13).
+`args` is part of the command-hook schema that `settings.json` hooks, plugin `hooks/hooks.json`, and
+skill and agent frontmatter `hooks` all share, so a user-level `~/.claude/settings.json` hook
+accepts it. The schema has no per-source variant.
 
-`args` is part of the command-hook schema that `settings.json` hooks, plugin `hooks/hooks.json`,
-and skill and agent frontmatter `hooks` all share, so a user-level `~/.claude/settings.json` hook
-accepts it. The schema has no per-source variant. Introduced between 2.1.138 (absent) and 2.1.143
-(present, with its `Argument list for exec form` describe string); no local bundle sits between them.
-The published docs mark `args` without a version.
-
-The runner prologue (anchor above) sets `exec form` when `args !== undefined`. Both forms build one
+The runner prologue (anchor above) selects exec form when `args` is present. Both forms build one
 environment object, then diverge at the `child_process.spawn` call:
 
-| Aspect                     | Exec form (`args` present)                              | Shell form (`args` absent)                                |
-|----------------------------|---------------------------------------------------------|-----------------------------------------------------------|
-| Spawn                      | `spawn(command, args, { env, cwd, detached, ... })`     | `spawn(command, [], { env, cwd, shell: true, ... })`      |
-| Shell                      | none; `shell` field ignored                             | `/bin/sh -c`, Git Bash, or PowerShell (`shell` field)     |
-| Program lookup             | runtime resolves `command` on the child's `env.PATH`    | the shell resolves it                                     |
-| `~`, `$HOME`, `$VAR`       | passed through verbatim                                 | expanded by the shell                                     |
-| `${CLAUDE_PROJECT_DIR}`    | replaced in `command` and each `args` element           | not replaced; the shell expands the exported env var      |
-| `${CLAUDE_PLUGIN_ROOT}`    | replaced the same way (plugin and skill hooks)          | not replaced; the shell expands the exported env var      |
-| `${CLAUDE_PLUGIN_DATA}`    | replaced (plugin hooks only)                            | not replaced; the shell expands the exported env var      |
-| `${user_config.KEY}`       | replaced (plugin hooks only)                            | refused: the hook throws                                  |
-| `CLAUDE_CODE_SHELL_PREFIX` | not applied                                             | wraps the command                                         |
-| Windows backslashes        | substituted paths and env values keep native separators | env path values and the command text are rewritten to `/` |
+| Aspect                     | Exec form (`args` present)       | Shell form (`args` absent)   |
+| -------------------------- | -------------------------------- | ---------------------------- |
+| Spawn                      | program + `args`, no shell       | `command` run by a shell     |
+| Shell                      | none; `shell` ignored            | sh, Git Bash or PowerShell   |
+| Program lookup             | the child's `env.PATH`           | the shell                    |
+| `~`, `$HOME`, `$VAR`       | passed through verbatim          | expanded by the shell        |
+| `${CLAUDE_PROJECT_DIR}`    | replaced in `command` and `args` | left to the shell's env var  |
+| `${CLAUDE_PLUGIN_ROOT}`    | replaced (plugin, skill hooks)   | left to the shell's env var  |
+| `${CLAUDE_PLUGIN_DATA}`    | replaced (plugin hooks only)     | left to the shell's env var  |
+| `${user_config.KEY}`       | replaced (plugin hooks only)     | refused: the hook throws     |
+| `CLAUDE_CODE_SHELL_PREFIX` | not applied                      | wraps the command (not pwsh) |
+| Windows backslashes        | kept native                      | rewritten to `/` (bash only) |
 
 Details:
 
@@ -412,80 +470,93 @@ Details:
   returned untouched. No `~`, `$HOME`, `${HOME}` or generic `${VAR}` expansion exists in exec form,
   so `"~/a"` reaches the program as the literal text `~/a`. A relative path resolves against the
   hook's working directory, not against `CLAUDE_PROJECT_DIR`.
-- A `${CLAUDE_PLUGIN_ROOT}` or `${CLAUDE_PLUGIN_DATA}` reference from a hook with no plugin (and, for
-  ROOT, no skill directory) throws; the settings.json case reads `not associated with a plugin`.
+- A `${CLAUDE_PLUGIN_ROOT}` or `${CLAUDE_PLUGIN_DATA}` reference from a hook with no plugin (and,
+  for ROOT, no skill directory) throws; the settings.json case reads `not associated with a plugin`.
   `${CLAUDE_PROJECT_DIR}` always resolves.
 - A bare `command` containing whitespace beside `args` logs a warning, because exec form treats the
   whole string as one executable name. A `command` with a path separator is exempt.
+- A shell-form PowerShell command that spells `$CLAUDE_PROJECT_DIR` logs a warning (PowerShell reads
+  it as an undefined variable); use `$env:CLAUDE_PROJECT_DIR` or `${CLAUDE_PROJECT_DIR}`.
 - On Windows without a shell, `command` has to resolve to a real executable. `.cmd` and `.bat`
   shims cannot be spawned.
-- Lookup on `PATH` was checked against the runtime (`bun` and `node` both): the child's own
-  `env.PATH` decides, not the parent's. The hook environment is not rebuilt for exec form, so
-  `PATH` is whatever Claude Code itself holds, plus any `env` block from settings.
+- Program lookup uses the child's own `env.PATH`, not the parent's. The hook environment is not
+  rebuilt for exec form, so `PATH` is whatever Claude Code itself holds, plus any `env` block from
+  settings.
 
 Both forms share one environment, built once before the branch (the table under "Hook process
-environment"): Claude Code's own environment with the scrub list, the `settings.json` `env` block
-for child processes, the session variables, and `CLAUDE_PROJECT_DIR`. `PATH` is identical. One
-difference remains: on Windows with Git Bash, shell form prepends the Git Bash directory to
-`PATH`, and exec form does not.
+environment"). `PATH` is identical, with one exception: on Windows with Git Bash, shell form
+prepends the Git Bash directory to `PATH`, and exec form does not.
 
 Anchors: `Argument list for exec form` (schema), `has both "args" and whitespace in "command"`
-(prologue), `is not associated with a plugin` (placeholder guard), `references ${user_config.*} in
-a shell-form command` (the shell-form refusal). The async-rewake script scanner treats the two forms
-differently in the same way: it expands a leading `~`, `$HOME` and `${HOME}` only for shell form.
+(prologue), `is not associated with a plugin` (placeholder guard), `in a shell-form command` (the
+`${user_config.*}` shell-form refusal; the bundle escapes the `$`, so search this tail).
 
 ## Hook configuration keys
 
-| Key                      | Effect (settings `.describe(...)` paraphrase)                                   |
-|--------------------------|---------------------------------------------------------------------------------|
-| `hooks`                  | event → `[{ matcher?, hooks: [...] }]`                                          |
-| `disableAllHooks`        | disables settings and plugin hooks and statusLine; built-in features keep going |
-| `allowManagedHooksOnly`  | managed-settings only: run only managed hooks and managed-enabled plugins'      |
-| `allowedHttpHookUrls`    | URL allowlist (`*` wildcard) for http hooks; `[]` allows none                   |
-| `httpHookAllowedEnvVars` | intersected with each http hook's `allowedEnvVars`                              |
+| Key                             | Effect (settings `.describe(...)` paraphrase)                 |
+| ------------------------------- | ------------------------------------------------------------- |
+| `hooks`                         | event → `[{ matcher?, hooks: [...] }]`                        |
+| `disableAllHooks`               | disables settings and plugin hooks and statusLine; built-in   |
+|                                 | features keep going                                           |
+| `allowManagedHooksOnly`         | managed-settings only: run only managed hooks and the hooks   |
+|                                 | of plugins managed settings enable                            |
+| `allowedHttpHookUrls`           | URL allowlist (`*` wildcard) for http hooks; `[]` allows none |
+| `httpHookAllowedEnvVars`        | intersected with each http hook's `allowedEnvVars`            |
+| `strictPluginOnlyCustomization` | managed: `"hooks"` in the list (or `true`) blocks             |
+|                                 | settings.json hooks; managed and plugin hooks still run       |
+| `prependPlugins`                | managed: plugins whose hooks run first, outermost             |
+| `appendPlugins`                 | managed: plugins whose hooks run last among plugins           |
+
+`prependPlugins` / `appendPlugins` order plugin hooks; see `MODS.md`.
 
 A PreToolUse / PermissionRequest entry that fails to parse is not silently dropped: it holds back
-the permissions declared beside it (grep `a PreToolUse/PermissionRequest hook that cannot be
-loaded`).
+the permissions declared beside it (grep `a PreToolUse/PermissionRequest hook that cannot be`).
 
-Hook-related env vars read by Claude Code: `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` (default 8
-consecutive Stop/SubagentStop blocks before the turn is force-ended; `0` disables the cap),
-`CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS`, `CLAUDE_CODE_DISABLE_HOOK_FORWARDING`,
-`CLAUDE_CODE_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS`, `CLAUDE_CODE_HOOKS_SAME_THREAD`,
-`CLAUDE_CODE_ENABLE_FUNCTION_HOOKS`.
+Hook-related env vars read by Claude Code: `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` (default 8 consecutive
+Stop/SubagentStop blocks before the turn is force-ended), `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS`,
+`CLAUDE_CODE_DISABLE_HOOK_FORWARDING`, `CLAUDE_CODE_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS`,
+`CLAUDE_CODE_HOOKS_SAME_THREAD`, `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS`,
+`CLAUDE_CODE_RESTRICT_PERSONAL_CONFIG` (see "Restricted personal hooks").
 
 ## Hook process environment
 
 Command hooks inherit Claude Code's own environment (with a scrub list applied, e.g.
-`CLAUDE_CODE_SUBSCRIPTION_TYPE`, `CLAUDE_CODE_RATE_LIMIT_TIER`) plus, set per spawn:
+`CLAUDE_CODE_SUBSCRIPTION_TYPE`, `CLAUDE_CODE_RATE_LIMIT_TIER`) and the `settings.json` `env` block
+for child processes, plus, set per spawn:
 
-| Variable                       | Value / condition                                                  |
-|--------------------------------|--------------------------------------------------------------------|
-| `CLAUDE_PROJECT_DIR`           | project root (always)                                              |
-| `CLAUDECODE`                   | `1`                                                                |
-| `CLAUDE_CODE_SESSION_ID`       | the hook input's `session_id`                                      |
-| `CLAUDE_CODE_CHILD_SESSION`    | `1`                                                                |
-| `CLAUDE_CODE_SESSION_ATTENDED` | `1` for interactive / attended sessions, `0` for bg / daemon       |
-| `CLAUDE_PID`                   | the Claude Code process's own pid                                  |
-| `CLAUDE_EFFORT`                | the input's `effort.level`, when present                           |
-| `TRACEPARENT`                  | when OTel trace propagation is active                              |
-| `COLUMNS` / `LINES`            | from Claude Code's stdout dimensions, when it is a TTY             |
-| `CLAUDE_PLUGIN_ROOT`           | plugin hooks, and skill hooks (skill dir)                          |
-| `CLAUDE_PLUGIN_DATA`           | plugin hooks only                                                  |
-| `CLAUDE_PLUGIN_OPTION_<KEY>`   | each plugin `user_config` value, key upper-cased, non-alnum → `_`  |
-| `CLAUDE_ENV_FILE`              | SessionStart, Setup, CwdChanged, FileChanged; not for `powershell` |
+| Variable                       | Value / condition                                       |
+| ------------------------------ | ------------------------------------------------------- |
+| `CLAUDE_PROJECT_DIR`           | project root (always)                                   |
+| `CLAUDECODE`                   | `1`                                                     |
+| `CLAUDE_CODE_SESSION_ID`       | the hook input's `session_id`                           |
+| `CLAUDE_CODE_CHILD_SESSION`    | `1`                                                     |
+| `CLAUDE_CODE_SESSION_ATTENDED` | `1` for interactive / attended sessions, `0` otherwise  |
+| `CLAUDE_PID`                   | the Claude Code process's own pid                       |
+| `CLAUDE_EFFORT`                | the input's `effort.level`, when present                |
+| `TRACEPARENT`                  | when OTel trace propagation is active                   |
+| `COLUMNS` / `LINES`            | from Claude Code's stdout dimensions, when it is a TTY  |
+| `CLAUDE_PLUGIN_ROOT`           | plugin hooks, and skill hooks (skill dir)               |
+| `CLAUDE_PLUGIN_DATA`           | plugin hooks only                                       |
+| `CLAUDE_PLUGIN_OPTION_<KEY>`   | each plugin `user_config` value, key upper-cased,       |
+|                                | non-alphanumerics → `_`                                 |
+| `CLAUDE_ENV_FILE`              | SessionStart, Setup, CwdChanged, FileChanged; not for a |
+|                                | hook that runs in PowerShell                            |
 
 So a hook process can identify the session and the Claude Code process from env alone
 (`CLAUDE_CODE_SESSION_ID`, `CLAUDE_PID`), not only from stdin JSON. Anchor: grep
-`CLAUDE_CODE_CHILD_SESSION: "1"` for the builder; the hook path passes it the hook input
-(session id, effort) with a "harness" source, so `AI_AGENT` is not set for hooks. `${CLAUDE_*}`
-placeholders in `command` / `args` are substituted too; referencing `${CLAUDE_PLUGIN_ROOT}` /
-`${CLAUDE_PLUGIN_DATA}` from a non-plugin hook throws. A small allowlist of plugins (flag
-`tengu_amber_lattice`) additionally receives `ANTHROPIC_AUTH_TOKEN` or `ANTHROPIC_API_KEY`.
-Observability-only events (Notification, SessionStart/End, Setup, StopFailure, SubagentStart,
-PostToolUseFailure, PostCompact, PostModelSwitch, PermissionDenied, Worktree*, InstructionsLoaded,
-CwdChanged, FileChanged, DirectoryAdded, MessageDisplay) spawn in a `hooks` cgroup class where
-cgroups are available.
+`CLAUDE_CODE_CHILD_SESSION: "1"` for the builder; the hook path passes it the hook input (session
+id, effort) with a "harness" source, so `AI_AGENT` is not set for hooks.
+
+- An organization's hook (managed) starts without values a person's plugin set through `$.env.set`
+  and without the repository settings' `env` (logged
+  `is the organization's and starts without the repository settings' env of …`); its
+  `CLAUDE_CODE_SHELL_PREFIX` is read the same way.
+- A small allowlist of plugins (flag `tengu_amber_lattice`) additionally receives
+  `ANTHROPIC_AUTH_TOKEN` or `ANTHROPIC_API_KEY`.
+- Observability-only events (Notification, SessionStart/End, Setup, StopFailure, SubagentStart,
+  PostToolUseFailure, PostCompact, PostModelSwitch, PermissionDenied, Worktree\*,
+  InstructionsLoaded, CwdChanged, FileChanged, DirectoryAdded, MessageDisplay) spawn in a `hooks`
+  cgroup class where cgroups are available.
 
 ## Hook output schema
 
@@ -498,34 +569,51 @@ Alternatively a hook may return `{ async: true, asyncTimeout? }` to detach.
 
 `hookSpecificOutput` by event:
 
-| Event                                           | Fields                                                                                                               |
-|-------------------------------------------------|----------------------------------------------------------------------------------------------------------------------|
-| PreToolUse                                      | `permissionDecision` (`allow`/`deny`/`ask`/`defer`), `permissionDecisionReason`, `updatedInput`, `additionalContext` |
-| UserPromptSubmit                                | `additionalContext`, `sessionTitle`, `suppressOriginalPrompt`                                                        |
-| UserPromptExpansion                             | `additionalContext`, `suppressOriginalPrompt`                                                                        |
-| SessionStart                                    | `additionalContext`, `initialUserMessage`, `sessionTitle`, `watchPaths`, `reloadSkills`                              |
-| Setup, SubagentStart                            | `additionalContext`                                                                                                  |
-| PreModelSwitch                                  | `permissionDecision` (`allow`/`deny`/`ask`), `permissionDecisionReason`                                              |
-| PostModelSwitch                                 | `additionalContext` ("Reaches the model with the next request the new model serves")                                 |
-| PostToolUse                                     | `additionalContext`, `classifierContext`, `updatedToolOutput`, `updatedMCPToolOutput`                                |
-| PostToolUseFailure, PostToolBatch, Notification | `additionalContext`                                                                                                  |
-| Stop                                            | `additionalContext` — "non-error feedback delivered to the model; the conversation continues"                        |
-| SubagentStop                                    | `additionalContext` — "delivered to the subagent; the subagent continues so it can act on it"                        |
-| PermissionRequest                               | `decision`: allow `{ behavior, updatedInput?, updatedPermissions? }` or deny `{ behavior, message?, interrupt? }`    |
-| PermissionDenied                                | `retry`                                                                                                              |
-| MessageDisplay                                  | `displayContent` (replaces the on-screen delta)                                                                      |
-| Elicitation / ElicitationResult                 | `action`, `content`                                                                                                  |
-| CwdChanged / FileChanged                        | `watchPaths`                                                                                                         |
-| WorktreeCreate                                  | `worktreePath` (command hooks print the path on stdout instead)                                                      |
+| Event                       | Fields                                                           |
+| --------------------------- | ---------------------------------------------------------------- |
+| PreToolUse                  | `permissionDecision` (`allow`/`deny`/`ask`/`defer`),             |
+|                             | `permissionDecisionReason`, `updatedInput`, `additionalContext`, |
+|                             | `@internal` `permissionDisplay`                                  |
+| UserPromptSubmit            | `additionalContext`, `sessionTitle`, `suppressOriginalPrompt`    |
+| UserPromptExpansion         | `additionalContext`, `suppressOriginalPrompt`                    |
+| SessionStart                | `additionalContext`, `initialUserMessage`, `sessionTitle`,       |
+|                             | `watchPaths`, `reloadSkills`                                     |
+| Setup, SubagentStart        | `additionalContext`                                              |
+| PreModelSwitch              | `permissionDecision` (`allow`/`deny`/`ask`),                     |
+|                             | `permissionDecisionReason`                                       |
+| PostModelSwitch             | `additionalContext` ("Reaches the model with the next request    |
+|                             | the new model serves")                                           |
+| PostToolUse                 | `additionalContext`, `classifierContext`, `updatedToolOutput`,   |
+|                             | `updatedMCPToolOutput`                                           |
+| PostToolUseFailure          | `additionalContext`                                              |
+| PostToolBatch, Notification | `additionalContext`                                              |
+| Stop                        | `additionalContext` — "non-error feedback delivered to the       |
+|                             | model; the conversation continues"                               |
+| SubagentStop                | `additionalContext` — "delivered to the subagent; the subagent   |
+|                             | continues so it can act on it"                                   |
+| PermissionRequest           | `decision` (allow or deny, shapes below)                         |
+| PermissionDenied            | `retry`                                                          |
+| MessageDisplay              | `displayContent` (replaces the on-screen delta)                  |
+| Elicitation                 | `action`, `content`                                              |
+| ElicitationResult           | `action`, `content`                                              |
+| CwdChanged, FileChanged     | `watchPaths`                                                     |
+| WorktreeCreate              | `worktreePath` (command hooks print the path on stdout)          |
+
+PermissionRequest `decision` is either `{ behavior: "allow", updatedInput?, updatedPermissions? }`
+or `{ behavior: "deny", message?, interrupt? }`.
 
 `classifierContext` (PostToolUse) is "Host-asserted context shown to the auto-mode permission
 classifier alongside this tool call's result", capped at 2000 UTF-16 code units shared across all
 hooks for one call, honored on synchronous responses only, and dropped if the same hook's rewrite
 is rejected or superseded.
 
+`permissionDisplay` (PreToolUse) is "@internal Desktop host only: the words for this ask's
+permission card", read only beside `permissionDecision: "ask"` from the hook an SDK host registered.
+
 The PreToolUse `permissionDecision` enum includes `defer`, which is print-mode-only and solo-only
 (grep `defer is print-mode only` / `defer is solo-only`): it warns and is ignored in interactive
-mode or inside a multi-tool batch.
+mode or inside a multi-tool batch, and a `defer` for a served call is refused
+(`returned permissionDecision=defer for a served call`).
 
 ### additionalContext cannot steer the call that triggered it
 
@@ -538,15 +626,17 @@ onto the same per-tool-call message array, differing only in `hookName` / `hookE
 
 The two are not fully interchangeable, on three axes:
 
-| Axis                             | PreToolUse                                                       | PostToolUse                                                      |
-|----------------------------------|------------------------------------------------------------------|------------------------------------------------------------------|
-| Position in the message array    | Before the tool result                                           | After the tool result                                            |
-| Emitted when the call is blocked | Yes                                                              | No — the event never fires                                       |
-| Rest of the payload              | `permissionDecision`, `permissionDecisionReason`, `updatedInput` | `updatedToolOutput`, `updatedMCPToolOutput`, `classifierContext` |
+- Position in the message array: PreToolUse context sits before the tool result, PostToolUse context
+  after it.
+- Blocked calls: PreToolUse emits its context even when the call is blocked; PostToolUse never fires
+  for a blocked call.
+- Rest of the payload: PreToolUse carries `permissionDecision`, `permissionDecisionReason`,
+  `updatedInput`; PostToolUse carries `updatedToolOutput`, `updatedMCPToolOutput`,
+  `classifierContext`.
 
-The blocked-call row is the load-bearing one. In the PreToolUse handler the `additionalContext`
-emission is not guarded by the permission decision — it is emitted on allow, ask, and deny alike,
-so PreToolUse is the only hook that can attach context to a tool call that never executed.
+The blocked-call axis is the load-bearing one. In the PreToolUse handler the `additionalContext`
+emission is not guarded by the permission decision — it is emitted on allow, ask, and deny alike, so
+PreToolUse is the only hook that can attach context to a tool call that never executed.
 
 Consequence for hook authors: to influence *how* a tool gets called, the information has to exist
 before the model's turn (tool description, CLAUDE.md, skill body, or `additionalContext` from
@@ -563,24 +653,28 @@ If stdout parses as a JSON output object, that path wins. Otherwise exit code go
 | 2         | blocking; stderr surfaced as a blocking error, format `[<command>]: <stderr>`   |
 | other     | non-blocking error; `Failed with non-blocking status code: <stderr>`, continues |
 
+"Other" becomes blocking under the rules in "Failures that block".
+
 What exit 2 does per event, from the `/hooks` metadata text:
 
-| Event(s)                                                    | Exit 2                                             |
-|-------------------------------------------------------------|----------------------------------------------------|
-| PreToolUse                                                  | stderr to model, tool call blocked                 |
-| PostToolUse, PostToolUseFailure                             | stderr to model immediately                        |
-| PostToolBatch                                               | stops the agentic loop (stderr to user)            |
-| UserPromptSubmit                                            | blocks and erases the prompt (stderr to user)      |
-| UserPromptExpansion                                         | blocks the expansion (stderr to user)              |
-| Stop                                                        | stderr to model, conversation continues            |
-| SubagentStop                                                | stderr to subagent, it keeps running               |
-| TeammateIdle                                                | stderr to teammate, it keeps working               |
-| TaskCreated / TaskCompleted                                 | stderr to model, creation / completion prevented   |
-| PreCompact                                                  | blocks compaction                                  |
-| PreModelSwitch                                              | blocks the switch                                  |
-| ConfigChange                                                | change not applied (ignored for `policy_settings`) |
-| Elicitation / ElicitationResult                             | deny / action becomes `decline`                    |
-| SessionStart, Setup, SubagentStart, PostModelSwitch, others | stderr to user only; nothing blocks                |
+| Event(s)                        | Exit 2                                             |
+| ------------------------------- | -------------------------------------------------- |
+| PreToolUse                      | stderr to model, tool call blocked                 |
+| PostToolUse, PostToolUseFailure | stderr to model immediately                        |
+| PostToolBatch                   | stops the agentic loop (stderr to user)            |
+| UserPromptSubmit                | blocks and erases the prompt (stderr to user)      |
+| UserPromptExpansion             | blocks the expansion (stderr to user)              |
+| Stop                            | stderr to model, conversation continues            |
+| SubagentStop                    | stderr to subagent, it keeps running               |
+| TeammateIdle                    | stderr to teammate, it keeps working               |
+| TaskCreated / TaskCompleted     | stderr to model, creation / completion prevented   |
+| PreCompact                      | blocks compaction                                  |
+| PreModelSwitch                  | blocks the switch                                  |
+| ConfigChange                    | change not applied (ignored for `policy_settings`) |
+| Elicitation / ElicitationResult | deny / action becomes `decline`                    |
+| SessionStart, Setup             | stderr to user only; nothing blocks                |
+| SubagentStart, PostModelSwitch  | stderr to user only; nothing blocks                |
+| all other events                | stderr to user only; nothing blocks                |
 
 Exit 0 stdout is added as model context on UserPromptSubmit, UserPromptExpansion, SessionStart and
 PostModelSwitch; elsewhere it goes to the transcript view or debug log.
@@ -590,17 +684,51 @@ UserPromptSubmit hooks, an exit 2 with empty stdout and a stderr matching "no su
 open" is downgraded to non-blocking with the message "Hook script appears to be missing …  Treating
 as non-blocking." plus a reinstall hint. This keeps a missing plugin script from wedging the turn.
 
+### Failures that block
+
+A hook failure (it could not start, timed out, exited with a code other than 0 or 2, or printed JSON
+that is invalid or fails validation) is non-blocking by default. It counts as exit 2 instead, and
+the guarded action (tool call, permission request, prompt, model switch) is blocked, in three cases:
+
+- `onFailure: "block"` on a synchronous command hook, an http hook, or an SDK callback matcher
+  (describe: "What a failure of this hook does …"). The error reads
+  `[<hook>]: failed; blocking because onFailure is "block"` (or `timed out`). On a PermissionRequest
+  the block is a deny.
+- A restricted personal hook on PreToolUse, PermissionRequest, PreModelSwitch, UserPromptSubmit or
+  UserPromptExpansion (see below).
+- Windows without Git Bash: a synchronous shell-form command hook with no `shell` and no
+  `onFailure: "continue"` runs in PowerShell, and for a guard event only exit 0 or 2 counts as a
+  verdict, so any other ending blocks (`blocking because Git Bash wasn't found`).
+
+None of this applies on Stop, SubagentStop, TaskCompleted or TeammateIdle, where a failure stays
+non-blocking (logged `onFailure: "block" is ignored on <Event>`).
+
+## Restricted personal hooks
+
+When `CLAUDE_CODE_RESTRICT_PERSONAL_CONFIG` is set, hooks from the person's own user settings are
+narrowed:
+
+- Their answers can only restrict. An allow is dropped (top-level `approve`, PreToolUse `allow`,
+  PermissionRequest allow, PreModelSwitch `allow`, Elicitation `accept`); PreToolUse `defer` becomes
+  `ask`; an `updatedInput` that changes the input turns the answer into a deny; SessionStart
+  `initialUserMessage` / `sessionTitle` and UserPromptSubmit `sessionTitle` are dropped. Dropped
+  fields are logged as `<Event> hook from your own files: ignored …`.
+- On the five guard events listed above, a synchronous command or http hook must succeed: a failure
+  or timeout blocks ("one of the user's own hooks, which must succeed in this session").
+- A WorktreeCreate hook's folder is not used.
+
 ## Background work and hooks
 
 `background_tasks` (Stop, SubagentStop). Built from the session task registry: an entry is included
 only when its status is `running` or `pending` and it is not explicitly un-backgrounded (a task
-carrying `isBackgrounded: false`, i.e. still in the foreground, is skipped). Fields: `id`, `type`,
-`status`, `description` (capped at 1000 chars with an in-string "… [+N chars]" marker), plus
-`command` (shell), `agent_type` (subagent), `server` / `tool` (MCP monitor, MCP task), `name`
-(workflow). The `type` label map (grep `auto-mode scan`), falling back to the raw discriminant:
+carrying `isBackgrounded: false`, i.e. still in the foreground, is skipped). `post_turn_memory`
+tasks are always left out. Fields: `id`, `type`, `status`, `description` (capped at 1000 chars with
+an in-string "… [+N chars]" marker), plus `command` (shell, same cap), `agent_type` (subagent),
+`server` / `tool` (MCP monitor, MCP task), `name` (workflow). The `type` label map (grep
+`auto_mode_scan: "auto-mode scan"`), falling back to the raw discriminant:
 
 | Registry type         | Label            |
-|-----------------------|------------------|
+| --------------------- | ---------------- |
 | `local_bash`          | `shell`          |
 | `local_agent`         | `subagent`       |
 | `local_workflow`      | `workflow`       |
@@ -610,6 +738,7 @@ carrying `isBackgrounded: false`, i.e. still in the foreground, is skipped). Fie
 | `in_process_teammate` | `teammate`       |
 | `dream`               | `dream`          |
 | `auto_mode_scan`      | `auto-mode scan` |
+| `local_memory_import` | `memory import`  |
 | `remote_agent`        | `cloud session`  |
 
 A monitor started by the Monitor tool is a `local_bash` task with `kind: "monitor"`, so it reports
@@ -632,13 +761,11 @@ too, with `team_name` carrying the derived name.
 Turns started by a task-notification. When a queued `task-notification` starts a new turn (the
 agent was idle), both hooks run:
 
-- UserPromptSubmit fires. The queue drain classifies the command's origin as non-human, so the
-  prompt source resolves to `system` (grep the helper that returns `"system"` when `isMeta` or
-  caller source is `system`); hooks are skipped only when that source is undefined, for `bash`
-  mode, a fork dispatch, `skipSubmissionHooks` (set for `poll-event` mode), or a non-querying
-  input. `prompt` is the notification text. The `source` field that would say `system` is not
-  sent in 2.1.280 (see UserPromptSubmit above), so a hook must recognize the notification by its
-  `<task-notification>` content.
+- UserPromptSubmit fires, with `prompt` set to the notification text. Submission hooks are skipped
+  only for a queued command marked `skipSubmissionHooks` (poll-event mode and the empty dispatches
+  that carry no new prompt), a `bash`-mode input, or one that does not query the model. The `source`
+  field that would say `system` is not sent (see UserPromptSubmit above), so a hook must recognize
+  the notification by its `<task-notification>` content.
 - Stop fires. The turn-end path that runs Stop hooks has no gate on what started the turn.
 
 A notification that arrives while a turn is running is attached to that turn as a
@@ -651,8 +778,7 @@ ends the turn, an MCP end-turn meta, or a `/loop` dynamic wakeup tick. A block t
 
 ## Tool-execution pipeline
 
-The order verified for 2.1.220 and unchanged in 2.1.280 (re-locate via `[Stall]
-tool_dispatch_start`):
+Re-locate via `[Stall] tool_dispatch_start`:
 
 ```
 1. Input schema validation (Zod)        -> on fail: <tool_use_error>InputValidationError...
@@ -668,10 +794,10 @@ tool_dispatch_start`):
 ```
 
 Per-tool PostToolUse may run concurrently for parallel calls, then PostToolBatch fires exactly once
-with the whole batch before the next model request (grep `Execution stopped by PostToolBatch
-hook`). PostToolUse output rewrites are validated against the tool's output schema; a mismatch
-keeps the original output and records a hook error. After a hook edits a file post-Edit, the
-read-file state is re-synced so the next Edit does not fail with a stale-file error.
+with the whole batch before the next model request (grep `Execution stopped by PostToolBatch hook`).
+PostToolUse output rewrites are validated against the tool's output schema; a mismatch keeps the
+original output ("PostToolUse hook returned updatedToolOutput that does not match …'s output shape;
+using original output") and discards a `classifierContext` the same hook attached.
 
 ### Validation gates hooks
 
@@ -700,7 +826,8 @@ SubagentStop)". So a `Stop` hook declared in subagent-applicable config silently
 `SubagentStop` hook.
 
 After `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` (default 8) consecutive blocks the turn is ended anyway with
-"A hook blocked the turn from ending N consecutive times — overriding and ending turn."
+"A hook blocked the turn from ending N consecutive times — overriding and ending turn.", followed by
+advice to check `stop_hook_active` and to raise the cap with the env var.
 
 ## Hooks and token usage
 
@@ -710,56 +837,21 @@ SubagentStop input carries `agent_transcript_path`, which enables exact per-suba
 accounting by reading and summing that file. The full attribution story — trailers, OTEL, the
 SubagentStop recipe — is in `MONITORING_USAGE.md`.
 
-## Published docs vs. source (2.1.280)
+## Published docs vs. source
 
-Checked against `/en/hooks` via the `claude-code-docs` MCP. The reference is current on the model
-events, `prompt_id`, `scratchpad_dir`, `mcp_server`, timeouts and `CLAUDE_ENV_FILE`. Drift:
+Checked against `/en/hooks` via the `claude-code-docs` MCP. The reference covers `onFailure`
+(including the Windows-without-Git-Bash case), `plugin_notification`, the model events,
+`classifierContext` and `CLAUDE_ENV_FILE`. Drift:
 
 - The hook process env (`CLAUDE_CODE_SESSION_ID`, `CLAUDE_PID`, `CLAUDECODE`,
-  `CLAUDE_CODE_CHILD_SESSION`, `CLAUDE_CODE_SESSION_ATTENDED`, `COLUMNS` / `LINES`) is not listed
-  on the hooks page; only the changelog mentions `CLAUDE_CODE_SESSION_ID`.
-- The `background_tasks` `type` list omits `dream` and `auto-mode scan`, and implies Monitor-tool
-  monitors report `monitor`; they report `shell`.
+  `CLAUDE_CODE_CHILD_SESSION`, `CLAUDE_CODE_SESSION_ATTENDED`, `COLUMNS` / `LINES`) is not listed on
+  the hooks page.
+- The `background_tasks` `type` list omits `dream`, `auto-mode scan` and `memory import`, and does
+  not say that Monitor-tool monitors report `shell`.
+- The tool-name matching extras (legacy names, `Artifact` family, Monitor matched as `Bash` with a
+  rewritten input) and the `CLAUDE_CODE_RESTRICT_PERSONAL_CONFIG` narrowing of personal hooks are
+  not on the hooks page.
 - The docs do not say whether UserPromptSubmit / Stop fire for task-notification turns.
 - PreModelSwitch's double evaluation for the plan/default counterpart is undocumented.
 - In-product `/hooks` text for PostToolUseFailure lists `error_type` and `is_timeout`, which the
   CLI does not send.
-
-## Per-release appendix
-
-- 2.1.296: exec form re-verified. Documented spawn, substitution and environment differences against
-  shell form; `args` first appears after 2.1.138 and by 2.1.143 (the 2.1.165 entry below recorded
-  it when the doc was rewritten, not when it shipped).
-- 2.1.280: verified. 33 events (was 31): PreModelSwitch and PostModelSwitch (docs: since 2.1.251).
-- 2.1.280: model events carry from/to/requested model, source, cache-cost fields; matcher on the
-  canonical `to_model` id; PreModelSwitch allow/deny/ask, fail-closed on timeout.
-- 2.1.280: base input gained `scratchpad_dir` (runtime only; docs: 2.1.257); `prompt_id` was
-  already present by 2.1.220 but undocumented here.
-- 2.1.280: `mcp_server { name, source }` on the five tool events (docs: 2.1.274).
-- 2.1.280: SessionStart `source` gained `fork` plus four resume/fork cache fields.
-- 2.1.280: SessionEnd `reason` lost `bypass_permissions_disabled` (docs: removed 2.1.234).
-- 2.1.280: UserPromptSubmit `source` declared in the SDK schema but not sent by the CLI.
-- 2.1.280: `team_name` marked @deprecated on TeammateIdle / TaskCreated / TaskCompleted.
-- 2.1.280: hookSpecificOutput gained `additionalContext` on UserPromptExpansion, Setup,
-  SubagentStart, PostToolUseFailure, PostToolBatch, Notification; PostToolUse `classifierContext`.
-- 2.1.280: command / http hooks gained `@internal` `cloud`; executor knows an internal `script`
-  type.
-- 2.1.280: documented matcher table, exit-2 table, hook process env (incl. `CLAUDE_PID`,
-  `CLAUDE_CODE_SESSION_ID`), config keys, and background-task / task-notification interplay.
-- 2.1.220: verified. 31 event input schemas (was 30): `DirectoryAdded` added, carrying `directory`
-  and a `source` enum (`slash_command` / `register_repo_root`). The event inventory table also
-  gained `Notification`, which the 2.1.165 pass listed in the output-schema table but omitted from
-  the inventory. All relocation anchors still resolve, except that the event-schema anchor was
-  alias-specific (`v.literal`) and has been neutralized to `hook_event_name: `. Recorded the
-  PreToolUse-vs-PostToolUse `additionalContext` delivery semantics: same consuming inference turn,
-  differing only in message-array position, blocked-call emission, and sibling payload fields.
-- 2.1.165: verified. 30 event input schemas (was 21). New events: PostToolBatch, PermissionDenied,
-  MessageDisplay, UserPromptExpansion, StopFailure, PostCompact, TaskCreated, CwdChanged,
-  FileChanged. Five hook types (was four): `mcp_tool` added. New command-hook fields: `args` (exec
-  form, no shell), `shell`, `asyncRewake` + `rewakeMessage` / `rewakeSummary`. New output field
-  `terminalSequence` (restricted OSC escapes); async return form `{ async: true, asyncTimeout? }`.
-  PreToolUse `permissionDecision` gained `defer` (print-mode, solo-only). Base input fields gained
-  `permission_mode`, `agent_id`, `agent_type`, `effort` (with `$CLAUDE_EFFORT` env injection).
-  SubagentStop gained `agent_transcript_path`. `prompt`-type hooks gained `continueOnBlock`;
-  `SessionStart` output gained `reloadSkills`; `PostToolUse` output gained `updatedToolOutput` /
-  `updatedMCPToolOutput`.
