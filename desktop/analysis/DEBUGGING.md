@@ -54,6 +54,27 @@ after creating the file. DevTools stay off even with the file when the managed k
 `developerModeEnabled` is `false`, or when the install is in restricted (`coworkHipaaRestricted`)
 mode. Relocate with `rg -n 'allowDevTools' .vite/build`.
 
+The gate (`Iq`) is: the flag, and not coworkHipaa-restricted, and `developerModeEnabled !== false`.
+"Enable Developer Mode…" in Help > Troubleshooting writes `allowDevTools: true` to
+`developer_settings.json` after a confirmation dialog ("Enable Developer Mode?"), and the menu items
+appear after a restart.
+
+DevTools can attach to the Code-session Browser pane's page. Preview tabs are created with
+`webPreferences` that do not set `devTools: false` (relocate: `rg -n 'focusOnNavigation: !1'` in the
+preview class, with `session`, `sandbox`, `plugins`). With developer mode on:
+
+- Cmd+Option+I while a preview tab has focus calls `openDevTools({mode: "undocked"})` on that tab's
+  own `webContents` (the tab's `before-input-event` handler, relocate with
+  `rg -n 'openDevTools\(Lq\)'`).
+- The tab's `context-menu` handler builds the shared menu, whose "Inspect Element" item calls
+  `inspectElement` on the tab's `webContents`. The item exists only when `allowDevTools` is true.
+- "Show Dev Tools" opens DevTools for `getFocusedWebContents()`, which is the preview tab when it
+  has focus. "Show All Dev Tools" opens the main window's views and the find-in-page view, plus the
+  focused one.
+
+Artifact popup windows are the exception: they use `devTools: !app.isPackaged`, so DevTools is off
+there in a packaged app.
+
 The main window renders the remote `https://claude.ai` frontend in a `WebContentsView`, so
 renderer DevTools inspect that frontend — this is where web-frontend features such as the MCP Apps
 host live. See [ARCHITECTURE](./ARCHITECTURE.md) and [MCP_APPS](./MCP_APPS.md).

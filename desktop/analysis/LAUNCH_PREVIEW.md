@@ -119,3 +119,54 @@ The preview uses its own Electron session. Findings from the `launch-preview:bef
 - Main-frame navigation to a local-class host on a governed session requires a consent record.
 - Organization browsing policy can block subresource origins
   (`Blocked subresource to host-policy-blocked origin`).
+
+## Site lists and policy sources
+
+No string "Managed allowed sites" exists anywhere in the extracted app
+(`rg -uu -i 'managed allowed'` over `work/<version>/app` finds nothing). If the pane shows such a
+label, the remote claude.ai frontend renders it. The main process has these separate site lists and
+policies:
+
+| Source                                | Where it lives                                                                                                                            | User-editable        | Applies to                                                              |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | -------------------- | ----------------------------------------------------------------------- |
+| "Allowed sites" in Settings           | `launchPreviewAllowedOrigins` (plus `launchPreviewAllowedDomainTransitions`) in the local config                                          | Yes ("Always allow") | Claude's Browser tools and reads on a host, after the permission prompt |
+| Local-network-access consent          | `launchPreviewLocalNetworkAccessOrigins` and `launchPreviewLocalNetworkAccessDeclinedOrigins`                                             | Yes                  | An HTTPS page reaching loopback targets                                 |
+| Site safety check and org site policy | Server reply of `/api/web/domain_info/browser_extension` (`org_policy`, `policy_source`)                                                  | No                   | Per-host verdict used for navigation checks and subresource blocking    |
+| Third-party-deployment site policy    | Managed keys `builtinBrowserEnabled`, `builtinBrowserDefaultDomainPolicy`, `builtinBrowserAllowedDomains`, `builtinBrowserBlockedDomains` | Admin only           | `type: "3p"` installs only                                              |
+
+The "Always allow" dialogs ("Always allow Claude on {host}?", "Always allow reads on {host}?") tell
+the user they can remove a site "under Allowed sites in Settings". Relocate:
+`rg -n 'under Allowed sites in Settings' .vite/build`.
+
+The org policy is evaluated by `builtinBrowserHostPolicy()` for the 3p provider only. The
+first-party provider returns `null` from it, so on a first-party (personal or claude.ai-org) account
+the `builtinBrowser*` keys have no effect. Their schema entries are scoped `scopes: ["3p"]`. For a
+3p install the policy is
+`{mode: defaultDomainPolicy, allow: allowedDomains, deny: blockedDomains, egress: ...}`, and the
+built-in browser is closed (`mode: "block"`, empty lists) when `builtinBrowserEnabled` is not true.
+Relocate: `rg -n 'builtinBrowserHostPolicy'` and `rg -n 'Allowed sites in the built-in browser'`.
+The setting defaults are `builtinBrowserDefaultDomainPolicy: "allow"`, empty allowed and blocked
+lists, and an allowed entry of `*` is dropped ("set builtinBrowserDefaultDomainPolicy to "allow" to
+let Claude open every site").
+
+Enforcement: in the `launch-preview:before-request` handler, a non-main-frame request to a host the
+host policy blocks is cancelled ("Blocked subresource to host-policy-blocked origin") unless it is
+an own-site resource of the blocked page itself. Sub-frames and objects whose origin has a blocked
+category are cancelled ("Blocked subframe from policy-blocked origin"). The verdict function (`cI`)
+returns `category_org_blocked` from the host policy before any network lookup. Which of these paths
+also covers main-frame navigation was not traced.
+
+First-party accounts get the org verdict from the server. The main process fetches
+`${origin}/api/web/domain_info/browser_extension?domain=<host>` (or the `url_hash_check` variant,
+with the user's OAuth bearer when `authenticatesHostedSiteCheck()` is true), 5 s timeout, and fails
+open on any error. A reply of `org_policy: "block"` makes the category `category_org_blocked`, and
+`policy_source` (one of `org_settings`, `account_settings`, `org_disabled`, `account_disabled`)
+selects the message shown to Claude: "blocked by your site permissions" (`account_settings`),
+"blocked by policy" (`account_disabled`, `org_disabled`), otherwise "blocked by your organization's
+policy". Relocate: `rg -n 'blocked by your organization' .vite/build`.
+
+What the first-party server delivers for a personal Max account cannot be read from the bundle.
+Nothing local seeds a default list: the local allow lists start empty
+(`launchPreviewAllowedOrigins: []`, `launchPreviewLocalNetworkAccessOrigins: []`). A personal
+account has no org policy, so a lookup returns no `org_policy: "block"` and only the safety
+categories apply. That a "Managed" list shows entries for such an account is not verifiable here.
