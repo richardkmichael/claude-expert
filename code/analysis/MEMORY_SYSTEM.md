@@ -64,6 +64,8 @@ dispatcher") that reuse the same blocks.
   to `MEMORY.md` (`Saving a memory is a two-step process`). In recall mode (below) the index is not
   loaded and the instructions drop step 2, adding instead a size rule
   (`Keep each memory file under`, then the 4096-byte cap, `including frontmatter`).
+- A missing auto-memory `MEMORY.md` is rebuilt from the topic files when the index loads (see
+  `AUTO_MEMORY.md`, "Index backfill").
 
 Loading the index truncates it to the first 200 lines and 25,000 characters, cutting at a line
 boundary, whichever comes first. Over the cap a `> WARNING:` line replaces the dropped content. It
@@ -74,12 +76,12 @@ with `rg -nF 'index entries are too long'`. The save instructions restate the li
 
 How the index reaches the model depends on the store:
 
-| Store                 | Index delivery                                                           |
-| --------------------- | ------------------------------------------------------------------------ |
-| Auto memory           | Context file of type `AutoMem` in the CLAUDE.md block (see below)        |
-| Agent memory          | `## MEMORY.md` section of the subagent's system prompt                   |
-| Team memory           | Per-mount fragments in the memory prompt (`fetched from memory-service`) |
-| Synced project memory | Read through the memory tools; not mirrored to local files               |
+| Store                 | Index delivery                                                              |
+| --------------------- | --------------------------------------------------------------------------- |
+| Auto memory           | Context file of type `AutoMem` in the CLAUDE.md block (see below)           |
+| Agent memory          | `## MEMORY.md` section of the agent's system prompt (see `AGENT_MEMORY.md`) |
+| Team memory           | Per-mount fragments in the memory prompt (`fetched from memory-service`)    |
+| Synced project memory | Read through the memory tools; not mirrored to local files                  |
 
 The auto-memory index is loaded with the CLAUDE.md files, not built into the memory prompt. It
 appears as `Contents of <path> (user's auto-memory, persists across conversations):` (grep that
@@ -107,9 +109,12 @@ short type list and the line
 `Full reference for the memory type taxonomy`) is not user-invocable and is enabled only when the
 master gate is on and that flag is set.
 
-A scoped variant tags each type `private` or `team` (grep `<scope>always private</scope>`). The
-two-directory team prompt uses it, and the `memory-types` skill serves it when team memory is active
-or synced project memory has connected stores. Otherwise the unscoped variant is used.
+A scoped variant tags each type `private` or `team` (grep `<scope>always private</scope>`). Three
+prompt builders use it, each relocated by a heading it contains: the two-directory team prompt
+(`## Memory scope`), the team-only prompt (`## Sharing skills in memories`) and the
+synced-project-memory prompt (`## How to save personal memories`). The `memory-types` skill serves
+it when team memory is active or synced project memory has connected stores. Otherwise the unscoped
+variant is used.
 
 Blocks that travel with every store:
 
@@ -320,7 +325,7 @@ Relocate each flag with `rg -n '"<flag>"'`.
 | Store                 | Used by          | Opt-in                                            |
 | --------------------- | ---------------- | ------------------------------------------------- |
 | Auto memory           | the main session | on by default (master gate)                       |
-| Agent memory          | a subagent       | `memory:` set to `user`, `project` or `local`     |
+| Agent memory          | a custom agent   | `memory:` set to `user`, `project` or `local`     |
 | Team memory           | the main session | a `scope: "team"` entry in `CLAUDE_MEMORY_STORES` |
 | Synced project memory | the main session | org gates above, claude.ai login                  |
 
@@ -331,9 +336,9 @@ Relocate each flag with `rg -n '"<flag>"'`.
 | Team memory           | `<auto-memory-dir>/team/`, synced   | `team`        | `TEAM_MEMORY.md`  |
 | Synced project memory | remote, through the memory tools    | `auto`        | this doc          |
 
-Agent memory's other roots: `<memory-base>/agent-memory/<name>/` for `user` scope, and
-`.claude/agent-memory-local/<name>/` for `local` scope (under `CLAUDE_CODE_REMOTE_MEMORY_DIR` when
-that is set).
+The table gives agent memory's `project` root. The `local` root is
+`.claude/agent-memory-local/<name>/`, moved under `CLAUDE_CODE_REMOTE_MEMORY_DIR` when that is set.
+Both are relative to the working directory. The `user` root is `<memory-base>/agent-memory/<name>/`.
 
 The public docs cover the user-facing slices: `code.claude.com/docs/en/memory` (auto memory, the
 `/memory` toggle, `autoMemoryEnabled`, `CLAUDE_CODE_DISABLE_AUTO_MEMORY`),
